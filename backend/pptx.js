@@ -10,13 +10,22 @@ async function generatePptx(data, outputPath) {
   const projectLines = [];
   for (const p of data.projects) {
     projectLines.push({
-      text: `Projet : ${p.client} — Module : ${p.module} — Rôle : ${p.role}`,
+      text: `Projet : ${p.client} — Module : ${p.module} — Mission : ${p.missionType}`,
       options: { bold: true, breakLine: true },
     });
-    projectLines.push({
-      text: p.description,
-      options: { breakLine: true, paraSpaceAfter: 12 },
-    });
+    if (p.description) {
+      projectLines.push({
+        text: p.description,
+        options: { breakLine: true, italic: true },
+      });
+    }
+    for (const point of p.rolePoints || []) {
+      projectLines.push({
+        text: `• ${point}`,
+        options: { breakLine: true, bullet: false },
+      });
+    }
+    projectLines.push({ text: '', options: { breakLine: true, paraSpaceAfter: 12 } });
   }
   slide.addText(projectLines.length ? projectLines : [{ text: '' }], {
     x: 0.5,

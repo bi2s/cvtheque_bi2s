@@ -5,6 +5,30 @@
   font-family: system-ui, -apple-system, sans-serif;
 }
 
+.app-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #4527a0;
+  color: white;
+  flex-shrink: 0;
+}
+
+.app-bar-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.admin-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: white;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
 .admin-body {
   flex: 1;
   overflow-y: auto;
@@ -37,6 +61,34 @@
   border: 1px solid #ccc;
   border-radius: 8px;
   font-size: 14px;
+}
+
+.project-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 480px;
+  padding: 16px;
+  border: 1px solid #eee;
+  border-radius: 10px;
+}
+
+.project-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #444;
+}
+
+.project-form input,
+.project-form select,
+.project-form textarea {
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
 }
 
 .error-text {

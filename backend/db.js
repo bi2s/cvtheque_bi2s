@@ -4,6 +4,17 @@ const DATABASE_URL = process.env.DATABASE_URL || 'mysql://root:@localhost/cv_app
 
 const pool = mysql.createPool(DATABASE_URL);
 
+async function ensureColumn(conn, table, column, definition) {
+  const [rows] = await conn.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [table, column]
+  );
+  if (rows.length === 0) {
+    await conn.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 async function initSchema() {
   const conn = await pool.getConnection();
   try {
@@ -14,15 +25,25 @@ async function initSchema() {
         title VARCHAR(255) NOT NULL
       )
     `);
+    await ensureColumn(conn, 'consultants', 'username', 'VARCHAR(255) NULL UNIQUE');
+    await ensureColumn(conn, 'consultants', 'password_hash', 'VARCHAR(255) NULL');
     await conn.query(`
-      CREATE TABLE IF NOT EXISTS projects (
+      CREATE TABLE IF NOT EXISTS catalog_projects (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        consultant_id INT NOT NULL,
         client VARCHAR(255) NOT NULL,
         module VARCHAR(255) NOT NULL DEFAULT '',
-        role VARCHAR(255) NOT NULL,
-        description TEXT NOT NULL,
-        FOREIGN KEY (consultant_id) REFERENCES consultants(id) ON DELETE CASCADE
+        mission_type VARCHAR(50) NOT NULL,
+        description TEXT NOT NULL
+      )
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS consultant_projects (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        consultant_id INT NOT NULL,
+        project_id INT NOT NULL,
+        role_points TEXT NOT NULL,
+        FOREIGN KEY (consultant_id) REFERENCES consultants(id) ON DELETE CASCADE,
+        FOREIGN KEY (project_id) REFERENCES catalog_projects(id) ON DELETE CASCADE
       )
     `);
     await conn.query(`

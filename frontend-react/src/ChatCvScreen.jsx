@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { API_BASE_URL } from './api';
+import { API_BASE_URL, basicAuthHeader } from './api';
 import './ChatCvScreen.css';
 
 const SAP_CERTIFICATIONS = [
@@ -9,18 +9,13 @@ const SAP_CERTIFICATIONS = [
   'SAP Certified Application Associate - MM S/4HANA',
 ];
 
-const SAP_MODULES = ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'];
-
-const EMPTY_PROJECT = { client: '', module: '', role: '', description: '' };
-
 const STEP = {
-  ASK_NAME: 'ASK_NAME',
-  CONFIRM_PROFILE: 'CONFIRM_PROFILE',
+  LOGIN: 'LOGIN',
+  WELCOME_CONFIRM: 'WELCOME_CONFIRM',
   ASK_TITLE: 'ASK_TITLE',
-  ASK_PROJECT_CLIENT: 'ASK_PROJECT_CLIENT',
-  ASK_PROJECT_MODULE: 'ASK_PROJECT_MODULE',
-  ASK_PROJECT_ROLE: 'ASK_PROJECT_ROLE',
-  ASK_PROJECT_DESCRIPTION: 'ASK_PROJECT_DESCRIPTION',
+  ASK_PROJECT_SELECT: 'ASK_PROJECT_SELECT',
+  ASK_ROLE_POINT: 'ASK_ROLE_POINT',
+  ASK_MORE_ROLE_POINTS: 'ASK_MORE_ROLE_POINTS',
   ASK_MORE_PROJECTS: 'ASK_MORE_PROJECTS',
   ASK_CERTIFICATIONS: 'ASK_CERTIFICATIONS',
   SUBMITTING: 'SUBMITTING',
@@ -30,13 +25,18 @@ const STEP = {
 export default function ChatCvScreen() {
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
-  const [step, setStep] = useState(STEP.ASK_NAME);
-  const [existingConsultants, setExistingConsultants] = useState([]);
-  const [selectedConsultantId, setSelectedConsultantId] = useState(null);
+  const [step, setStep] = useState(STEP.LOGIN);
+  const [catalogProjects, setCatalogProjects] = useState([]);
+  const [credentials, setCredentials] = useState(null);
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState(null);
+  const [loggingIn, setLoggingIn] = useState(false);
   const [name, setName] = useState('');
   const [title, setTitle] = useState('');
   const [projects, setProjects] = useState([]);
-  const [currentProject, setCurrentProject] = useState(EMPTY_PROJECT);
+  const [currentProjectId, setCurrentProjectId] = useState(null);
+  const [currentRolePoints, setCurrentRolePoints] = useState([]);
   const [selectedCerts, setSelectedCerts] = useState(new Set());
   const [textInput, setTextInput] = useState('');
   const messagesEndRef = useRef(null);
@@ -45,8 +45,7 @@ export default function ChatCvScreen() {
   useEffect(() => {
     if (hasInitialized.current) return;
     hasInitialized.current = true;
-    loadConsultants();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadCatalogProjects();
   }, []);
 
   useEffect(() => {
@@ -61,49 +60,45 @@ export default function ChatCvScreen() {
     setMessages((m) => [...m, { text, fromBot: false }]);
   }
 
-  async function loadConsultants() {
-    botSay('Bonjour ! Je suis là pour mettre à jour votre CV SAP. Quel est votre nom ?');
+  async function loadCatalogProjects() {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/consultants/public`);
+      const res = await fetch(`${API_BASE_URL}/api/projects/catalog`);
       if (res.ok) {
-        setExistingConsultants(await res.json());
+        setCatalogProjects(await res.json());
       }
     } catch {
-      // Pas de connexion : on laisse la liste vide, on pourra créer un
-      // nouveau profil au clavier.
+      // Catalogue indisponible : géré plus loin si l'utilisateur essaie d'en choisir un.
     }
   }
 
-  async function selectExistingConsultant(consultant) {
-    userSay(consultant.name);
+  async function handleLogin() {
+    setLoggingIn(true);
+    setLoginError(null);
+    const authHeader = basicAuthHeader(loginUsername, loginPassword);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/consultants/${consultant.id}/public`);
-      if (res.ok) {
-        const data = await res.json();
-        setSelectedConsultantId(consultant.id);
-        setName(data.name);
-        setTitle(data.title);
-        setProjects(data.projects.length ? data.projects : []);
-        setSelectedCerts(new Set(data.certifications));
-        setStep(STEP.CONFIRM_PROFILE);
-        botSay(
-          `Je vous retrouve : ${data.title}, ${data.projects.length} projet(s) enregistré(s). ` +
-            'On met à jour à partir de ces infos ?'
-        );
+      const res = await fetch(`${API_BASE_URL}/api/consultant/me`, {
+        headers: { Authorization: authHeader },
+      });
+      if (!res.ok) {
+        setLoginError('Identifiants invalides');
+        return;
       }
+      const data = await res.json();
+      setCredentials({ username: loginUsername, password: loginPassword });
+      setName(data.name);
+      setTitle(data.title);
+      setProjects(data.projects.map((p) => ({ projectId: p.projectId, rolePoints: p.rolePoints })));
+      setSelectedCerts(new Set(data.certifications));
+      setStep(STEP.WELCOME_CONFIRM);
+      botSay(
+        `Bonjour ${data.name} ! Je vous retrouve : ${data.title}, ${data.projects.length} projet(s) ` +
+          'enregistré(s). On met à jour à partir de ces infos ?'
+      );
     } catch (e) {
-      botSay(`Erreur de connexion au serveur : ${e}`);
+      setLoginError(`Erreur de connexion : ${e}`);
+    } finally {
+      setLoggingIn(false);
     }
-  }
-
-  function startNewConsultant(newName) {
-    userSay(newName);
-    setSelectedConsultantId(null);
-    setName(newName);
-    setProjects([]);
-    setSelectedCerts(new Set());
-    setStep(STEP.ASK_TITLE);
-    botSay(`Enchanté ${newName} ! Quelle est votre expertise principale (ex: Expert SAP SD / S/4HANA) ?`);
   }
 
   function handleConfirmProfile(keep) {
@@ -120,53 +115,59 @@ export default function ChatCvScreen() {
     if (!text.trim()) return;
     userSay(text);
     setTitle(text.trim());
-    setCurrentProject(EMPTY_PROJECT);
-    setStep(STEP.ASK_PROJECT_CLIENT);
-    botSay('Parlons de vos projets. Pour le projet le plus récent : quel est le client ?');
+    goToProjectSelection();
+  }
+
+  function goToProjectSelection() {
+    if (catalogProjects.length === 0) {
+      setStep(STEP.ASK_CERTIFICATIONS);
+      botSay(
+        "Aucun projet n'est encore disponible dans le catalogue (contactez l'administrateur). " +
+          'Passons aux certifications SAP : sélectionnez-les, puis validez.'
+      );
+      return;
+    }
+    setStep(STEP.ASK_PROJECT_SELECT);
+    botSay('Parlons de vos projets. Choisissez un projet dans la liste :');
+  }
+
+  function handleProjectSelected(project) {
+    userSay(`${project.client} — ${project.module} (${project.missionType})`);
+    setCurrentProjectId(project.id);
+    setCurrentRolePoints([]);
+    setStep(STEP.ASK_ROLE_POINT);
+    botSay('Décrivez un point de votre rôle sur ce projet (une action à la fois).');
     setTextInput('');
   }
 
-  function handleProjectClient(text) {
+  function handleRolePoint(text) {
     if (!text.trim()) return;
     userSay(text);
-    setCurrentProject((p) => ({ ...p, client: text.trim() }));
-    setStep(STEP.ASK_PROJECT_MODULE);
-    botSay('Quel module SAP concernait ce projet ?');
+    setCurrentRolePoints((pts) => [...pts, text.trim()]);
+    setStep(STEP.ASK_MORE_ROLE_POINTS);
+    botSay('Ajouté ! Un autre point sur ce rôle ?');
     setTextInput('');
   }
 
-  function handleProjectModule(module) {
-    userSay(module);
-    setCurrentProject((p) => ({ ...p, module }));
-    setStep(STEP.ASK_PROJECT_ROLE);
-    botSay('Quel était votre rôle sur ce projet ?');
-  }
-
-  function handleProjectRole(text) {
-    if (!text.trim()) return;
-    userSay(text);
-    setCurrentProject((p) => ({ ...p, role: text.trim() }));
-    setStep(STEP.ASK_PROJECT_DESCRIPTION);
-    botSay('Décrivez brièvement votre mission sur ce projet.');
-    setTextInput('');
-  }
-
-  function handleProjectDescription(text) {
-    if (!text.trim()) return;
-    userSay(text);
-    const finished = { ...currentProject, description: text.trim() };
-    setProjects((p) => [...p, finished]);
-    setStep(STEP.ASK_MORE_PROJECTS);
-    botSay('Ajouté ! Voulez-vous décrire un autre projet ?');
-    setTextInput('');
+  function handleMoreRolePoints(more) {
+    userSay(more ? 'Oui, un autre point' : "Non, c'est tout pour ce rôle");
+    if (more) {
+      setStep(STEP.ASK_ROLE_POINT);
+      botSay('Quel est ce point suivant ?');
+    } else {
+      setProjects((p) => [...p, { projectId: currentProjectId, rolePoints: currentRolePoints }]);
+      setCurrentProjectId(null);
+      setCurrentRolePoints([]);
+      setStep(STEP.ASK_MORE_PROJECTS);
+      botSay('Voulez-vous ajouter un autre projet ?');
+    }
   }
 
   function handleMoreProjects(more) {
     userSay(more ? 'Oui, un autre projet' : "Non, c'est tout");
     if (more) {
-      setCurrentProject(EMPTY_PROJECT);
-      setStep(STEP.ASK_PROJECT_CLIENT);
-      botSay('Quel est le client de ce nouveau projet ?');
+      setStep(STEP.ASK_PROJECT_SELECT);
+      botSay('Choisissez un autre projet dans la liste :');
     } else {
       setStep(STEP.ASK_CERTIFICATIONS);
       botSay('Dernière étape : sélectionnez vos certifications SAP, puis validez.');
@@ -188,17 +189,18 @@ export default function ChatCvScreen() {
     botSay('Je génère votre CV, un instant...');
 
     const payload = {
-      name,
       title,
       projects,
       certifications: [...selectedCerts],
-      consultant_id: selectedConsultantId,
     };
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/generate-cv`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: basicAuthHeader(credentials.username, credentials.password),
+        },
         body: JSON.stringify(payload),
       });
       if (res.ok) {
@@ -216,43 +218,50 @@ export default function ChatCvScreen() {
 
   function resetConversation() {
     setMessages([]);
-    setStep(STEP.ASK_NAME);
-    setSelectedConsultantId(null);
+    setStep(STEP.LOGIN);
+    setCredentials(null);
+    setLoginUsername('');
+    setLoginPassword('');
+    setLoginError(null);
     setName('');
     setTitle('');
     setProjects([]);
+    setCurrentProjectId(null);
+    setCurrentRolePoints([]);
     setSelectedCerts(new Set());
-    loadConsultants();
+    loadCatalogProjects();
   }
 
   function renderInputArea() {
     switch (step) {
-      case STEP.ASK_NAME:
+      case STEP.LOGIN:
         return (
           <div className="input-area">
-            {existingConsultants.length > 0 && (
-              <div className="chip-row">
-                {existingConsultants.map((c) => (
-                  <button key={c.id} className="chip" onClick={() => selectExistingConsultant(c)}>
-                    {c.name}
-                  </button>
-                ))}
-              </div>
-            )}
-            <TextRow
-              placeholder="Ou tapez votre nom (nouveau consultant)"
-              value={textInput}
-              onChange={setTextInput}
-              onSubmit={(v) => {
-                if (v.trim()) {
-                  startNewConsultant(v.trim());
-                  setTextInput('');
-                }
-              }}
-            />
+            <div className="text-row">
+              <input
+                type="text"
+                placeholder="Identifiant"
+                value={loginUsername}
+                onChange={(e) => setLoginUsername(e.target.value)}
+              />
+            </div>
+            <div className="text-row">
+              <input
+                type="password"
+                placeholder="Mot de passe"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+              />
+              <button className="send-btn" onClick={handleLogin} disabled={loggingIn}>
+                ➤
+              </button>
+            </div>
+            {loginError && <p style={{ color: '#c62828', fontSize: 13 }}>{loginError}</p>}
+            {loggingIn && <div className="spinner" />}
           </div>
         );
-      case STEP.CONFIRM_PROFILE:
+      case STEP.WELCOME_CONFIRM:
         return (
           <YesNo
             yesLabel="Oui, continuer"
@@ -270,44 +279,41 @@ export default function ChatCvScreen() {
             onSubmit={handleTitleSubmitted}
           />
         );
-      case STEP.ASK_PROJECT_CLIENT:
-        return (
-          <TextRow
-            placeholder="Nom du client..."
-            value={textInput}
-            onChange={setTextInput}
-            onSubmit={handleProjectClient}
-          />
-        );
-      case STEP.ASK_PROJECT_MODULE:
+      case STEP.ASK_PROJECT_SELECT:
         return (
           <div className="input-area">
             <div className="chip-row">
-              {SAP_MODULES.map((m) => (
-                <button key={m} className="chip" onClick={() => handleProjectModule(m)}>
-                  {m}
-                </button>
-              ))}
+              {catalogProjects
+                .filter((p) => !projects.some((sel) => sel.projectId === p.id))
+                .map((p) => (
+                  <button
+                    key={p.id}
+                    className="chip"
+                    onClick={() => handleProjectSelected(p)}
+                    title={p.description}
+                  >
+                    {p.client} — {p.module} ({p.missionType})
+                  </button>
+                ))}
             </div>
           </div>
         );
-      case STEP.ASK_PROJECT_ROLE:
+      case STEP.ASK_ROLE_POINT:
         return (
           <TextRow
-            placeholder="Votre rôle..."
+            placeholder="Ex: Configuration du module, formation des utilisateurs..."
             value={textInput}
             onChange={setTextInput}
-            onSubmit={handleProjectRole}
+            onSubmit={handleRolePoint}
           />
         );
-      case STEP.ASK_PROJECT_DESCRIPTION:
+      case STEP.ASK_MORE_ROLE_POINTS:
         return (
-          <TextRow
-            placeholder="Description..."
-            value={textInput}
-            onChange={setTextInput}
-            onSubmit={handleProjectDescription}
-            multiline
+          <YesNo
+            yesLabel="+ Autre point"
+            noLabel="Non, terminé"
+            onYes={() => handleMoreRolePoints(true)}
+            onNo={() => handleMoreRolePoints(false)}
           />
         );
       case STEP.ASK_MORE_PROJECTS:
@@ -366,14 +372,25 @@ export default function ChatCvScreen() {
           ⚙ Admin
         </button>
       </header>
-      <div className="messages">
-        {messages.map((m, i) => (
-          <div key={i} className={`bubble-row ${m.fromBot ? 'bot' : 'user'}`}>
-            <div className={`bubble ${m.fromBot ? 'bot' : 'user'}`}>{m.text}</div>
+      {step === STEP.LOGIN && messages.length === 0 && (
+        <div className="messages">
+          <div className="bubble-row bot">
+            <div className="bubble bot">
+              Bienvenue sur BI2S CVthèque. Connectez-vous avec l'identifiant fourni par l'administrateur.
+            </div>
           </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
+        </div>
+      )}
+      {(step !== STEP.LOGIN || messages.length > 0) && (
+        <div className="messages">
+          {messages.map((m, i) => (
+            <div key={i} className={`bubble-row ${m.fromBot ? 'bot' : 'user'}`}>
+              <div className={`bubble ${m.fromBot ? 'bot' : 'user'}`}>{m.text}</div>
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+      )}
       <div className="input-container">{renderInputArea()}</div>
     </div>
   );
