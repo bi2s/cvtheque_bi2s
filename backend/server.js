@@ -8,7 +8,7 @@ const bcrypt = require('bcryptjs');
 
 const { pool, initSchema } = require('./db');
 const { generatePptx } = require('./pptx');
-const { requireAdmin, requireConsultant } = require('./auth');
+const { requireAdmin, requireConsultant, seedAdminFromEnv } = require('./auth');
 
 const PORT = process.env.PORT || 8000;
 
@@ -52,7 +52,7 @@ async function fetchConsultantDetail(consultantId) {
   const projects = projectRows.map((r) => ({
     projectId: r.project_id,
     client: r.client,
-    module: r.module,
+    modules: r.module ? r.module.split(',').filter(Boolean) : [],
     missionType: r.mission_type,
     description: r.description,
     rolePoints: r.role_points ? r.role_points.split('\n').filter(Boolean) : [],
@@ -129,7 +129,7 @@ app.get('/api/projects/catalog', async (req, res) => {
     rows.map((r) => ({
       id: r.id,
       client: r.client,
-      module: r.module,
+      modules: r.module ? r.module.split(',').filter(Boolean) : [],
       missionType: r.mission_type,
       description: r.description,
     }))
@@ -137,19 +137,19 @@ app.get('/api/projects/catalog', async (req, res) => {
 });
 
 app.post('/api/admin/projects', requireAdmin, async (req, res) => {
-  const { client, module, missionType, description } = req.body;
+  const { client, modules = [], missionType, description } = req.body;
   const [result] = await pool.query(
     'INSERT INTO catalog_projects (client, module, mission_type, description) VALUES (?, ?, ?, ?)',
-    [client, module || '', missionType, description || '']
+    [client, modules.join(','), missionType, description || '']
   );
   res.json({ id: result.insertId });
 });
 
 app.put('/api/admin/projects/:id', requireAdmin, async (req, res) => {
-  const { client, module, missionType, description } = req.body;
+  const { client, modules = [], missionType, description } = req.body;
   const [result] = await pool.query(
     'UPDATE catalog_projects SET client = ?, module = ?, mission_type = ?, description = ? WHERE id = ?',
-    [client, module || '', missionType, description || '', req.params.id]
+    [client, modules.join(','), missionType, description || '', req.params.id]
   );
   if (result.affectedRows === 0) return res.status(404).json({ detail: 'Projet introuvable' });
   res.json({ ok: true });
@@ -215,6 +215,7 @@ app.get('/api/consultants/:id/cv', requireAdmin, async (req, res) => {
 });
 
 initSchema()
+  .then(() => seedAdminFromEnv())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Server listening on port ${PORT}`);

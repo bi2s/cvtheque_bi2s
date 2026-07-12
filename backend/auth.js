@@ -1,20 +1,23 @@
-const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { pool } = require('./db');
 
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
+const SEED_ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+const SEED_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
 
-function timingSafeStringEqual(a, b) {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    // Still run a comparison of equal-length buffers to avoid a fast
-    // length-based timing signal.
-    crypto.timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return crypto.timingSafeEqual(bufA, bufB);
+// Migre l'admin historique (variables d'environnement) vers la base de
+// donnees au premier demarrage, pour que les admins soient geres comme les
+// consultants (identifiants stockes, mot de passe hache).
+async function seedAdminFromEnv() {
+  const [[existing]] = await pool.query('SELECT id FROM admins WHERE username = ?', [
+    SEED_ADMIN_USERNAME,
+  ]);
+  if (existing) return;
+
+  const passwordHash = await bcrypt.hash(SEED_ADMIN_PASSWORD, 10);
+  await pool.query('INSERT INTO admins (username, password_hash) VALUES (?, ?)', [
+    SEED_ADMIN_USERNAME,
+    passwordHash,
+  ]);
 }
 
 function parseBasicAuth(req) {
@@ -27,17 +30,29 @@ function parseBasicAuth(req) {
   return { username: decoded.slice(0, sepIndex), password: decoded.slice(sepIndex + 1) };
 }
 
-function requireAdmin(req, res, next) {
+async function requireAdmin(req, res, next) {
   const creds = parseBasicAuth(req);
-  if (
-    creds &&
-    timingSafeStringEqual(creds.username, ADMIN_USERNAME) &&
-    timingSafeStringEqual(creds.password, ADMIN_PASSWORD)
-  ) {
-    return next();
+  if (!creds) {
+    res.set('WWW-Authenticate', 'Basic');
+    return res.status(401).json({ detail: 'Identifiants admin invalides' });
   }
-  res.set('WWW-Authenticate', 'Basic');
-  return res.status(401).json({ detail: 'Identifiants admin invalides' });
+
+  const [[admin]] = await pool.query('SELECT id, password_hash FROM admins WHERE username = ?', [
+    creds.username,
+  ]);
+  if (!admin) {
+    res.set('WWW-Authenticate', 'Basic');
+    return res.status(401).json({ detail: 'Identifiants admin invalides' });
+  }
+
+  const valid = await bcrypt.compare(creds.password, admin.password_hash);
+  if (!valid) {
+    res.set('WWW-Authenticate', 'Basic');
+    return res.status(401).json({ detail: 'Identifiants admin invalides' });
+  }
+
+  req.admin = { id: admin.id, username: creds.username };
+  next();
 }
 
 async function requireConsultant(req, res, next) {
@@ -66,4 +81,4 @@ async function requireConsultant(req, res, next) {
   next();
 }
 
-module.exports = { requireAdmin, requireConsultant };
+module.exports = { requireAdmin, requireConsultant, seedAdminFromEnv };

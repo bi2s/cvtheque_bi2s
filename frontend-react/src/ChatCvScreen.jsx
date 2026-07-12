@@ -132,7 +132,7 @@ export default function ChatCvScreen() {
   }
 
   function handleProjectSelected(project) {
-    userSay(`${project.client} — ${project.module} (${project.missionType})`);
+    userSay(`${project.client} — ${project.modules.join(', ')} (${project.missionType})`);
     setCurrentProjectId(project.id);
     setCurrentRolePoints([]);
     setStep(STEP.ASK_ROLE_POINT);
@@ -292,7 +292,7 @@ export default function ChatCvScreen() {
                     onClick={() => handleProjectSelected(p)}
                     title={p.description}
                   >
-                    {p.client} — {p.module} ({p.missionType})
+                    {p.client} — {p.modules.join(', ')} ({p.missionType})
                   </button>
                 ))}
             </div>

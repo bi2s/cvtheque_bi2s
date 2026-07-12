@@ -54,6 +54,13 @@ async function initSchema() {
         FOREIGN KEY (consultant_id) REFERENCES consultants(id) ON DELETE CASCADE
       )
     `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS admins (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(255) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL
+      )
+    `);
   } finally {
     conn.release();
   }

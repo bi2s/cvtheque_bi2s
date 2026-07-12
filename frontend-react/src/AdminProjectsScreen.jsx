@@ -6,7 +6,7 @@ import './AdminScreens.css';
 const SAP_MODULES = ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'];
 const MISSION_TYPES = ['Intégration', 'AMOA', 'Support'];
 
-const EMPTY_FORM = { client: '', module: SAP_MODULES[0], missionType: MISSION_TYPES[0], description: '' };
+const EMPTY_FORM = { client: '', modules: [], missionType: MISSION_TYPES[0], description: '' };
 
 export default function AdminProjectsScreen() {
   const { state } = useLocation();
@@ -41,10 +41,19 @@ export default function AdminProjectsScreen() {
     setEditingId(project.id);
     setForm({
       client: project.client,
-      module: project.module,
+      modules: project.modules,
       missionType: project.missionType,
       description: project.description,
     });
+  }
+
+  function toggleModule(module) {
+    setForm((f) => ({
+      ...f,
+      modules: f.modules.includes(module)
+        ? f.modules.filter((m) => m !== module)
+        : [...f.modules, module],
+    }));
   }
 
   function cancelEdit() {
@@ -107,14 +116,19 @@ export default function AdminProjectsScreen() {
             <input value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} />
           </label>
           <label>
-            Module SAP
-            <select value={form.module} onChange={(e) => setForm({ ...form, module: e.target.value })}>
+            Modules SAP (sélection multiple)
+            <div className="chip-row">
               {SAP_MODULES.map((m) => (
-                <option key={m} value={m}>
+                <button
+                  type="button"
+                  key={m}
+                  className={`chip filter-chip ${form.modules.includes(m) ? 'selected' : ''}`}
+                  onClick={() => toggleModule(m)}
+                >
                   {m}
-                </option>
+                </button>
               ))}
-            </select>
+            </div>
           </label>
           <label>
             Type de mission
@@ -158,7 +172,7 @@ export default function AdminProjectsScreen() {
               <li key={p.id} className="consultant-row" style={{ cursor: 'default' }}>
                 <div>
                   <div className="consultant-name">
-                    {p.client} — {p.module} ({p.missionType})
+                    {p.client} — {p.modules.join(', ')} ({p.missionType})
                   </div>
                   <div className="consultant-title">{p.description}</div>
                 </div>

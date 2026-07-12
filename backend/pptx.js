@@ -9,8 +9,9 @@ async function generatePptx(data, outputPath) {
 
   const projectLines = [];
   for (const p of data.projects) {
+    const modulesText = (p.modules || []).join(', ');
     projectLines.push({
-      text: `Projet : ${p.client} — Module : ${p.module} — Mission : ${p.missionType}`,
+      text: `Projet : ${p.client} — Module(s) : ${modulesText} — Mission : ${p.missionType}`,
       options: { bold: true, breakLine: true },
     });
     if (p.description) {
