@@ -44,7 +44,7 @@ function TaskSection() {
 export default function ProjectForm(props) {
   return (
     <SimpleForm {...props}>
-      <TextInput source="client" label="Client" validate={required()} fullWidth />
+      <TextInput source="client" label="Projet" validate={required()} fullWidth />
       <ParentIdInput />
       <CheckboxGroupInput source="modules" label="Modules SAP" choices={SAP_MODULES} />
       <SelectInput

@@ -96,6 +96,40 @@ async function initSchema() {
         password_hash VARCHAR(255) NOT NULL
       )
     `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS change_requests (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        consultant_id INT NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        submitted_data JSON NOT NULL,
+        previous_data JSON NOT NULL,
+        resolved_data JSON NULL,
+        submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        reviewed_by INT NULL,
+        reviewed_at DATETIME NULL,
+        rejection_reason TEXT NULL,
+        FOREIGN KEY (consultant_id) REFERENCES consultants(id) ON DELETE CASCADE
+      )
+    `);
+    await ensureForeignKey(
+      conn,
+      'change_requests',
+      'fk_change_requests_reviewed_by',
+      'FOREIGN KEY (reviewed_by) REFERENCES admins(id) ON DELETE SET NULL'
+    );
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS change_request_audit (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        change_request_id INT NOT NULL,
+        action VARCHAR(20) NOT NULL,
+        actor_type VARCHAR(20) NOT NULL,
+        actor_id INT NULL,
+        actor_label VARCHAR(255) NOT NULL,
+        details JSON NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (change_request_id) REFERENCES change_requests(id) ON DELETE CASCADE
+      )
+    `);
   } finally {
     conn.release();
   }

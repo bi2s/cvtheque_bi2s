@@ -32,9 +32,14 @@ async function apiFetch(path, options = {}) {
 
 function paginateSortFilter(records, params, { searchFields = [], defaultSortField = 'id' }) {
   let result = records;
-  const q = (params.filter?.q || '').toLowerCase().trim();
-  if (q && searchFields.length > 0) {
-    result = result.filter((r) => searchFields.some((f) => (r[f] || '').toLowerCase().includes(q)));
+  const { q, ...exactFilters } = params.filter || {};
+  const qTrim = (q || '').toLowerCase().trim();
+  if (qTrim && searchFields.length > 0) {
+    result = result.filter((r) => searchFields.some((f) => (r[f] || '').toLowerCase().includes(qTrim)));
+  }
+  for (const [field, value] of Object.entries(exactFilters)) {
+    if (value === undefined || value === null || value === '') continue;
+    result = result.filter((r) => String(r[field]) === String(value));
   }
 
   const { field = defaultSortField, order = 'ASC' } = params.sort || {};
@@ -114,9 +119,21 @@ const catalogProjectsResource = {
   },
 };
 
+const changeRequestsResource = {
+  async getList(params) {
+    const all = await apiFetch('/api/admin/change-requests');
+    return paginateSortFilter(all, params, { searchFields: ['consultantName'], defaultSortField: 'submittedAt' });
+  },
+  async getOne(params) {
+    const data = await apiFetch(`/api/admin/change-requests/${params.id}`);
+    return { data };
+  },
+};
+
 const resources = {
   consultants: consultantsResource,
   catalogProjects: catalogProjectsResource,
+  changeRequests: changeRequestsResource,
 };
 
 const dataProvider = {

@@ -1,13 +1,26 @@
 import { useMemo } from 'react';
-import { useGetList } from 'react-admin';
+import { useNavigate } from 'react-router-dom';
+import { useGetList, useCreatePath } from 'react-admin';
 import { Box, Paper, Typography, Stack, CircularProgress, Chip } from '@mui/material';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutlineOutlined';
 import WorkOutlineIcon from '@mui/icons-material/WorkOutlineOutlined';
 import VerifiedOutlinedIcon from '@mui/icons-material/VerifiedOutlined';
+import PendingActionsOutlinedIcon from '@mui/icons-material/PendingActionsOutlined';
 
-function StatCard({ icon, label, value, color }) {
+function StatCard({ icon, label, value, color, onClick }) {
   return (
-    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, flex: 1, minWidth: 180 }}>
+    <Paper
+      variant="outlined"
+      onClick={onClick}
+      sx={{
+        p: 2.5,
+        borderRadius: 3,
+        flex: 1,
+        minWidth: 180,
+        cursor: onClick ? 'pointer' : 'default',
+        '&:hover': onClick ? { boxShadow: 3, borderColor: 'transparent' } : undefined,
+      }}
+    >
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
         <Box
           sx={{
@@ -34,10 +47,21 @@ function StatCard({ icon, label, value, color }) {
 
 const CONSULTANTS_QUERY = { pagination: { page: 1, perPage: 1000 }, sort: { field: 'name', order: 'ASC' } };
 const PROJECTS_QUERY = { pagination: { page: 1, perPage: 1000 }, sort: { field: 'client', order: 'ASC' } };
+const PENDING_REQUESTS_QUERY = {
+  pagination: { page: 1, perPage: 1000 },
+  sort: { field: 'submittedAt', order: 'DESC' },
+  filter: { status: 'pending' },
+};
 
 export default function Dashboard() {
+  const navigate = useNavigate();
+  const createPath = useCreatePath();
   const { data: consultants, isPending: consultantsPending } = useGetList('consultants', CONSULTANTS_QUERY);
   const { data: projects, isPending: projectsPending } = useGetList('catalogProjects', PROJECTS_QUERY);
+  const { data: pendingRequests, isPending: pendingRequestsPending } = useGetList(
+    'changeRequests',
+    PENDING_REQUESTS_QUERY
+  );
 
   const missionCounts = useMemo(() => {
     if (!projects) return {};
@@ -60,7 +84,7 @@ export default function Dashboard() {
     return consultants.filter((c) => !c.username).length;
   }, [consultants]);
 
-  const loading = consultantsPending || projectsPending;
+  const loading = consultantsPending || projectsPending || pendingRequestsPending;
 
   return (
     <Box sx={{ p: { xs: 2, sm: 4 } }}>
@@ -88,6 +112,13 @@ export default function Dashboard() {
                 label="Modules SAP couverts"
                 value={Object.keys(moduleCounts).length}
                 color="warning"
+              />
+              <StatCard
+                icon={<PendingActionsOutlinedIcon />}
+                label="Demandes en attente"
+                value={pendingRequests.length}
+                color="secondary"
+                onClick={() => navigate(createPath({ resource: 'changeRequests', type: 'list' }))}
               />
             </Stack>
 

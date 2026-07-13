@@ -2,14 +2,8 @@ import { useState } from 'react';
 import { useRecordContext, useNotify } from 'react-admin';
 import { IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button, Typography } from '@mui/material';
 import LockResetIcon from '@mui/icons-material/LockReset';
-import { API_BASE_URL, basicAuthHeader } from '../../../api';
-
-function getAuthHeader() {
-  const raw = localStorage.getItem('auth');
-  if (!raw) return null;
-  const { username, password } = JSON.parse(raw);
-  return basicAuthHeader(username, password);
-}
+import { API_BASE_URL } from '../../../api';
+import { getAuthHeader } from '../../authHeader';
 
 export default function ResetPasswordButton() {
   const record = useRecordContext();

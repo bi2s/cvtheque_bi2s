@@ -128,6 +128,17 @@ export default function ChatCvScreen() {
       setTitle(data.title);
       setProjects(data.projects.map((p) => ({ projectId: p.projectId, rolePoints: p.rolePoints })));
       setSelectedCerts(new Set(data.certifications));
+
+      if (data.pendingRequest) {
+        botSay(
+          `Vous avez une mise à jour en attente de validation, soumise le ` +
+            `${new Date(data.pendingRequest.submittedAt).toLocaleString('fr-FR')}. ` +
+            'Vous pouvez patienter ou soumettre une nouvelle mise à jour, qui remplacera celle-ci.'
+        );
+      } else if (data.lastRejection) {
+        botSay(`Votre dernière mise à jour a été rejetée. Motif : « ${data.lastRejection.reason} »`);
+      }
+
       setStep(STEP.WELCOME_CONFIRM);
       botSay(
         `Bonjour ${data.name} ! Je vous retrouve : ${data.title}, ${data.projects.length} projet(s) ` +
@@ -225,7 +236,7 @@ export default function ChatCvScreen() {
   async function handleCertificationsValidated() {
     userSay(selectedCerts.size ? [...selectedCerts].join(', ') : 'Aucune certification');
     setStep(STEP.SUBMITTING);
-    botSay('Je génère votre CV, un instant...');
+    botSay('Envoi de votre mise à jour pour validation...');
 
     const payload = {
       title,
@@ -244,10 +255,14 @@ export default function ChatCvScreen() {
       });
       if (res.ok) {
         setStep(STEP.DONE);
-        botSay('Votre CV a été mis à jour avec succès !');
+        botSay(
+          'Votre mise à jour a été envoyée pour validation. Un administrateur va l’examiner ; ' +
+            'vous serez informé du résultat à votre prochaine connexion.'
+        );
       } else {
+        const body = await res.json().catch(() => ({}));
         setStep(STEP.ASK_CERTIFICATIONS);
-        botSay(`Une erreur est survenue (${res.status}). Réessayez la validation.`);
+        botSay(`Une erreur est survenue (${body.detail || res.status}). Réessayez la validation.`);
       }
     } catch (e) {
       setStep(STEP.ASK_CERTIFICATIONS);

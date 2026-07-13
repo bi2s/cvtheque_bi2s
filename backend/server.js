@@ -10,6 +10,7 @@ const { pool, initSchema } = require('./db');
 const { generatePptx } = require('./pptx');
 const { requireAdmin, requireConsultant, seedAdminFromEnv } = require('./auth');
 const { buildBreadcrumb, isDescendant } = require('./projectTree');
+const { notifyNewChangeRequest } = require('./notifications');
 
 const PORT = process.env.PORT || 8000;
 
@@ -78,9 +79,52 @@ async function fetchConsultantDetail(consultantId) {
 // identifiant/mot de passe cree par l'admin, et ne peut voir/modifier que
 // ses propres donnees.
 
+async function insertAuditRow(conn, { changeRequestId, action, actorType, actorId, actorLabel, details }) {
+  await conn.query(
+    `INSERT INTO change_request_audit
+       (change_request_id, action, actor_type, actor_id, actor_label, details)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [changeRequestId, action, actorType, actorId ?? null, actorLabel, details ? JSON.stringify(details) : null]
+  );
+}
+
+// Turns the consultant's raw submission ({projectId, rolePoints}) into the
+// same self-contained shape fetchConsultantDetail produces, so a stored
+// change-request snapshot stays readable even if the catalog changes later.
+async function enrichProjectsSnapshot(projects) {
+  const allProjects = await fetchAllProjects();
+  const byId = new Map(allProjects.map((p) => [p.id, p]));
+  return projects.map((p) => {
+    const catalogProject = byId.get(Number(p.projectId));
+    return {
+      projectId: Number(p.projectId),
+      client: catalogProject ? buildBreadcrumb(allProjects, catalogProject.id) : null,
+      modules: catalogProject ? catalogProject.modules : [],
+      missionType: catalogProject ? catalogProject.missionType : null,
+      description: catalogProject ? catalogProject.description : null,
+      rolePoints: Array.isArray(p.rolePoints) ? p.rolePoints.filter(Boolean) : [],
+    };
+  });
+}
+
 app.get('/api/consultant/me', requireConsultant, async (req, res) => {
   const detail = await fetchConsultantDetail(req.consultant.id);
-  res.json(detail);
+  const [[latestRequest]] = await pool.query(
+    `SELECT id, status, submitted_at, rejection_reason FROM change_requests
+     WHERE consultant_id = ? ORDER BY submitted_at DESC LIMIT 1`,
+    [req.consultant.id]
+  );
+  res.json({
+    ...detail,
+    pendingRequest:
+      latestRequest && latestRequest.status === 'pending'
+        ? { id: latestRequest.id, submittedAt: latestRequest.submitted_at }
+        : null,
+    lastRejection:
+      latestRequest && latestRequest.status === 'rejected'
+        ? { id: latestRequest.id, reason: latestRequest.rejection_reason, submittedAt: latestRequest.submitted_at }
+        : null,
+  });
 });
 
 app.post('/api/generate-cv', requireConsultant, async (req, res) => {
@@ -91,30 +135,43 @@ app.post('/api/generate-cv', requireConsultant, async (req, res) => {
   try {
     await conn.beginTransaction();
 
-    await conn.query('UPDATE consultants SET title = ? WHERE id = ?', [title, consultantId]);
-    await conn.query('DELETE FROM consultant_projects WHERE consultant_id = ?', [consultantId]);
-    await conn.query('DELETE FROM certifications WHERE consultant_id = ?', [consultantId]);
+    const [[consultant]] = await conn.query('SELECT name FROM consultants WHERE id = ?', [consultantId]);
+    const previousDetail = await fetchConsultantDetail(consultantId);
+    const previousData = {
+      title: previousDetail.title,
+      projects: previousDetail.projects,
+      certifications: previousDetail.certifications,
+    };
+    const submittedData = {
+      title,
+      projects: await enrichProjectsSnapshot(projects),
+      certifications: certifications.filter(Boolean),
+    };
 
-    for (const p of projects) {
-      const rolePointsText = Array.isArray(p.rolePoints) ? p.rolePoints.join('\n') : '';
-      await conn.query(
-        'INSERT INTO consultant_projects (consultant_id, project_id, role_points) VALUES (?, ?, ?)',
-        [consultantId, p.projectId, rolePointsText]
-      );
-    }
-    for (const cert of certifications) {
-      await conn.query('INSERT INTO certifications (consultant_id, name) VALUES (?, ?)', [
-        consultantId,
-        cert,
-      ]);
-    }
+    await conn.query(
+      "UPDATE change_requests SET status = 'superseded' WHERE consultant_id = ? AND status = 'pending'",
+      [consultantId]
+    );
+    const [result] = await conn.query(
+      'INSERT INTO change_requests (consultant_id, status, submitted_data, previous_data) VALUES (?, ?, ?, ?)',
+      [consultantId, 'pending', JSON.stringify(submittedData), JSON.stringify(previousData)]
+    );
+    const changeRequestId = result.insertId;
+
+    await insertAuditRow(conn, {
+      changeRequestId,
+      action: 'submitted',
+      actorType: 'consultant',
+      actorId: consultantId,
+      actorLabel: consultant.name,
+      details: submittedData,
+    });
 
     await conn.commit();
 
-    const detail = await fetchConsultantDetail(consultantId);
-    const outPath = outputPathFor(consultantId);
-    await generatePptx(detail, outPath);
-    res.download(outPath, `CV_${detail.name}.pptx`);
+    notifyNewChangeRequest(consultant.name, changeRequestId).catch(() => {});
+
+    res.json({ ok: true, status: 'pending', changeRequestId });
   } catch (e) {
     await conn.rollback();
     res.status(500).json({ detail: e.message });
@@ -378,6 +435,191 @@ app.get('/api/consultants/:id/cv', requireAdmin, async (req, res) => {
   const outPath = outputPathFor(consultantId);
   await generatePptx(detail, outPath);
   res.download(outPath, `CV_${detail.name}.pptx`);
+});
+
+app.get('/api/admin/change-requests', requireAdmin, async (req, res) => {
+  const [rows] = await pool.query(
+    `SELECT cr.id, cr.consultant_id, c.name AS consultant_name, cr.status, cr.submitted_at, cr.reviewed_at
+     FROM change_requests cr
+     JOIN consultants c ON c.id = cr.consultant_id
+     ORDER BY cr.submitted_at DESC`
+  );
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      consultantId: r.consultant_id,
+      consultantName: r.consultant_name,
+      status: r.status,
+      submittedAt: r.submitted_at,
+      reviewedAt: r.reviewed_at,
+    }))
+  );
+});
+
+app.get('/api/admin/change-requests/:id', requireAdmin, async (req, res) => {
+  const [[row]] = await pool.query(
+    `SELECT cr.*, c.name AS consultant_name
+     FROM change_requests cr
+     JOIN consultants c ON c.id = cr.consultant_id
+     WHERE cr.id = ?`,
+    [req.params.id]
+  );
+  if (!row) return res.status(404).json({ detail: 'Demande introuvable' });
+
+  const [auditRows] = await pool.query(
+    'SELECT * FROM change_request_audit WHERE change_request_id = ? ORDER BY created_at ASC',
+    [req.params.id]
+  );
+
+  res.json({
+    id: row.id,
+    consultantId: row.consultant_id,
+    consultantName: row.consultant_name,
+    status: row.status,
+    submittedData: JSON.parse(row.submitted_data),
+    previousData: JSON.parse(row.previous_data),
+    resolvedData: row.resolved_data ? JSON.parse(row.resolved_data) : null,
+    submittedAt: row.submitted_at,
+    reviewedBy: row.reviewed_by,
+    reviewedAt: row.reviewed_at,
+    rejectionReason: row.rejection_reason,
+    audit: auditRows.map((a) => ({
+      id: a.id,
+      action: a.action,
+      actorType: a.actor_type,
+      actorId: a.actor_id,
+      actorLabel: a.actor_label,
+      details: a.details ? JSON.parse(a.details) : null,
+      createdAt: a.created_at,
+    })),
+  });
+});
+
+app.put('/api/admin/change-requests/:id/approve', requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const { editedData } = req.body;
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [[row]] = await conn.query('SELECT * FROM change_requests WHERE id = ? FOR UPDATE', [id]);
+    if (!row) {
+      await conn.rollback();
+      return res.status(404).json({ detail: 'Demande introuvable' });
+    }
+    if (row.status !== 'pending') {
+      await conn.rollback();
+      return res.status(400).json({ detail: 'Cette demande a déjà été traitée' });
+    }
+
+    const submittedData = JSON.parse(row.submitted_data);
+    const dataToApply = editedData || submittedData;
+
+    const allProjects = await fetchAllProjects();
+    const validIds = new Set(allProjects.map((p) => p.id));
+    const missingIds = (dataToApply.projects || [])
+      .map((p) => Number(p.projectId))
+      .filter((pid) => !validIds.has(pid));
+    if (missingIds.length > 0) {
+      await conn.rollback();
+      return res.status(400).json({
+        detail: `Certains projets sélectionnés n'existent plus dans le catalogue (id : ${missingIds.join(
+          ', '
+        )}). Modifiez la demande avant de valider.`,
+      });
+    }
+
+    await conn.query('UPDATE consultants SET title = ? WHERE id = ?', [dataToApply.title, row.consultant_id]);
+    await conn.query('DELETE FROM consultant_projects WHERE consultant_id = ?', [row.consultant_id]);
+    await conn.query('DELETE FROM certifications WHERE consultant_id = ?', [row.consultant_id]);
+    for (const p of dataToApply.projects || []) {
+      const rolePointsText = Array.isArray(p.rolePoints) ? p.rolePoints.join('\n') : '';
+      await conn.query(
+        'INSERT INTO consultant_projects (consultant_id, project_id, role_points) VALUES (?, ?, ?)',
+        [row.consultant_id, p.projectId, rolePointsText]
+      );
+    }
+    for (const cert of dataToApply.certifications || []) {
+      await conn.query('INSERT INTO certifications (consultant_id, name) VALUES (?, ?)', [row.consultant_id, cert]);
+    }
+
+    await conn.query(
+      "UPDATE change_requests SET status = 'approved', resolved_data = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
+      [JSON.stringify(dataToApply), req.admin.id, id]
+    );
+
+    if (editedData) {
+      await insertAuditRow(conn, {
+        changeRequestId: id,
+        action: 'edited',
+        actorType: 'admin',
+        actorId: req.admin.id,
+        actorLabel: req.admin.username,
+        details: editedData,
+      });
+    }
+    await insertAuditRow(conn, {
+      changeRequestId: id,
+      action: 'approved',
+      actorType: 'admin',
+      actorId: req.admin.id,
+      actorLabel: req.admin.username,
+      details: null,
+    });
+
+    await conn.commit();
+    res.json({ ok: true });
+  } catch (e) {
+    await conn.rollback();
+    res.status(500).json({ detail: e.message });
+  } finally {
+    conn.release();
+  }
+});
+
+app.put('/api/admin/change-requests/:id/reject', requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const reason = (req.body.reason || '').trim();
+  if (!reason) {
+    return res.status(400).json({ detail: 'Un motif de rejet est requis' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [[row]] = await conn.query('SELECT * FROM change_requests WHERE id = ? FOR UPDATE', [id]);
+    if (!row) {
+      await conn.rollback();
+      return res.status(404).json({ detail: 'Demande introuvable' });
+    }
+    if (row.status !== 'pending') {
+      await conn.rollback();
+      return res.status(400).json({ detail: 'Cette demande a déjà été traitée' });
+    }
+
+    await conn.query(
+      "UPDATE change_requests SET status = 'rejected', rejection_reason = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
+      [reason, req.admin.id, id]
+    );
+    await insertAuditRow(conn, {
+      changeRequestId: id,
+      action: 'rejected',
+      actorType: 'admin',
+      actorId: req.admin.id,
+      actorLabel: req.admin.username,
+      details: { reason },
+    });
+
+    await conn.commit();
+    res.json({ ok: true });
+  } catch (e) {
+    await conn.rollback();
+    res.status(500).json({ detail: e.message });
+  } finally {
+    conn.release();
+  }
 });
 
 app.get(/^\/(?!api).*/, (req, res, next) => {

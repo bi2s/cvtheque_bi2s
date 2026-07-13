@@ -1,14 +1,8 @@
 import { useRecordContext, useNotify } from 'react-admin';
 import { IconButton, Tooltip } from '@mui/material';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
-import { API_BASE_URL, basicAuthHeader } from '../../../api';
-
-function getAuthHeader() {
-  const raw = localStorage.getItem('auth');
-  if (!raw) return null;
-  const { username, password } = JSON.parse(raw);
-  return basicAuthHeader(username, password);
-}
+import { API_BASE_URL } from '../../../api';
+import { getAuthHeader } from '../../authHeader';
 
 export default function DownloadCvButton() {
   const record = useRecordContext();

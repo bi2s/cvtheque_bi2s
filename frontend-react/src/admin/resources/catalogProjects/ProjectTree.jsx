@@ -6,14 +6,8 @@ import { Box, Stack, Button, CircularProgress, Typography } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add';
 import ProjectTreeNode from './ProjectTreeNode';
 import useProjectTree from './useProjectTree';
-import { API_BASE_URL, basicAuthHeader } from '../../../api';
-
-function getAuthHeader() {
-  const raw = localStorage.getItem('auth');
-  if (!raw) return null;
-  const { username, password } = JSON.parse(raw);
-  return basicAuthHeader(username, password);
-}
+import { API_BASE_URL } from '../../../api';
+import { getAuthHeader } from '../../authHeader';
 
 async function moveProject(id, parentId, sortOrder) {
   await fetch(`${API_BASE_URL}/api/admin/projects/${id}/position`, {
