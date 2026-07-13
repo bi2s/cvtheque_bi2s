@@ -48,6 +48,21 @@ app.use(
   })
 );
 
+// Every /api response is per-user authenticated data (HTTP Basic, no
+// session/cookie the browser or a shared proxy could key a cache on) - it
+// must never be cached anywhere. Found via a real incident: the hosting
+// provider's reverse proxy was caching authenticated API responses keyed
+// only by URL, ignoring the Authorization header entirely, so one admin's
+// request could serve stale cached data to the next request on the same
+// URL regardless of who (or whether anyone) was authenticated. Explicit
+// Cache-Control here is the standard, portable way to stop that at every
+// layer (browser, CDN, reverse proxy) independent of their own config.
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  next();
+});
+
 // Global ceiling against gross abuse/scripted traffic - lenient enough that
 // normal admin/consultant usage never comes close.
 app.use(
