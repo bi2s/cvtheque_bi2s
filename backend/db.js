@@ -30,6 +30,32 @@ async function ensureForeignKey(conn, table, constraintName, definition) {
   }
 }
 
+// Self-heals a FK that exists but isn't ON DELETE CASCADE - this happens on
+// any database where the table was created before CASCADE was added to its
+// CREATE TABLE statement, since `CREATE TABLE IF NOT EXISTS` never revisits
+// an existing table's constraints. Drops and recreates the constraint (same
+// name) rather than requiring a fresh migration name, so it's safe to run
+// unconditionally on every boot.
+async function ensureCascadeDelete(conn, table, column) {
+  const [rows] = await conn.query(
+    `SELECT kcu.CONSTRAINT_NAME AS name, kcu.REFERENCED_TABLE_NAME AS refTable,
+            kcu.REFERENCED_COLUMN_NAME AS refColumn, rc.DELETE_RULE AS rule
+     FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+     JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+       ON rc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA AND rc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+     WHERE kcu.TABLE_SCHEMA = DATABASE() AND kcu.TABLE_NAME = ? AND kcu.COLUMN_NAME = ?
+       AND kcu.REFERENCED_TABLE_NAME IS NOT NULL`,
+    [table, column]
+  );
+  if (rows.length === 0 || rows[0].rule === 'CASCADE') return;
+
+  const { name, refTable, refColumn } = rows[0];
+  await conn.query(`ALTER TABLE ${table} DROP FOREIGN KEY ${name}`);
+  await conn.query(
+    `ALTER TABLE ${table} ADD CONSTRAINT ${name} FOREIGN KEY (${column}) REFERENCES ${refTable}(${refColumn}) ON DELETE CASCADE`
+  );
+}
+
 async function initSchema() {
   const conn = await pool.getConnection();
   try {
@@ -81,6 +107,8 @@ async function initSchema() {
         FOREIGN KEY (project_id) REFERENCES catalog_projects(id) ON DELETE CASCADE
       )
     `);
+    await ensureCascadeDelete(conn, 'consultant_projects', 'consultant_id');
+    await ensureCascadeDelete(conn, 'consultant_projects', 'project_id');
     await conn.query(`
       CREATE TABLE IF NOT EXISTS certifications (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -89,6 +117,7 @@ async function initSchema() {
         FOREIGN KEY (consultant_id) REFERENCES consultants(id) ON DELETE CASCADE
       )
     `);
+    await ensureCascadeDelete(conn, 'certifications', 'consultant_id');
     await conn.query(`
       CREATE TABLE IF NOT EXISTS admins (
         id INT AUTO_INCREMENT PRIMARY KEY,
