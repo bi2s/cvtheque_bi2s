@@ -220,6 +220,12 @@ app.get('/api/consultants/:id/cv', requireAdmin, async (req, res) => {
   res.download(outPath, `CV_${detail.name}.pptx`);
 });
 
+app.get(/^\/(?!api).*/, (req, res, next) => {
+  const indexPath = path.join(__dirname, 'index.html');
+  if (!fs.existsSync(indexPath)) return next();
+  res.sendFile(indexPath);
+});
+
 initSchema()
   .then(() => seedAdminFromEnv())
   .then(() => {
