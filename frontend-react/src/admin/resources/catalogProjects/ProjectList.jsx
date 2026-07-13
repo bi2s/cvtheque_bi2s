@@ -1,18 +1,10 @@
-import { List, Datagrid, TextField, FunctionField, EditButton, DeleteButton } from 'react-admin';
-
-const defaultSort = { field: 'client', order: 'ASC' };
+import { List } from 'react-admin';
+import ProjectTree from './ProjectTree';
 
 export default function ProjectList() {
   return (
-    <List sort={defaultSort} perPage={25}>
-      <Datagrid rowClick="edit" bulkActionButtons={false}>
-        <TextField source="client" label="Client" />
-        <FunctionField source="modules" label="Modules" render={(record) => record.modules.join(', ')} />
-        <TextField source="missionType" label="Type de mission" />
-        <TextField source="description" label="Description" />
-        <EditButton />
-        <DeleteButton mutationMode="pessimistic" />
-      </Datagrid>
+    <List perPage={1000} pagination={false} actions={false}>
+      <ProjectTree />
     </List>
   );
 }

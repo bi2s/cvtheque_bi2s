@@ -35,6 +35,32 @@ const STEP = {
   DONE: 'DONE',
 };
 
+// Flattens the project tree (parentId-linked) into a depth-first, breadcrumb-
+// labeled list so a consultant can pick any node - a whole project or a
+// specific sub-project/lot - not just top-level entries.
+function flattenProjectTree(projects) {
+  const byParent = new Map();
+  for (const p of projects) {
+    const key = p.parentId ?? null;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(p);
+  }
+  for (const siblings of byParent.values()) {
+    siblings.sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  const result = [];
+  function visit(parentId, breadcrumbPrefix) {
+    for (const node of byParent.get(parentId ?? null) || []) {
+      const breadcrumb = breadcrumbPrefix ? `${breadcrumbPrefix} › ${node.client}` : node.client;
+      result.push({ ...node, breadcrumb });
+      visit(node.id, breadcrumb);
+    }
+  }
+  visit(null, '');
+  return result;
+}
+
 export default function ChatCvScreen() {
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
@@ -145,7 +171,7 @@ export default function ChatCvScreen() {
   }
 
   function handleProjectSelected(project) {
-    userSay(`${project.client} — ${project.modules.join(', ')} (${project.missionType})`);
+    userSay(`${project.breadcrumb || project.client} — ${project.modules.join(', ')} (${project.missionType})`);
     setCurrentProjectId(project.id);
     setCurrentRolePoints([]);
     setStep(STEP.ASK_ROLE_POINT);
@@ -308,12 +334,12 @@ export default function ChatCvScreen() {
       case STEP.ASK_PROJECT_SELECT:
         return (
           <Stack direction="row" spacing={1} useFlexGap sx={{ maxWidth: 720, mx: 'auto', flexWrap: 'wrap' }}>
-            {catalogProjects
+            {flattenProjectTree(catalogProjects)
               .filter((p) => !projects.some((sel) => sel.projectId === p.id))
               .map((p) => (
                 <Tooltip title={p.description || ''} key={p.id}>
                   <Chip
-                    label={`${p.client} — ${p.modules.join(', ')} (${p.missionType})`}
+                    label={`${p.breadcrumb} — ${p.modules.join(', ')} (${p.missionType})`}
                     clickable
                     onClick={() => handleProjectSelected(p)}
                     variant="outlined"

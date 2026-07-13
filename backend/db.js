@@ -2,7 +2,9 @@ const mysql = require('mysql2/promise');
 
 const DATABASE_URL = process.env.DATABASE_URL || 'mysql://root:@localhost/cv_app';
 
-const pool = mysql.createPool(DATABASE_URL);
+// dateStrings avoids MySQL DATE columns round-tripping through JS Date
+// objects, which can shift by a day depending on local timezone parsing.
+const pool = mysql.createPool({ uri: DATABASE_URL, dateStrings: true });
 
 async function ensureColumn(conn, table, column, definition) {
   const [rows] = await conn.query(
@@ -12,6 +14,19 @@ async function ensureColumn(conn, table, column, definition) {
   );
   if (rows.length === 0) {
     await conn.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+// MySQL silently ignores inline `REFERENCES` in a column definition (unlike
+// SQLite/Postgres) - a real FOREIGN KEY constraint must be added separately.
+async function ensureForeignKey(conn, table, constraintName, definition) {
+  const [rows] = await conn.query(
+    `SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ?`,
+    [table, constraintName]
+  );
+  if (rows.length === 0) {
+    await conn.query(`ALTER TABLE ${table} ADD CONSTRAINT ${constraintName} ${definition}`);
   }
 }
 
@@ -34,6 +49,26 @@ async function initSchema() {
         module VARCHAR(255) NOT NULL DEFAULT '',
         mission_type VARCHAR(50) NOT NULL,
         description TEXT NOT NULL
+      )
+    `);
+    await ensureColumn(conn, 'catalog_projects', 'parent_id', 'INT NULL');
+    await ensureColumn(conn, 'catalog_projects', 'sort_order', 'INT NOT NULL DEFAULT 0');
+    await ensureColumn(conn, 'catalog_projects', 'start_date', 'DATE NULL');
+    await ensureColumn(conn, 'catalog_projects', 'end_date', 'DATE NULL');
+    await ensureForeignKey(
+      conn,
+      'catalog_projects',
+      'fk_catalog_projects_parent',
+      'FOREIGN KEY (parent_id) REFERENCES catalog_projects(id) ON DELETE CASCADE'
+    );
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS catalog_project_tasks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        project_id INT NOT NULL,
+        label VARCHAR(500) NOT NULL,
+        done BOOLEAN NOT NULL DEFAULT FALSE,
+        sort_order INT NOT NULL DEFAULT 0,
+        FOREIGN KEY (project_id) REFERENCES catalog_projects(id) ON DELETE CASCADE
       )
     `);
     await conn.query(`
