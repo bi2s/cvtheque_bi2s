@@ -63,8 +63,10 @@ async function fetchConsultantDetail(consultantId) {
   ]);
 
   return {
+    id: consultant.id,
     name: consultant.name,
     title: consultant.title,
+    username: consultant.username,
     projects,
     certifications: certRows.map((c) => c.name),
   };
@@ -183,6 +185,30 @@ app.post('/api/admin/consultants', requireAdmin, async (req, res) => {
     [name, title || '', username, passwordHash]
   );
   res.json({ id: result.insertId });
+});
+
+app.put('/api/admin/consultants/:id', requireAdmin, async (req, res) => {
+  const { name, title, username } = req.body;
+  if (!name || !username) {
+    return res.status(400).json({ detail: 'Nom et identifiant requis' });
+  }
+
+  const [[existing]] = await pool.query('SELECT id FROM consultants WHERE username = ? AND id != ?', [
+    username,
+    req.params.id,
+  ]);
+  if (existing) {
+    return res.status(409).json({ detail: 'Cet identifiant est deja utilise' });
+  }
+
+  const [result] = await pool.query('UPDATE consultants SET name = ?, title = ?, username = ? WHERE id = ?', [
+    name,
+    title || '',
+    username,
+    req.params.id,
+  ]);
+  if (result.affectedRows === 0) return res.status(404).json({ detail: 'Consultant introuvable' });
+  res.json({ id: Number(req.params.id), name, title: title || '', username });
 });
 
 app.put('/api/admin/consultants/:id/password', requireAdmin, async (req, res) => {

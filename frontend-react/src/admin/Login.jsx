@@ -1,63 +1,48 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import {
-  Box,
-  Paper,
-  TextField,
-  Button,
-  Typography,
-  Alert,
-  CircularProgress,
-  Stack,
-} from '@mui/material';
-import { API_BASE_URL, basicAuthHeader } from './api';
-import AppHeader from './AppHeader';
+import { useLogin } from 'react-admin';
+import { Box, Paper, TextField, Button, Typography, Alert, CircularProgress, Stack } from '@mui/material';
 
-export default function AdminLoginScreen() {
-  const navigate = useNavigate();
-  const [username, setUsername] = useState('admin');
+export default function Login() {
+  const login = useLogin();
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  async function login() {
+  function submit() {
     setLoading(true);
     setError(null);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/consultants`, {
-        headers: { Authorization: basicAuthHeader(username, password) },
-      });
-      if (res.ok) {
-        navigate('/admin/overview', { state: { username, password } });
-      } else {
-        setError('Identifiants invalides');
-      }
-    } catch (e) {
-      setError(`Erreur de connexion : ${e}`);
-    } finally {
+    login({ username, password }).catch(() => {
+      setError('Identifiants invalides');
       setLoading(false);
-    }
+    });
   }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: 'background.default' }}>
-      <AppHeader title="Connexion Admin" />
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 3, py: 2.5 }}>
+        <Box component="img" src="/logo_bi2s.webp" alt="Bi2S" sx={{ height: 30 }} />
+        <Typography sx={{ fontWeight: 700, fontSize: 14 }}>CVthèque</Typography>
+      </Box>
       <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Paper elevation={0} sx={{ p: 4, width: 340, border: '1px solid', borderColor: 'divider', borderRadius: 4 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: 18, mb: 2.5 }}>Connexion Admin</Typography>
           <Stack spacing={2.5}>
             <TextField
               label="Nom d'utilisateur"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submit()}
               fullWidth
               size="small"
+              autoFocus
             />
             <TextField
               label="Mot de passe"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && login()}
+              onKeyDown={(e) => e.key === 'Enter' && submit()}
               fullWidth
               size="small"
             />
@@ -67,7 +52,7 @@ export default function AdminLoginScreen() {
                 <CircularProgress size={28} />
               </Box>
             ) : (
-              <Button variant="contained" onClick={login} size="large">
+              <Button variant="contained" onClick={submit} size="large">
                 Se connecter
               </Button>
             )}

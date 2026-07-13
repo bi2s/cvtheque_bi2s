@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useOutletContext } from 'react-router-dom';
+import { useMemo } from 'react';
+import { useGetList } from 'react-admin';
 import { Box, Paper, Typography, Stack, CircularProgress, Chip } from '@mui/material';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutlineOutlined';
 import WorkOutlineIcon from '@mui/icons-material/WorkOutlineOutlined';
 import VerifiedOutlinedIcon from '@mui/icons-material/VerifiedOutlined';
-import { API_BASE_URL, basicAuthHeader } from './api';
 
 function StatCard({ icon, label, value, color }) {
   return (
@@ -33,30 +32,12 @@ function StatCard({ icon, label, value, color }) {
   );
 }
 
-export default function AdminOverviewScreen() {
-  const state = useOutletContext();
-  const navigate = useNavigate();
-  const [consultants, setConsultants] = useState(null);
-  const [projects, setProjects] = useState(null);
+const CONSULTANTS_QUERY = { pagination: { page: 1, perPage: 1000 }, sort: { field: 'name', order: 'ASC' } };
+const PROJECTS_QUERY = { pagination: { page: 1, perPage: 1000 }, sort: { field: 'client', order: 'ASC' } };
 
-  useEffect(() => {
-    if (!state?.username) {
-      navigate('/admin');
-      return;
-    }
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function load() {
-    const authHeader = basicAuthHeader(state.username, state.password);
-    const [cRes, pRes] = await Promise.all([
-      fetch(`${API_BASE_URL}/api/consultants`, { headers: { Authorization: authHeader } }),
-      fetch(`${API_BASE_URL}/api/projects/catalog`),
-    ]);
-    if (cRes.ok) setConsultants(await cRes.json());
-    if (pRes.ok) setProjects(await pRes.json());
-  }
+export default function Dashboard() {
+  const { data: consultants, isPending: consultantsPending } = useGetList('consultants', CONSULTANTS_QUERY);
+  const { data: projects, isPending: projectsPending } = useGetList('catalogProjects', PROJECTS_QUERY);
 
   const missionCounts = useMemo(() => {
     if (!projects) return {};
@@ -79,7 +60,7 @@ export default function AdminOverviewScreen() {
     return consultants.filter((c) => !c.username).length;
   }, [consultants]);
 
-  const loading = consultants === null || projects === null;
+  const loading = consultantsPending || projectsPending;
 
   return (
     <Box sx={{ p: { xs: 2, sm: 4 } }}>
@@ -95,12 +76,7 @@ export default function AdminOverviewScreen() {
         ) : (
           <>
             <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', mb: 4 }}>
-              <StatCard
-                icon={<PeopleOutlineIcon />}
-                label="Consultants"
-                value={consultants.length}
-                color="primary"
-              />
+              <StatCard icon={<PeopleOutlineIcon />} label="Consultants" value={consultants.length} color="primary" />
               <StatCard
                 icon={<WorkOutlineIcon />}
                 label="Projets au catalogue"
