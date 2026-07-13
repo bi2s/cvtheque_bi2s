@@ -4,11 +4,13 @@ const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 
 const { pool, initSchema } = require('./db');
 const { generatePptx } = require('./pptx');
-const { requireAdmin, requireConsultant, seedAdminFromEnv } = require('./auth');
+const { requireAdmin, requireConsultant, seedAdminFromEnv, parseBasicAuth } = require('./auth');
 const { buildBreadcrumb, isDescendant } = require('./projectTree');
 const { notifyNewChangeRequest } = require('./notifications');
 
@@ -27,7 +29,18 @@ const OUTPUT_DIR = path.join(__dirname, 'generated_cvs');
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 const app = express();
-app.use(express.json());
+
+app.use(
+  helmet({
+    // MUI/Emotion inject <style> tags at runtime without nonces; a default
+    // CSP would break the admin UI's styling. Revisit with a proper
+    // nonce/hash-based policy as a dedicated follow-up rather than risk
+    // breaking the deployed app here.
+    contentSecurityPolicy: false,
+    hsts: { maxAge: 15552000, includeSubDomains: false },
+  })
+);
+app.use(express.json({ limit: '256kb' }));
 app.use(
   cors({
     origin: CORS_ORIGINS,
@@ -35,8 +48,110 @@ app.use(
   })
 );
 
+// Global ceiling against gross abuse/scripted traffic - lenient enough that
+// normal admin/consultant usage never comes close.
+app.use(
+  '/api',
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+  })
+);
+
+// Every route re-validates HTTP Basic credentials on every request (there's
+// no separate stateless "login" endpoint to target), so brute-force
+// protection has to key off failed responses rather than a single route.
+// skipSuccessfulRequests means a legitimate, actively-used session never
+// gets throttled - only repeated wrong-password attempts count. Keyed by
+// IP+username (not IP alone): this is a small internal tool likely used
+// from a handful of shared office IPs, so an IP-only key would let one
+// user's failed attempts (or a typo) lock out every colleague on the same
+// network for the full window.
+app.use(
+  '/api',
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    message: { detail: 'Trop de tentatives échouées. Réessayez plus tard.' },
+    keyGenerator: (req) => {
+      const creds = parseBasicAuth(req);
+      return `${ipKeyGenerator(req.ip)}:${creds?.username || 'anonymous'}`;
+    },
+  })
+);
+
 function outputPathFor(consultantId) {
   return path.join(OUTPUT_DIR, `cv_${consultantId}.pptx`);
+}
+
+// Logs the full error server-side (with context) but never echoes internal
+// details (SQL fragments, file paths, driver internals) back to the client.
+function sendServerError(res, error, context) {
+  console.error(`[error] ${context}:`, error);
+  res.status(500).json({ detail: 'Une erreur interne est survenue. Merci de réessayer.' });
+}
+
+function isPositiveInt(value) {
+  return /^\d+$/.test(String(value));
+}
+
+// Validates every route's :id param in one place (Express calls this
+// whenever any route matches a segment literally named :id) rather than
+// repeating the same check across a dozen routes. Rejects non-numeric IDs
+// before they ever reach a query or a file path.
+app.param('id', (req, res, next, value) => {
+  if (!isPositiveInt(value)) {
+    return res.status(400).json({ detail: 'Identifiant invalide.' });
+  }
+  next();
+});
+
+// Server-side validation for a {title, projects, certifications} profile
+// payload - shared by the consultant's chat-flow submission and the admin's
+// "edit before approve" flow. The client already constrains this shape, but
+// the server must never trust it: a malformed or oversized payload should
+// get a clean 400, not fall through to corrupt data or crash with a
+// confusing 500 (an admin submitting a non-object editedData once silently
+// blanked a consultant's title before this guard was added).
+function validateGenerateCvPayload(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return 'Données invalides.';
+  }
+  const { title, projects, certifications } = body;
+
+  if (typeof title !== 'string' || !title.trim() || title.length > 255) {
+    return 'Titre invalide (requis, 255 caractères maximum).';
+  }
+  if (!Array.isArray(projects) || projects.length > 100) {
+    return 'Liste de projets invalide (100 maximum).';
+  }
+  for (const p of projects) {
+    if (!p || typeof p !== 'object' || !isPositiveInt(p.projectId)) {
+      return 'Projet invalide dans la sélection.';
+    }
+    if (p.rolePoints !== undefined) {
+      if (!Array.isArray(p.rolePoints) || p.rolePoints.length > 50) {
+        return 'Liste de points de rôle invalide (50 maximum par projet).';
+      }
+      if (p.rolePoints.some((pt) => typeof pt !== 'string' || pt.length > 2000)) {
+        return 'Un point de rôle est invalide (2000 caractères maximum).';
+      }
+    }
+  }
+  if (certifications !== undefined) {
+    if (!Array.isArray(certifications) || certifications.length > 50) {
+      return 'Liste de certifications invalide (50 maximum).';
+    }
+    if (certifications.some((c) => typeof c !== 'string' || c.length > 500)) {
+      return 'Une certification est invalide (500 caractères maximum).';
+    }
+  }
+  return null;
 }
 
 async function fetchConsultantDetail(consultantId) {
@@ -128,6 +243,9 @@ app.get('/api/consultant/me', requireConsultant, async (req, res) => {
 });
 
 app.post('/api/generate-cv', requireConsultant, async (req, res) => {
+  const validationError = validateGenerateCvPayload(req.body);
+  if (validationError) return res.status(400).json({ detail: validationError });
+
   const { title, projects = [], certifications = [] } = req.body;
   const consultantId = req.consultant.id;
 
@@ -174,7 +292,7 @@ app.post('/api/generate-cv', requireConsultant, async (req, res) => {
     res.json({ ok: true, status: 'pending', changeRequestId });
   } catch (e) {
     await conn.rollback();
-    res.status(500).json({ detail: e.message });
+    sendServerError(res, e, 'POST /api/generate-cv');
   } finally {
     conn.release();
   }
@@ -499,6 +617,11 @@ app.put('/api/admin/change-requests/:id/approve', requireAdmin, async (req, res)
   const id = Number(req.params.id);
   const { editedData } = req.body;
 
+  if (editedData !== undefined) {
+    const validationError = validateGenerateCvPayload(editedData);
+    if (validationError) return res.status(400).json({ detail: validationError });
+  }
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -572,7 +695,7 @@ app.put('/api/admin/change-requests/:id/approve', requireAdmin, async (req, res)
     res.json({ ok: true });
   } catch (e) {
     await conn.rollback();
-    res.status(500).json({ detail: e.message });
+    sendServerError(res, e, 'PUT /api/admin/change-requests/:id/approve');
   } finally {
     conn.release();
   }
@@ -616,7 +739,7 @@ app.put('/api/admin/change-requests/:id/reject', requireAdmin, async (req, res) 
     res.json({ ok: true });
   } catch (e) {
     await conn.rollback();
-    res.status(500).json({ detail: e.message });
+    sendServerError(res, e, 'PUT /api/admin/change-requests/:id/reject');
   } finally {
     conn.release();
   }
@@ -626,6 +749,17 @@ app.get(/^\/(?!api).*/, (req, res, next) => {
   const indexPath = path.join(__dirname, 'index.html');
   if (!fs.existsSync(indexPath)) return next();
   res.sendFile(indexPath);
+});
+
+// Safety net for routes without their own try/catch - Express 5 forwards
+// rejected promises from async handlers here automatically. Keeps the same
+// "log full detail server-side, never echo it to the client" contract as
+// sendServerError() above.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error(`[error] unhandled on ${req.method} ${req.path}:`, err);
+  if (res.headersSent) return;
+  res.status(500).json({ detail: 'Une erreur interne est survenue. Merci de réessayer.' });
 });
 
 initSchema()

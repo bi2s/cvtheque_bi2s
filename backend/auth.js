@@ -4,6 +4,13 @@ const { pool } = require('./db');
 const SEED_ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const SEED_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
 
+// Precomputed at startup and compared against whenever a lookup misses (no
+// such user, or a consultant with no password set yet), so a "user doesn't
+// exist" response takes the same time as a "wrong password" response -
+// skipping bcrypt.compare entirely on a miss would let an attacker
+// enumerate valid usernames purely from response timing.
+const DUMMY_HASH = bcrypt.hashSync(`no-such-user-${Math.random()}`, 10);
+
 // Migre l'admin historique (variables d'environnement) vers la base de
 // donnees au premier demarrage, pour que les admins soient geres comme les
 // consultants (identifiants stockes, mot de passe hache).
@@ -40,13 +47,8 @@ async function requireAdmin(req, res, next) {
   const [[admin]] = await pool.query('SELECT id, password_hash FROM admins WHERE username = ?', [
     creds.username,
   ]);
-  if (!admin) {
-    res.set('WWW-Authenticate', 'Basic');
-    return res.status(401).json({ detail: 'Identifiants admin invalides' });
-  }
-
-  const valid = await bcrypt.compare(creds.password, admin.password_hash);
-  if (!valid) {
+  const valid = await bcrypt.compare(creds.password, admin ? admin.password_hash : DUMMY_HASH);
+  if (!admin || !valid) {
     res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants admin invalides' });
   }
@@ -66,13 +68,9 @@ async function requireConsultant(req, res, next) {
     'SELECT id, name, title, password_hash FROM consultants WHERE username = ?',
     [creds.username]
   );
-  if (!consultant || !consultant.password_hash) {
-    res.set('WWW-Authenticate', 'Basic');
-    return res.status(401).json({ detail: 'Identifiants invalides' });
-  }
-
-  const valid = await bcrypt.compare(creds.password, consultant.password_hash);
-  if (!valid) {
+  const hasPassword = !!consultant?.password_hash;
+  const valid = await bcrypt.compare(creds.password, hasPassword ? consultant.password_hash : DUMMY_HASH);
+  if (!consultant || !hasPassword || !valid) {
     res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants invalides' });
   }
@@ -81,4 +79,4 @@ async function requireConsultant(req, res, next) {
   next();
 }
 
-module.exports = { requireAdmin, requireConsultant, seedAdminFromEnv };
+module.exports = { requireAdmin, requireConsultant, seedAdminFromEnv, parseBasicAuth };
