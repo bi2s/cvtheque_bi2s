@@ -1,17 +1,29 @@
 import { useCallback, useState } from 'react';
+import { Snackbar, Alert } from '@mui/material';
 
 export function useToast() {
   const [toast, setToast] = useState(null);
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
   }, []);
 
-  return { toast, showToast };
+  return { toast, showToast, closeToast: () => setToast(null) };
 }
 
-export function ToastView({ toast }) {
-  if (!toast) return null;
-  return <div className={`toast toast-${toast.type}`}>{toast.message}</div>;
+export function ToastView({ toast, onClose }) {
+  return (
+    <Snackbar
+      open={!!toast}
+      autoHideDuration={3500}
+      onClose={onClose}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+    >
+      {toast && (
+        <Alert onClose={onClose} severity={toast.type} variant="filled" sx={{ width: '100%' }}>
+          {toast.message}
+        </Alert>
+      )}
+    </Snackbar>
+  );
 }

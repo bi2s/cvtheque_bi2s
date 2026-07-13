@@ -1,7 +1,17 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  Box,
+  Paper,
+  TextField,
+  Button,
+  Typography,
+  Alert,
+  CircularProgress,
+  Stack,
+} from '@mui/material';
 import { API_BASE_URL, basicAuthHeader } from './api';
-import './AdminScreens.css';
+import AppHeader from './AppHeader';
 
 export default function AdminLoginScreen() {
   const navigate = useNavigate();
@@ -18,7 +28,7 @@ export default function AdminLoginScreen() {
         headers: { Authorization: basicAuthHeader(username, password) },
       });
       if (res.ok) {
-        navigate('/admin/dashboard', { state: { username, password } });
+        navigate('/admin/overview', { state: { username, password } });
       } else {
         setError('Identifiants invalides');
       }
@@ -30,36 +40,40 @@ export default function AdminLoginScreen() {
   }
 
   return (
-    <div className="admin-screen">
-      <header className="app-bar">
-        <img src="/logo_bi2s.webp" alt="Bi2S" height={32} />
-        <span className="app-bar-title">Connexion Admin</span>
-      </header>
-      <div className="admin-body centered">
-        <div className="login-form">
-          <label>
-            Nom d'utilisateur
-            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} />
-          </label>
-          <label>
-            Mot de passe
-            <input
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: 'background.default' }}>
+      <AppHeader title="Connexion Admin" />
+      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Paper elevation={0} sx={{ p: 4, width: 340, border: '1px solid', borderColor: 'divider', borderRadius: 4 }}>
+          <Stack spacing={2.5}>
+            <TextField
+              label="Nom d'utilisateur"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              fullWidth
+              size="small"
+            />
+            <TextField
+              label="Mot de passe"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && login()}
+              fullWidth
+              size="small"
             />
-          </label>
-          {error && <p className="error-text">{error}</p>}
-          {loading ? (
-            <div className="spinner" />
-          ) : (
-            <button className="btn-primary" onClick={login}>
-              Se connecter
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+            {error && <Alert severity="error">{error}</Alert>}
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                <CircularProgress size={28} />
+              </Box>
+            ) : (
+              <Button variant="contained" onClick={login} size="large">
+                Se connecter
+              </Button>
+            )}
+          </Stack>
+        </Paper>
+      </Box>
+    </Box>
   );
 }

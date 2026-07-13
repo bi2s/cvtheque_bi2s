@@ -1,7 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  Box,
+  TextField,
+  IconButton,
+  Button,
+  Chip,
+  Stack,
+  CircularProgress,
+  Typography,
+  Tooltip,
+} from '@mui/material';
+import SendIcon from '@mui/icons-material/Send';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { API_BASE_URL, basicAuthHeader } from './api';
-import './ChatCvScreen.css';
+import AppHeader from './AppHeader';
 
 const SAP_CERTIFICATIONS = [
   'SAP Certified Application Associate - SD S/4HANA',
@@ -236,30 +249,43 @@ export default function ChatCvScreen() {
     switch (step) {
       case STEP.LOGIN:
         return (
-          <div className="input-area">
-            <div className="text-row">
-              <input
-                type="text"
-                placeholder="Identifiant"
-                value={loginUsername}
-                onChange={(e) => setLoginUsername(e.target.value)}
-              />
-            </div>
-            <div className="text-row">
-              <input
-                type="password"
+          <Stack spacing={1.5} sx={{ maxWidth: 720, mx: 'auto' }}>
+            <TextField
+              placeholder="Identifiant"
+              value={loginUsername}
+              onChange={(e) => setLoginUsername(e.target.value)}
+              size="small"
+              fullWidth
+            />
+            <Stack direction="row" spacing={1}>
+              <TextField
                 placeholder="Mot de passe"
+                type="password"
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                size="small"
+                fullWidth
               />
-              <button className="send-btn" onClick={handleLogin} disabled={loggingIn}>
-                ➤
-              </button>
-            </div>
-            {loginError && <p style={{ color: '#c62828', fontSize: 13 }}>{loginError}</p>}
-            {loggingIn && <div className="spinner" />}
-          </div>
+              <IconButton
+                aria-label="Se connecter"
+                color="primary"
+                onClick={handleLogin}
+                disabled={loggingIn}
+                sx={{ bgcolor: 'primary.main', color: 'white', '&:hover': { bgcolor: 'primary.dark' } }}
+              >
+                <SendIcon fontSize="small" />
+              </IconButton>
+            </Stack>
+            {loginError && (
+              <Typography sx={{ color: 'error.main', fontSize: 13 }}>{loginError}</Typography>
+            )}
+            {loggingIn && (
+              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                <CircularProgress size={22} />
+              </Box>
+            )}
+          </Stack>
         );
       case STEP.WELCOME_CONFIRM:
         return (
@@ -281,22 +307,20 @@ export default function ChatCvScreen() {
         );
       case STEP.ASK_PROJECT_SELECT:
         return (
-          <div className="input-area">
-            <div className="chip-row">
-              {catalogProjects
-                .filter((p) => !projects.some((sel) => sel.projectId === p.id))
-                .map((p) => (
-                  <button
-                    key={p.id}
-                    className="chip"
+          <Stack direction="row" spacing={1} useFlexGap sx={{ maxWidth: 720, mx: 'auto', flexWrap: 'wrap' }}>
+            {catalogProjects
+              .filter((p) => !projects.some((sel) => sel.projectId === p.id))
+              .map((p) => (
+                <Tooltip title={p.description || ''} key={p.id}>
+                  <Chip
+                    label={`${p.client} — ${p.modules.join(', ')} (${p.missionType})`}
+                    clickable
                     onClick={() => handleProjectSelected(p)}
-                    title={p.description}
-                  >
-                    {p.client} — {p.modules.join(', ')} ({p.missionType})
-                  </button>
-                ))}
-            </div>
-          </div>
+                    variant="outlined"
+                  />
+                </Tooltip>
+              ))}
+          </Stack>
         );
       case STEP.ASK_ROLE_POINT:
         return (
@@ -327,123 +351,155 @@ export default function ChatCvScreen() {
         );
       case STEP.ASK_CERTIFICATIONS:
         return (
-          <div className="input-area">
-            <div className="chip-row">
+          <Stack spacing={1.5} sx={{ maxWidth: 720, mx: 'auto' }}>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
               {SAP_CERTIFICATIONS.map((cert) => (
-                <button
+                <Chip
                   key={cert}
-                  className={`chip filter-chip ${selectedCerts.has(cert) ? 'selected' : ''}`}
+                  label={cert}
+                  clickable
                   onClick={() => toggleCert(cert)}
-                >
-                  {cert}
-                </button>
+                  color={selectedCerts.has(cert) ? 'primary' : 'default'}
+                  variant={selectedCerts.has(cert) ? 'filled' : 'outlined'}
+                  sx={{ fontSize: 12.5 }}
+                />
               ))}
-            </div>
-            <button className="btn-primary" onClick={handleCertificationsValidated}>
+            </Stack>
+            <Button variant="contained" onClick={handleCertificationsValidated} sx={{ alignSelf: 'flex-start' }}>
               Valider et générer le CV
-            </button>
-          </div>
+            </Button>
+          </Stack>
         );
       case STEP.SUBMITTING:
         return (
-          <div className="input-area centered">
-            <div className="spinner" />
-          </div>
+          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+            <CircularProgress size={24} />
+          </Box>
         );
       case STEP.DONE:
         return (
-          <div className="input-area">
-            <button className="btn-primary" onClick={resetConversation}>
+          <Box sx={{ maxWidth: 720, mx: 'auto' }}>
+            <Button variant="contained" onClick={resetConversation}>
               Faire une nouvelle mise à jour
-            </button>
-          </div>
+            </Button>
+          </Box>
         );
       default:
         return null;
     }
   }
 
+  const showWelcomeBubble = step === STEP.LOGIN && messages.length === 0;
+
   return (
-    <div className="chat-screen">
-      <header className="app-bar">
-        <img src="/logo_bi2s.webp" alt="Bi2S" height={32} />
-        <span className="app-bar-title">CVthèque</span>
-        <button className="admin-btn" title="Espace Admin" onClick={() => navigate('/admin')}>
-          ⚙ Admin
-        </button>
-      </header>
-      {step === STEP.LOGIN && messages.length === 0 && (
-        <div className="messages">
-          <div className="bubble-row bot">
-            <div className="bubble bot">
-              Bienvenue sur BI2S CVthèque. Connectez-vous avec l'identifiant fourni par l'administrateur.
-            </div>
-          </div>
-        </div>
-      )}
-      {(step !== STEP.LOGIN || messages.length > 0) && (
-        <div className="messages">
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: 'background.default' }}>
+      <AppHeader
+        title="CVthèque"
+        actions={
+          <Tooltip title="Espace Admin">
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<SettingsIcon fontSize="small" />}
+              onClick={() => navigate('/admin')}
+            >
+              Admin
+            </Button>
+          </Tooltip>
+        }
+      />
+      <Box sx={{ flex: 1, overflowY: 'auto', p: 3 }}>
+        <Box sx={{ maxWidth: 720, mx: 'auto', display: 'flex', flexDirection: 'column' }}>
+          {showWelcomeBubble && (
+            <Bubble fromBot text="Bienvenue sur BI2S CVthèque. Connectez-vous avec l'identifiant fourni par l'administrateur." />
+          )}
           {messages.map((m, i) => (
-            <div key={i} className={`bubble-row ${m.fromBot ? 'bot' : 'user'}`}>
-              <div className={`bubble ${m.fromBot ? 'bot' : 'user'}`}>{m.text}</div>
-            </div>
+            <Bubble key={i} fromBot={m.fromBot} text={m.text} />
           ))}
           <div ref={messagesEndRef} />
-        </div>
-      )}
-      <div className="input-container">{renderInputArea()}</div>
-    </div>
+        </Box>
+      </Box>
+      <Box sx={{ borderTop: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', p: 2.5 }}>
+        {renderInputArea()}
+      </Box>
+    </Box>
+  );
+}
+
+function Bubble({ fromBot, text }) {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: fromBot ? 'flex-start' : 'flex-end', my: 0.6 }}>
+      <Box
+        sx={{
+          maxWidth: '75%',
+          px: 2,
+          py: 1.3,
+          borderRadius: 4,
+          fontSize: 14.5,
+          lineHeight: 1.45,
+          whiteSpace: 'pre-wrap',
+          boxShadow: '0 1px 2px rgba(23,23,31,0.05)',
+          ...(fromBot
+            ? {
+                bgcolor: 'background.paper',
+                border: '1px solid',
+                borderColor: 'divider',
+                borderBottomLeftRadius: 4,
+              }
+            : {
+                bgcolor: 'primary.main',
+                color: 'white',
+                borderBottomRightRadius: 4,
+              }),
+        }}
+      >
+        {text}
+      </Box>
+    </Box>
   );
 }
 
 function TextRow({ placeholder, value, onChange, onSubmit, multiline }) {
   return (
-    <div className="text-row">
-      {multiline ? (
-        <textarea
-          placeholder={placeholder}
-          value={value}
-          rows={3}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      ) : (
-        <input
-          type="text"
-          placeholder={placeholder}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              onSubmit(value);
-              onChange('');
-            }
-          }}
-        />
-      )}
-      <button
-        className="send-btn"
+    <Stack direction="row" spacing={1} sx={{ maxWidth: 720, mx: 'auto', alignItems: 'flex-end' }}>
+      <TextField
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        multiline={multiline}
+        rows={multiline ? 3 : 1}
+        size="small"
+        fullWidth
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !multiline) {
+            onSubmit(value);
+            onChange('');
+          }
+        }}
+      />
+      <IconButton
+        aria-label="Envoyer"
         onClick={() => {
           onSubmit(value);
           onChange('');
         }}
+        sx={{ bgcolor: 'primary.main', color: 'white', '&:hover': { bgcolor: 'primary.dark' } }}
       >
-        ➤
-      </button>
-    </div>
+        <SendIcon fontSize="small" />
+      </IconButton>
+    </Stack>
   );
 }
 
 function YesNo({ yesLabel, noLabel, onYes, onNo }) {
   return (
-    <div className="input-area">
-      <div className="chip-row">
-        <button className="btn-primary" onClick={onYes}>
-          {yesLabel}
-        </button>
-        <button className="btn-outline" onClick={onNo}>
-          {noLabel}
-        </button>
-      </div>
-    </div>
+    <Stack direction="row" spacing={1.5} sx={{ maxWidth: 720, mx: 'auto' }}>
+      <Button variant="contained" onClick={onYes}>
+        {yesLabel}
+      </Button>
+      <Button variant="outlined" onClick={onNo}>
+        {noLabel}
+      </Button>
+    </Stack>
   );
 }
