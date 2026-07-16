@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { extractRfpFields, DOCX_MIMETYPE, XLSX_MIMETYPES } = require('../rfpExtractor');
-const { generateProposalDocx } = require('../rfpDocx');
+const { generateRfpPptx } = require('../rfpPptx');
 const buildStaffingRouter = require('./staffing');
 const { rankConsultants, fetchStaffingPool, DEFAULT_WEIGHTS } = buildStaffingRouter;
 const { parseJsonColumn } = require('../utils');
@@ -390,18 +390,17 @@ module.exports = function buildRfpRouter({ pool, requireAdmin }) {
 
     const extracted = parseJsonColumn(proposal.extracted_data) || {};
 
-    const buffer = await generateProposalDocx({
+    const buffer = await generateRfpPptx({
       title: proposal.title,
       extractedData: extracted,
       boilerplateSections,
       consultants,
-      pastProjects: [],
       complianceRows: [],
       financialOfferText: null,
     });
 
-    res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.set('Content-Disposition', `attachment; filename="${proposal.title.replace(/[^a-zA-Z0-9]/g, '_')}.docx"`);
+    res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+    res.set('Content-Disposition', `attachment; filename="${proposal.title.replace(/[^a-zA-Z0-9]/g, '_')}.pptx"`);
     res.send(buffer);
   });
 

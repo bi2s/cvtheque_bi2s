@@ -154,8 +154,12 @@ function addStageBadges(slide, tags, x, y) {
   }
 }
 
-function addFooter(slide, data, pageNum) {
-  slide.addText(`${data.name} — Dossier de compétences SAP S/4HANA`, {
+// leftText is caller-supplied (not derived from a fixed shape) so this same
+// footer serves both the CV deck (consultant name + "Dossier de
+// compétences") and the RFP deck (proposal title) without a second
+// near-identical function.
+function addFooter(slide, leftText, pageNum) {
+  slide.addText(leftText, {
     x: 0.6,
     y: 7.15,
     w: 7,
@@ -347,7 +351,7 @@ function addProfileSlide(pres, data, pageNum) {
     }
   });
 
-  addFooter(slide, data, pageNum);
+  addFooter(slide, `${data.name} — Dossier de compétences SAP S/4HANA`, pageNum);
 }
 
 function addExperienceSlides(pres, data, startPage) {
@@ -470,7 +474,7 @@ function addExperienceSlides(pres, data, startPage) {
       }
     });
 
-    addFooter(slide, data, startPage + idx);
+    addFooter(slide, `${data.name} — Dossier de compétences SAP S/4HANA`, startPage + idx);
   });
 
   return chunks.length;
@@ -617,7 +621,7 @@ function addFormationSlide(pres, data, pageNum) {
     color: COLOR.turquoise,
   });
 
-  addFooter(slide, data, pageNum);
+  addFooter(slide, `${data.name} — Dossier de compétences SAP S/4HANA`, pageNum);
 }
 
 function addBackCoverSlide(pres) {
@@ -663,4 +667,24 @@ async function generatePptx(data, outputPath, { photoPath } = {}) {
   await pres.writeFile({ fileName: outputPath });
 }
 
-module.exports = { generatePptx };
+module.exports = {
+  generatePptx,
+  // Shared building blocks, reused by rfpPptx.js so the RFP deck renders
+  // with the exact same visual template (colors, font, cards, pills,
+  // lockup, footer, gradient cover/back-cover) as the CV export rather
+  // than a second, independently-drifting brand.
+  COLOR,
+  FONT,
+  ASSETS,
+  GRADIENT_BG,
+  LOCKUP_WHITE,
+  LOCKUP_COLOR,
+  LOCKUP_RATIO,
+  CONTACT_EMAIL,
+  addLockup,
+  addCard,
+  addPill,
+  addPillRow,
+  addFooter,
+  addBackCoverSlide,
+};

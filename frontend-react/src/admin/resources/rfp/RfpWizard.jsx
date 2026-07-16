@@ -368,7 +368,7 @@ function ExportTab({ proposalId }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'proposition.docx';
+    a.download = 'proposition.pptx';
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -386,9 +386,9 @@ function ExportTab({ proposalId }) {
   return (
     <Stack spacing={3} sx={{ maxWidth: 700 }}>
       <Stack spacing={1.5}>
-        <Typography sx={{ fontSize: 12, color: 'text.disabled', fontWeight: 700 }}>EXPORT WORD</Typography>
+        <Typography sx={{ fontSize: 12, color: 'text.disabled', fontWeight: 700 }}>EXPORT PPTX</Typography>
         <Button variant="contained" startIcon={<DownloadIcon />} onClick={download} sx={{ alignSelf: 'flex-start' }}>
-          Télécharger le document (.docx)
+          Télécharger la présentation (.pptx)
         </Button>
       </Stack>
 
