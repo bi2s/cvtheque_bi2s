@@ -30,6 +30,14 @@ export default function RejectDialog({ changeRequestId }) {
       refresh();
     } catch (e) {
       notify(e.message, { type: 'error' });
+      // Same stale-tab case as ApproveButton: a newer submission from the
+      // same consultant may have superseded this request while the admin
+      // had it open. Don't leave them stuck here with no next step.
+      if (e.message === 'Cette demande a déjà été traitée') {
+        setOpen(false);
+        redirect('list', 'changeRequests');
+        refresh();
+      }
     } finally {
       setLoading(false);
     }

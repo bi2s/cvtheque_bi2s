@@ -1,10 +1,64 @@
+import { useState } from 'react';
 import { Show, useShowContext } from 'react-admin';
-import { Box, Typography, Paper, Stack, Chip, CircularProgress } from '@mui/material';
+import {
+  Box,
+  Typography,
+  Paper,
+  Stack,
+  Chip,
+  CircularProgress,
+  Avatar,
+  Button,
+  Dialog,
+  AppBar,
+  Toolbar,
+  IconButton,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  Link,
+} from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
+import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
+import CheckIcon from '@mui/icons-material/Check';
 import ResetPasswordButton from './ResetPasswordButton';
 import DownloadCvButton from './DownloadCvButton';
+import PhotoUploadButton from './PhotoUploadButton';
+import useAdminPhotoUrl from './useAdminPhotoUrl';
+import DepartureSection from './DepartureSection';
+import ConsultantFollowupSection from './ConsultantFollowupSection';
+import CvPreview from '../../../CvPreview';
+
+// Tab-separated rows paste as real cells into Excel/Word, unlike a plain
+// text dump - same convention as CvPreview.jsx's copy buttons.
+function CopyTableButton({ headers, rows }) {
+  const [copied, setCopied] = useState(false);
+  function handleCopy() {
+    const text = [headers, ...rows].map((row) => row.join('\t')).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  }
+  return (
+    <Button
+      size="small"
+      startIcon={copied ? <CheckIcon fontSize="small" /> : <ContentCopyOutlinedIcon fontSize="small" />}
+      onClick={handleCopy}
+      sx={{ ml: 1.5 }}
+    >
+      {copied ? 'Copié' : 'Copier'}
+    </Button>
+  );
+}
 
 function ConsultantShowContent() {
   const { record, isPending } = useShowContext();
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const photoUrl = useAdminPhotoUrl(record?.id, record?.hasPhoto);
+
   // react-admin may render with a partial cached record (from the list, which
   // lacks projects/certifications) before the full getOne response arrives.
   if (isPending || !record || record.projects === undefined) {
@@ -16,14 +70,38 @@ function ConsultantShowContent() {
   }
 
   return (
-    <Box sx={{ p: 3, maxWidth: 640 }}>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2 }}>
+    <Box sx={{ p: 3, maxWidth: 860 }}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+        <Avatar src={photoUrl || undefined} sx={{ width: 44, height: 44 }}>
+          {record.name?.[0]}
+        </Avatar>
         <Typography variant="h6" sx={{ flex: 1 }}>
           {record.name} — {record.title}
         </Typography>
+        <Button variant="outlined" size="small" onClick={() => setPreviewOpen(true)}>
+          Aperçu du CV
+        </Button>
+        <PhotoUploadButton />
         <DownloadCvButton />
         <ResetPasswordButton />
       </Stack>
+
+      <Dialog open={previewOpen} onClose={() => setPreviewOpen(false)} fullScreen>
+        <AppBar position="sticky" color="default" elevation={1}>
+          <Toolbar>
+            <Typography sx={{ flex: 1 }}>Aperçu du CV — {record.name}</Typography>
+            <IconButton onClick={() => setPreviewOpen(false)}>
+              <CloseIcon />
+            </IconButton>
+          </Toolbar>
+        </AppBar>
+        <Box sx={{ overflowY: 'auto' }}>
+          <CvPreview detail={record} photoUrl={photoUrl} />
+        </Box>
+      </Dialog>
+
+      <DepartureSection consultant={record} />
+      <ConsultantFollowupSection consultant={record} />
 
       <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
         Projets
@@ -57,19 +135,102 @@ function ConsultantShowContent() {
         ))}
       </Stack>
 
-      <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
-        Certifications
-      </Typography>
-      {record.certifications.length === 0 && (
+      <Stack direction="row" sx={{ alignItems: 'center' }}>
+        <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
+          Formations / Diplômes
+        </Typography>
+        {(record.formationDetails || []).length > 0 && (
+          <CopyTableButton
+            headers={['Date', 'Diplôme(s) obtenu(s)', 'Établissement / Institut', 'Spécialité']}
+            rows={record.formationDetails.map((f) => [f.obtainedDate || f.year || '', f.degree || '', f.school || '', f.fieldOfStudy || ''])}
+          />
+        )}
+      </Stack>
+      {(record.formationDetails || []).length === 0 && (
+        <Typography sx={{ color: 'text.disabled', mt: 1, mb: 3 }}>Aucune</Typography>
+      )}
+      {(record.formationDetails || []).length > 0 && (
+        <Table size="small" sx={{ mb: 3, mt: 1 }}>
+          <TableHead>
+            <TableRow>
+              <TableCell>Date</TableCell>
+              <TableCell>Diplôme(s) obtenu(s)</TableCell>
+              <TableCell>Établissement / Institut</TableCell>
+              <TableCell>Spécialité</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {record.formationDetails.map((f) => (
+              <TableRow key={f.id}>
+                <TableCell>{f.obtainedDate || f.year}</TableCell>
+                <TableCell>{f.degree}</TableCell>
+                <TableCell>{f.school}</TableCell>
+                <TableCell>{f.fieldOfStudy || '—'}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+
+      <Stack direction="row" sx={{ alignItems: 'center' }}>
+        <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
+          Certifications
+        </Typography>
+        {(record.certificationDetails || []).length > 0 && (
+          <CopyTableButton
+            headers={['Date', 'Certification', 'N° Référence', 'Validité (Années)', 'Organisme']}
+            rows={record.certificationDetails.map((c) => [
+              c.obtainedDate || '',
+              c.name || '',
+              c.certificateNumber || c.credlyUrl || c.verificationUrl || '',
+              c.validityYears ? `${c.validityYears} an${c.validityYears > 1 ? 's' : ''}` : '',
+              c.issuingBody || '',
+            ])}
+          />
+        )}
+      </Stack>
+      {(record.certificationDetails || []).length === 0 && (
         <Typography sx={{ color: 'text.disabled', mt: 1 }}>Aucune</Typography>
       )}
-      <Stack spacing={0.5} sx={{ mt: 1 }}>
-        {record.certifications.map((c) => (
-          <Typography key={c} sx={{ fontSize: 13.5 }}>
-            • {c}
-          </Typography>
-        ))}
-      </Stack>
+      {(record.certificationDetails || []).length > 0 && (
+        <Table size="small" sx={{ mt: 1 }}>
+          <TableHead>
+            <TableRow>
+              <TableCell>Date</TableCell>
+              <TableCell>Certification</TableCell>
+              <TableCell>N° Référence</TableCell>
+              <TableCell>Validité (Années)</TableCell>
+              <TableCell>Organisme</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {record.certificationDetails.map((c) => {
+              const reference = c.certificateNumber || c.credlyUrl || c.verificationUrl;
+              return (
+                <TableRow key={c.id}>
+                  <TableCell>{c.obtainedDate || '—'}</TableCell>
+                  <TableCell>{c.name}</TableCell>
+                  <TableCell>
+                    {reference ? (
+                      /^https?:\/\//i.test(reference) ? (
+                        <Link href={reference} target="_blank" rel="noreferrer">
+                          Voir le certificat
+                        </Link>
+                      ) : (
+                        reference
+                      )
+                    ) : (
+                      '—'
+                    )}
+                  </TableCell>
+                  <TableCell>{c.validityYears ? `${c.validityYears} an${c.validityYears > 1 ? 's' : ''}` : '—'}</TableCell>
+                  <TableCell>{c.issuingBody || '—'}</TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
     </Box>
   );
 }

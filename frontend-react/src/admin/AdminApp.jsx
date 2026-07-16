@@ -1,12 +1,28 @@
-import { Admin, Resource } from 'react-admin';
+import { Admin, Resource, CustomRoutes } from 'react-admin';
+import { Route } from 'react-router-dom';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutlineOutlined';
 import WorkOutlineIcon from '@mui/icons-material/WorkOutlineOutlined';
 import PendingActionsOutlinedIcon from '@mui/icons-material/PendingActionsOutlined';
+import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
+import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
+import ChecklistOutlinedIcon from '@mui/icons-material/ChecklistOutlined';
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
+import QueryStatsOutlinedIcon from '@mui/icons-material/QueryStatsOutlined';
+import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
+import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined';
+import PersonSearchOutlinedIcon from '@mui/icons-material/PersonSearchOutlined';
+import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
+import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined';
+import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
+import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
 import authProvider from './authProvider';
 import dataProvider from './dataProvider';
 import i18nProvider from './i18nProvider';
 import Login from './Login';
-import Dashboard from './Dashboard';
+import RoleAwareDashboard from './RoleAwareDashboard';
+import CustomLayout from './CustomLayout';
 import ConsultantList from './resources/consultants/ConsultantList';
 import ConsultantShow from './resources/consultants/ConsultantShow';
 import ConsultantEdit from './resources/consultants/ConsultantEdit';
@@ -16,7 +32,258 @@ import ProjectEdit from './resources/catalogProjects/ProjectEdit';
 import ProjectCreate from './resources/catalogProjects/ProjectCreate';
 import ChangeRequestList from './resources/changeRequests/ChangeRequestList';
 import ChangeRequestShow from './resources/changeRequests/ChangeRequestShow';
+import CandidateList from './resources/candidates/CandidateList';
+import CandidateShow from './resources/candidates/CandidateShow';
+import CandidateEdit from './resources/candidates/CandidateEdit';
+import CandidateCvUpload from './resources/candidates/CandidateCvUpload';
+import PipelineStagesAdmin from './resources/pipelineStages/PipelineStagesAdmin';
+import ReferentialsAdmin from './resources/projectReferentials/ReferentialsAdmin';
+import TaskLibraryAdmin from './resources/projectReferentials/TaskLibraryAdmin';
+import ArchivedConsultantsList from './resources/consultants/ArchivedConsultantsList';
+import HrDashboard from './resources/hrDashboard/HrDashboard';
+import AlertsCenter from './resources/alerts/AlertsCenter';
+import StaffingSearch from './resources/staffing/StaffingSearch';
+import ScopeAdmin from './resources/practiceManagers/ScopeAdmin';
+import MyConsultantProfile from './resources/practiceManagers/MyConsultantProfile';
+import ManagerFollowups from './resources/practiceManagers/ManagerFollowups';
+import StaffingPlanning from './resources/practiceManagers/StaffingPlanning';
+import RfpProposalList from './resources/rfp/RfpProposalList';
+import RfpWizard from './resources/rfp/RfpWizard';
+import RfpBoilerplateAdmin from './resources/rfp/RfpBoilerplateAdmin';
+import AdministrativeTracking from './resources/administrativeTracking/AdministrativeTracking';
 import theme from '../theme';
+
+// 'manager'-role admins only ever see their own scoped surface - their own
+// linked consultant profile, a follow-ups view, and a staffing-planning
+// view, all scoped to their module's consultants; 'admin'/'rh' see every
+// resource exactly as before this section existed. Per the practice-manager
+// scope reduction, this deliberately no longer includes availability/
+// skills/certifications/leaves management for OTHER consultants (removed -
+// that surface lived in ScopedConsultantList/ManageConsultantDialog).
+// staffingPlanning is a deliberate, narrow exception to that reduction: the
+// user explicitly asked for managers to keep the ability to schedule their
+// consultants onto projects for date ranges ("c'est le responsable qui
+// affecte ça"), just not the broader availability/skills/certs surface.
+function managerResources() {
+  return [
+    <Resource
+      key="myConsultant"
+      name="myConsultant"
+      list={MyConsultantProfile}
+      icon={PeopleOutlineIcon}
+      options={{ label: 'Mon profil' }}
+    />,
+    <Resource
+      key="managerFollowups"
+      name="managerFollowups"
+      list={ManagerFollowups}
+      icon={TaskAltOutlinedIcon}
+      options={{ label: 'Suivi consultants' }}
+    />,
+    <Resource
+      key="staffingPlanning"
+      name="staffingPlanning"
+      list={StaffingPlanning}
+      icon={EventNoteOutlinedIcon}
+      options={{ label: 'Planning' }}
+    />,
+  ];
+}
+
+// 'responsable_mission'/'chef_projet' are scoped to Planning only, and only
+// their own missions within it ("Responsable de mission"/"Chef de projet"
+// as real login roles, read-only, backend-enforced by filtering
+// staffing_assignments on mission_responsible_admin_id/
+// project_manager_admin_id === req.admin.id). Same single-item-resource
+// shape as managerResources() above.
+function missionRoleResources() {
+  return [
+    <Resource
+      key="staffingPlanning"
+      name="staffingPlanning"
+      list={StaffingPlanning}
+      icon={EventNoteOutlinedIcon}
+      options={{ label: 'Planning' }}
+    />,
+  ];
+}
+
+// 'rh'-role admins are scoped to recruitment + the HR-dashboard/alerts/
+// staffing surface only ("un RH a le droit de consulter que les
+// candidatures et sa partie RH") - a real backend-enforced restriction
+// (auth.js's requireAdminOrRh), not just a hidden sidebar; these are the
+// same components fullResources() below registers for admin/rh, just a
+// subset.
+function rhResources() {
+  return [
+    <Resource
+      key="candidates"
+      name="candidates"
+      list={CandidateList}
+      show={CandidateShow}
+      edit={CandidateEdit}
+      create={CandidateCvUpload}
+      icon={BadgeOutlinedIcon}
+      options={{ label: 'Candidats' }}
+    />,
+    <Resource key="pipelineStages" name="pipelineStages" list={PipelineStagesAdmin} icon={AccountTreeOutlinedIcon} options={{ label: 'Pipeline' }} />,
+    <Resource key="hrDashboard" name="hrDashboard" list={HrDashboard} icon={QueryStatsOutlinedIcon} options={{ label: 'Tableau de bord RH' }} />,
+    <Resource key="alerts" name="alerts" list={AlertsCenter} icon={NotificationsActiveOutlinedIcon} options={{ label: "Centre d'alertes" }} />,
+    <Resource
+      key="staffingSearch"
+      name="staffingSearch"
+      list={StaffingSearch}
+      icon={PersonSearchOutlinedIcon}
+      options={{ label: 'Recherche de staffing' }}
+    />,
+    <Resource
+      key="staffingPlanning"
+      name="staffingPlanning"
+      list={StaffingPlanning}
+      icon={EventNoteOutlinedIcon}
+      options={{ label: 'Planning' }}
+    />,
+  ];
+}
+
+// 'pmo'-role admins are scoped to the project surface - catalogue projets +
+// appels d'offres ("Appels d'offres rentre dans le volet de projet, un
+// chef de projet/PMO assistant doit avoir l'accès à ces détails"). Same
+// backend-enforced pattern as rhResources() above (auth.js's
+// requireAdminOrPmo), not just a hidden sidebar.
+function pmoResources() {
+  return [
+    <Resource
+      key="catalogProjects"
+      name="catalogProjects"
+      list={ProjectList}
+      edit={ProjectEdit}
+      create={ProjectCreate}
+      icon={WorkOutlineIcon}
+      options={{ label: 'Catalogue Projets' }}
+    />,
+    <Resource key="rfp" name="rfp" list={RfpProposalList} icon={DescriptionOutlinedIcon} options={{ label: 'Appels d\'offres' }} />,
+    <CustomRoutes key="rfpWizardRoute">
+      <Route path="/rfp/:id" element={<RfpWizard />} />
+    </CustomRoutes>,
+    <Resource
+      key="rfpBoilerplate"
+      name="rfpBoilerplate"
+      list={RfpBoilerplateAdmin}
+      icon={ArticleOutlinedIcon}
+      options={{ label: 'Sections types (RFP)' }}
+    />,
+  ];
+}
+
+function fullResources(role) {
+  return [
+    <Resource
+      key="consultants"
+      name="consultants"
+      list={ConsultantList}
+      show={ConsultantShow}
+      edit={ConsultantEdit}
+      create={ConsultantCreate}
+      icon={PeopleOutlineIcon}
+      options={{ label: 'Consultants' }}
+    />,
+    <Resource
+      key="catalogProjects"
+      name="catalogProjects"
+      list={ProjectList}
+      edit={ProjectEdit}
+      create={ProjectCreate}
+      icon={WorkOutlineIcon}
+      options={{ label: 'Catalogue Projets' }}
+    />,
+    <Resource
+      key="changeRequests"
+      name="changeRequests"
+      list={ChangeRequestList}
+      show={ChangeRequestShow}
+      icon={PendingActionsOutlinedIcon}
+      options={{ label: 'Validations' }}
+    />,
+    <Resource
+      key="candidates"
+      name="candidates"
+      list={CandidateList}
+      show={CandidateShow}
+      edit={CandidateEdit}
+      create={CandidateCvUpload}
+      icon={BadgeOutlinedIcon}
+      options={{ label: 'Candidats' }}
+    />,
+    <Resource key="pipelineStages" name="pipelineStages" list={PipelineStagesAdmin} icon={AccountTreeOutlinedIcon} options={{ label: 'Pipeline' }} />,
+    <Resource
+      key="projectReferentials"
+      name="projectReferentials"
+      list={ReferentialsAdmin}
+      icon={TuneOutlinedIcon}
+      options={{ label: 'Référentiels' }}
+    />,
+    <Resource
+      key="taskLibrary"
+      name="taskLibrary"
+      list={TaskLibraryAdmin}
+      icon={ChecklistOutlinedIcon}
+      options={{ label: 'Bibliothèque de tâches' }}
+    />,
+    <Resource
+      key="archivedConsultants"
+      name="archivedConsultants"
+      list={ArchivedConsultantsList}
+      icon={Inventory2OutlinedIcon}
+      options={{ label: 'Consultants archivés' }}
+    />,
+    <Resource key="hrDashboard" name="hrDashboard" list={HrDashboard} icon={QueryStatsOutlinedIcon} options={{ label: 'Tableau de bord RH' }} />,
+    <Resource key="alerts" name="alerts" list={AlertsCenter} icon={NotificationsActiveOutlinedIcon} options={{ label: "Centre d'alertes" }} />,
+    <Resource
+      key="staffingSearch"
+      name="staffingSearch"
+      list={StaffingSearch}
+      icon={PersonSearchOutlinedIcon}
+      options={{ label: 'Recherche de staffing' }}
+    />,
+    <Resource
+      key="staffingPlanning"
+      name="staffingPlanning"
+      list={StaffingPlanning}
+      icon={EventNoteOutlinedIcon}
+      options={{ label: 'Planning' }}
+    />,
+    <Resource key="rfp" name="rfp" list={RfpProposalList} icon={DescriptionOutlinedIcon} options={{ label: 'Appels d\'offres' }} />,
+    <CustomRoutes key="rfpWizardRoute">
+      <Route path="/rfp/:id" element={<RfpWizard />} />
+    </CustomRoutes>,
+    <Resource
+      key="rfpBoilerplate"
+      name="rfpBoilerplate"
+      list={RfpBoilerplateAdmin}
+      icon={ArticleOutlinedIcon}
+      options={{ label: 'Sections types (RFP)' }}
+    />,
+    role === 'admin' && (
+      <Resource
+        key="scopeAdmin"
+        name="scopeAdmin"
+        list={ScopeAdmin}
+        icon={AdminPanelSettingsOutlinedIcon}
+        options={{ label: 'Rôles & périmètres' }}
+      />
+    ),
+    role === 'admin' && (
+      <Resource
+        key="administrativeTracking"
+        name="administrativeTracking"
+        list={AdministrativeTracking}
+        icon={AssignmentOutlinedIcon}
+        options={{ label: 'Suivi Administratif' }}
+      />
+    ),
+  ].filter(Boolean);
+}
 
 export default function AdminApp() {
   return (
@@ -28,33 +295,17 @@ export default function AdminApp() {
       dataProvider={dataProvider}
       i18nProvider={i18nProvider}
       loginPage={Login}
-      dashboard={Dashboard}
+      dashboard={RoleAwareDashboard}
+      layout={CustomLayout}
       theme={theme}
     >
-      <Resource
-        name="consultants"
-        list={ConsultantList}
-        show={ConsultantShow}
-        edit={ConsultantEdit}
-        create={ConsultantCreate}
-        icon={PeopleOutlineIcon}
-        options={{ label: 'Consultants' }}
-      />
-      <Resource
-        name="catalogProjects"
-        list={ProjectList}
-        edit={ProjectEdit}
-        create={ProjectCreate}
-        icon={WorkOutlineIcon}
-        options={{ label: 'Catalogue Projets' }}
-      />
-      <Resource
-        name="changeRequests"
-        list={ChangeRequestList}
-        show={ChangeRequestShow}
-        icon={PendingActionsOutlinedIcon}
-        options={{ label: 'Validations' }}
-      />
+      {(permissions) => {
+        if (permissions?.role === 'manager') return managerResources();
+        if (permissions?.role === 'rh') return rhResources();
+        if (permissions?.role === 'pmo') return pmoResources();
+        if (['responsable_mission', 'chef_projet'].includes(permissions?.role)) return missionRoleResources();
+        return fullResources(permissions?.role);
+      }}
     </Admin>
   );
 }

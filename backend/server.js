@@ -2,24 +2,65 @@ require('dotenv').config();
 
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 
+const multer = require('multer');
+const archiver = require('archiver');
+
 const { pool, initSchema } = require('./db');
 const { generatePptx } = require('./pptx');
-const { requireAdmin, requireConsultant, seedAdminFromEnv, parseBasicAuth } = require('./auth');
+const {
+  requireAdmin,
+  requireAdminOrRh,
+  requireAdminOrPmo,
+  requireAdminOrManager,
+  requireConsultantOrOwnAdmin,
+  seedAdminFromEnv,
+  parseBasicAuth,
+  consultantModuleIds,
+  assertConsultantInScope,
+} = require('./auth');
 const { buildBreadcrumb, isDescendant } = require('./projectTree');
-const { notifyNewChangeRequest } = require('./notifications');
+const { notifyNewChangeRequest, notifyDeparture, notifyAdmins, notifyModuleManagers } = require('./notifications');
+const { sendServerError, isPositiveInt, parseJsonColumn } = require('./utils');
+const buildCandidatesRouter = require('./routes/candidates');
+const buildProjectReferentialsRouter = require('./routes/projectReferentials');
+const buildConsultantReferentialsRouter = require('./routes/consultantReferentials');
+const buildDeparturesRouter = require('./routes/departures');
+const buildAlertsRouter = require('./routes/alerts');
+const { computeAlerts } = buildAlertsRouter;
+const buildStaffingRouter = require('./routes/staffing');
+const buildPracticeManagersRouter = require('./routes/practiceManagers');
+const buildRfpRouter = require('./routes/rfp');
+const buildAdministrativeTrackingRouter = require('./routes/administrativeTracking');
+
+const STAGE_TAGS = ['Explore', 'Realize', 'Deploy', 'Run'];
+const SKILL_CATEGORIES = ['module', 'flow', 'technology', 'methodology'];
+// Same constants as frontend-react/src/experienceTemplate.js - duplicated
+// server-side for payload validation, same precedent as STAGE_TAGS above
+// (this app doesn't share modules across the frontend/backend boundary).
+const EXPERIENCE_LEVELS = ['Junior', 'Mid-Senior', 'Senior', 'Expert Lead'];
+const EXPERIENCE_CERTIFICATIONS = ['SAP Activate', 'SAP S/4HANA', 'ITIL', 'Scrum', 'Solution Manager', 'Autre'];
+const ALL_EXPERIENCE_PHASES = [
+  'Préparation', 'Fit-to-Standard', 'Conception', 'Paramétrage', 'Développement', 'Tests', 'Migration', 'Cutover', 'Go-Live', 'Hypercare',
+  'Gestion incidents', 'Analyse anomalies', 'Corrections', 'Evolutions', 'Monitoring', 'Documentation',
+  'Ateliers métier', 'Analyse besoins', 'Cahier des charges', 'Spécifications', 'Recette', 'Formation',
+];
+// Fixed watch-list, not a referential - "compétences rares" per the HR
+// dashboard section (same list used in routes/staffing.js's rare-module flag).
+const RARE_MODULES = ['IBP', 'EWM', 'BTP', 'GTS', 'TM', 'MDG', 'BRIM', 'IS-U', 'PP-DS'];
 
 const PORT = process.env.PORT || 8000;
 
 const CORS_ORIGINS = (
   process.env.CORS_ORIGINS ||
   'http://localhost,http://localhost:5173,http://localhost:8765,' +
-    'http://localhost:8766,https://cvtheque.bestissolutions.dz'
+    'http://localhost:8766,https://ops.bestissolutions.dz'
 )
   .split(',')
   .map((o) => o.trim())
@@ -27,6 +68,15 @@ const CORS_ORIGINS = (
 
 const OUTPUT_DIR = path.join(__dirname, 'generated_cvs');
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
+const UPLOADS_DIR = path.join(__dirname, 'uploads', 'photos');
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+const PHOTO_MIME_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+const uploadPhoto = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, Object.prototype.hasOwnProperty.call(PHOTO_MIME_EXT, file.mimetype)),
+});
 
 const app = express();
 
@@ -40,6 +90,13 @@ app.use(
     hsts: { maxAge: 15552000, includeSubDomains: false },
   })
 );
+// Internal staffing tool - every page (including the public project catalog
+// endpoint) carries consultant/client data that must never be search-indexed,
+// regardless of what robots.txt says (some crawlers ignore it).
+app.use((req, res, next) => {
+  res.set('X-Robots-Tag', 'noindex, nofollow');
+  next();
+});
 app.use(express.json({ limit: '256kb' }));
 app.use(
   cors({
@@ -47,6 +104,19 @@ app.use(
     credentials: true,
   })
 );
+
+// Scoped to just /assets (the built frontend bundle + pptx.js's branding
+// images) rather than express.static(__dirname) - this app's root also
+// holds server.js/db.js/auth.js/routes/etc, and a broad static mount would
+// serve that source code to anyone who requests it by path. Some hosting
+// setups proxy static-looking requests (e.g. *.js) through to this app
+// instead of serving them directly from disk (observed: identical file
+// layout, one deployment served /assets/*.js as a real static file without
+// ever reaching Node, another routed it into this app's SPA catch-all
+// below, returning index.html instead of the actual bundle) - serving
+// /assets ourselves makes the app correct either way, independent of that
+// web-server-level behavior.
+app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
 // Every /api response is per-user authenticated data (HTTP Basic, no
 // session/cookie the browser or a shared proxy could key a cache on) - it
@@ -104,15 +174,11 @@ function outputPathFor(consultantId) {
   return path.join(OUTPUT_DIR, `cv_${consultantId}.pptx`);
 }
 
-// Logs the full error server-side (with context) but never echoes internal
-// details (SQL fragments, file paths, driver internals) back to the client.
-function sendServerError(res, error, context) {
-  console.error(`[error] ${context}:`, error);
-  res.status(500).json({ detail: 'Une erreur interne est survenue. Merci de réessayer.' });
-}
-
-function isPositiveInt(value) {
-  return /^\d+$/.test(String(value));
+// Only used server-side to feed the pptx generator - never exposed via the
+// API (fetchConsultantDetail only ever returns the boolean hasPhoto).
+async function photoAbsolutePathFor(consultantId) {
+  const [[row]] = await pool.query('SELECT photo_path FROM consultants WHERE id = ?', [consultantId]);
+  return row && row.photo_path ? path.join(__dirname, row.photo_path) : null;
 }
 
 // Validates every route's :id param in one place (Express calls this
@@ -120,6 +186,18 @@ function isPositiveInt(value) {
 // repeating the same check across a dozen routes. Rejects non-numeric IDs
 // before they ever reach a query or a file path.
 app.param('id', (req, res, next, value) => {
+  if (!isPositiveInt(value)) {
+    return res.status(400).json({ detail: 'Identifiant invalide.' });
+  }
+  next();
+});
+app.param('historyId', (req, res, next, value) => {
+  if (!isPositiveInt(value)) {
+    return res.status(400).json({ detail: 'Identifiant invalide.' });
+  }
+  next();
+});
+app.param('docId', (req, res, next, value) => {
   if (!isPositiveInt(value)) {
     return res.status(400).json({ detail: 'Identifiant invalide.' });
   }
@@ -137,7 +215,7 @@ function validateGenerateCvPayload(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return 'Données invalides.';
   }
-  const { title, projects, certifications } = body;
+  const { title, projects, certifications, certificationDetails, profileSummary, languages, formations, skills } = body;
 
   if (typeof title !== 'string' || !title.trim() || title.length > 255) {
     return 'Titre invalide (requis, 255 caractères maximum).';
@@ -157,6 +235,30 @@ function validateGenerateCvPayload(body) {
         return 'Un point de rôle est invalide (2000 caractères maximum).';
       }
     }
+    if (p.stageTags !== undefined) {
+      if (!Array.isArray(p.stageTags) || p.stageTags.length > 4 || p.stageTags.some((t) => !STAGE_TAGS.includes(t))) {
+        return 'Étape de méthodologie invalide.';
+      }
+    }
+    if (p.experienceLevel !== undefined && p.experienceLevel !== null && !EXPERIENCE_LEVELS.includes(p.experienceLevel)) {
+      return 'Niveau d\'expérience invalide.';
+    }
+    if (p.experiencePhases !== undefined) {
+      if (
+        !Array.isArray(p.experiencePhases) ||
+        p.experiencePhases.length > 10 ||
+        p.experiencePhases.some((ph) => !ALL_EXPERIENCE_PHASES.includes(ph))
+      ) {
+        return 'Phase de projet invalide.';
+      }
+    }
+    if (
+      p.experienceCertification !== undefined &&
+      p.experienceCertification !== null &&
+      !EXPERIENCE_CERTIFICATIONS.includes(p.experienceCertification)
+    ) {
+      return 'Certification/méthodologie invalide.';
+    }
   }
   if (certifications !== undefined) {
     if (!Array.isArray(certifications) || certifications.length > 50) {
@@ -166,18 +268,104 @@ function validateGenerateCvPayload(body) {
       return 'Une certification est invalide (500 caractères maximum).';
     }
   }
+  // Per-certification metadata for newly-added certifications the wizard
+  // just collected (date obtenue/n° référence/validité/organisme) - a
+  // consultant-facing counterpart to the richer fields already collectable
+  // admin-side. Fully optional and loosely validated (same permissiveness
+  // as the rest of this payload): a cert with no matching entry here just
+  // keeps whatever was already on file (or stays empty for a brand new one).
+  if (certificationDetails !== undefined) {
+    if (!Array.isArray(certificationDetails) || certificationDetails.length > 50) {
+      return 'Détails de certification invalides (50 maximum).';
+    }
+    for (const d of certificationDetails) {
+      if (!d || typeof d !== 'object' || typeof d.name !== 'string' || !d.name.trim()) {
+        return 'Détail de certification invalide.';
+      }
+      if (d.obtainedDate !== undefined && d.obtainedDate !== null && typeof d.obtainedDate !== 'string') {
+        return 'Date de certification invalide.';
+      }
+      if (d.certificateNumber !== undefined && d.certificateNumber !== null && String(d.certificateNumber).length > 100) {
+        return 'Numéro de référence invalide (100 caractères maximum).';
+      }
+      if (d.issuingBody !== undefined && d.issuingBody !== null && String(d.issuingBody).length > 255) {
+        return 'Organisme certificateur invalide (255 caractères maximum).';
+      }
+      if (
+        d.validityYears !== undefined &&
+        d.validityYears !== null &&
+        d.validityYears !== '' &&
+        !Number.isFinite(Number(d.validityYears))
+      ) {
+        return 'Validité (années) invalide.';
+      }
+    }
+  }
+  if (profileSummary !== undefined) {
+    if (typeof profileSummary !== 'string' || profileSummary.length > 2000) {
+      return 'Profil invalide (2000 caractères maximum).';
+    }
+  }
+  if (languages !== undefined) {
+    if (!Array.isArray(languages) || languages.length > 10) {
+      return 'Liste de langues invalide (10 maximum).';
+    }
+    for (const l of languages) {
+      if (!l || typeof l !== 'object' || typeof l.name !== 'string' || !l.name.trim() || l.name.length > 100) {
+        return 'Langue invalide.';
+      }
+      if (typeof l.level !== 'string' || !l.level.trim() || l.level.length > 50) {
+        return 'Niveau de langue invalide.';
+      }
+    }
+  }
+  if (formations !== undefined) {
+    if (!Array.isArray(formations) || formations.length > 10) {
+      return 'Liste de formations invalide (10 maximum).';
+    }
+    for (const f of formations) {
+      if (!f || typeof f !== 'object') return 'Formation invalide.';
+      if (typeof f.year !== 'string' || !f.year.trim() || f.year.length > 20) return 'Année de formation invalide.';
+      if (typeof f.degree !== 'string' || !f.degree.trim() || f.degree.length > 255) return 'Diplôme invalide.';
+      if (typeof f.school !== 'string' || !f.school.trim() || f.school.length > 255) return 'École invalide.';
+      if (f.fieldOfStudy !== undefined && f.fieldOfStudy !== null && String(f.fieldOfStudy).length > 255) {
+        return 'Spécialité invalide (255 caractères maximum).';
+      }
+    }
+  }
+  if (skills !== undefined) {
+    if (!Array.isArray(skills) || skills.length > 60) {
+      return 'Liste de compétences invalide (60 maximum).';
+    }
+    for (const s of skills) {
+      if (!s || typeof s !== 'object' || !SKILL_CATEGORIES.includes(s.category)) {
+        return 'Compétence invalide.';
+      }
+      if (typeof s.label !== 'string' || !s.label.trim() || s.label.length > 255) {
+        return 'Compétence invalide.';
+      }
+    }
+  }
   return null;
 }
 
 async function fetchConsultantDetail(consultantId) {
-  const [[consultant]] = await pool.query('SELECT * FROM consultants WHERE id = ?', [consultantId]);
+  const [[consultant]] = await pool.query(
+    `SELECT c.*, cs.label AS status_label
+     FROM consultants c
+     LEFT JOIN consultant_statuses cs ON cs.id = c.status_id
+     WHERE c.id = ?`,
+    [consultantId]
+  );
   if (!consultant) return null;
 
   const [projectRows] = await pool.query(
-    `SELECT cp.project_id, cp.role_points,
+    `SELECT cp.project_id, cp.role_points, cp.stage_tags, cp.role_id, cr.label AS role_label,
+            cp.experience_level, cp.experience_phases, cp.experience_certification,
             p.client, p.module, p.mission_type, p.description
      FROM consultant_projects cp
      JOIN catalog_projects p ON p.id = cp.project_id
+     LEFT JOIN consultant_roles cr ON cr.id = cp.role_id
      WHERE cp.consultant_id = ?`,
     [consultantId]
   );
@@ -189,19 +377,90 @@ async function fetchConsultantDetail(consultantId) {
     missionType: r.mission_type,
     description: r.description,
     rolePoints: r.role_points ? r.role_points.split('\n').filter(Boolean) : [],
+    stageTags: r.stage_tags ? r.stage_tags.split(',').filter(Boolean) : [],
+    roleId: r.role_id,
+    roleLabel: r.role_label,
+    experienceLevel: r.experience_level,
+    experiencePhases: r.experience_phases ? r.experience_phases.split(',').filter(Boolean) : [],
+    experienceCertification: r.experience_certification,
   }));
 
-  const [certRows] = await pool.query('SELECT name FROM certifications WHERE consultant_id = ?', [
-    consultantId,
-  ]);
+  const [certRows] = await pool.query('SELECT * FROM certifications WHERE consultant_id = ?', [consultantId]);
+  const [languageRows] = await pool.query(
+    'SELECT name, level FROM consultant_languages WHERE consultant_id = ? ORDER BY sort_order',
+    [consultantId]
+  );
+  const [formationRows] = await pool.query(
+    'SELECT * FROM consultant_formations WHERE consultant_id = ? ORDER BY sort_order',
+    [consultantId]
+  );
+  const [skillRows] = await pool.query(
+    'SELECT category, label, starred FROM consultant_skills WHERE consultant_id = ? ORDER BY sort_order',
+    [consultantId]
+  );
+  const [missionTypeRows] = await pool.query(
+    'SELECT mission_type_id FROM consultant_mission_types WHERE consultant_id = ?',
+    [consultantId]
+  );
 
   return {
     id: consultant.id,
     name: consultant.name,
     title: consultant.title,
     username: consultant.username,
+    profileSummary: consultant.profile_summary || '',
+    hasPhoto: !!consultant.photo_path,
+    seniorityLevel: consultant.seniority_level,
+    statusId: consultant.status_id,
+    statusLabel: consultant.status_label,
+    archivedAt: consultant.archived_at,
+    missionTypeIds: missionTypeRows.map((r) => r.mission_type_id),
+    // Personal info - admin-managed (Smart-wizard plan), the wizard only
+    // ever displays these read-only.
+    firstName: consultant.first_name,
+    lastName: consultant.last_name,
+    email: consultant.email,
+    phone: consultant.phone,
+    address: consultant.address,
+    nationality: consultant.nationality,
+    gender: consultant.gender,
     projects,
+    // Flat name-only list - unchanged shape, still what the CV wizard/diff/
+    // submission payload use (selection-by-name from a fixed catalog).
     certifications: certRows.map((c) => c.name),
+    // Richer parallel array for table rendering (CvPreview/pptx/admin show) -
+    // additive, so the wizard's Set-of-names flow above is untouched. Wizard
+    // collection of these richer fields is a later phase; until then they're
+    // simply NULL for consultants who haven't had them set some other way.
+    certificationDetails: certRows.map((c) => ({
+      id: c.id,
+      name: c.name,
+      issuingBody: c.issuing_body,
+      certificateNumber: c.certificate_number,
+      obtainedDate: c.obtained_date,
+      expiryDate: c.expiry_date,
+      validityYears: c.validity_years,
+      status: c.status,
+      sapModuleId: c.sap_module_id,
+      level: c.level,
+      filePath: c.file_path,
+      verificationUrl: c.verification_url,
+      credlyUrl: c.credly_url,
+    })),
+    languages: languageRows.map((l) => ({ name: l.name, level: l.level })),
+    formations: formationRows.map((f) => ({ year: f.year, degree: f.degree, school: f.school })),
+    formationDetails: formationRows.map((f) => ({
+      id: f.id,
+      year: f.year,
+      degree: f.degree,
+      school: f.school,
+      country: f.country,
+      obtainedDate: f.obtained_date,
+      level: f.level,
+      fieldOfStudy: f.field_of_study,
+      filePath: f.file_path,
+    })),
+    skills: skillRows.map((s) => ({ category: s.category, label: s.label, starred: !!s.starred })),
   };
 }
 
@@ -233,11 +492,16 @@ async function enrichProjectsSnapshot(projects) {
       missionType: catalogProject ? catalogProject.missionType : null,
       description: catalogProject ? catalogProject.description : null,
       rolePoints: Array.isArray(p.rolePoints) ? p.rolePoints.filter(Boolean) : [],
+      stageTags: Array.isArray(p.stageTags) ? p.stageTags.filter(Boolean) : [],
+      roleId: p.roleId ?? null,
+      experienceLevel: p.experienceLevel || null,
+      experiencePhases: Array.isArray(p.experiencePhases) ? p.experiencePhases.filter(Boolean) : [],
+      experienceCertification: p.experienceCertification || null,
     };
   });
 }
 
-app.get('/api/consultant/me', requireConsultant, async (req, res) => {
+app.get('/api/consultant/me', requireConsultantOrOwnAdmin, async (req, res) => {
   const detail = await fetchConsultantDetail(req.consultant.id);
   const [[latestRequest]] = await pool.query(
     `SELECT id, status, submitted_at, rejection_reason FROM change_requests
@@ -257,11 +521,63 @@ app.get('/api/consultant/me', requireConsultant, async (req, res) => {
   });
 });
 
-app.post('/api/generate-cv', requireConsultant, async (req, res) => {
+// Read-only referential access for the CV wizard's task-library suggestion
+// chips - same data as the admin CRUD endpoints in routes/consultantReferentials.js
+// and routes/projectReferentials.js, just consultant-scoped and read-only.
+app.get('/api/consultant/mission-types', requireConsultantOrOwnAdmin, async (req, res) => {
+  const [rows] = await pool.query('SELECT id, label FROM mission_types ORDER BY sort_order');
+  res.json(rows);
+});
+
+app.get('/api/consultant/sap-modules', requireConsultantOrOwnAdmin, async (req, res) => {
+  const [rows] = await pool.query('SELECT id, code, label FROM sap_modules ORDER BY sort_order');
+  res.json(rows);
+});
+
+app.get('/api/consultant/consultant-roles', requireConsultantOrOwnAdmin, async (req, res) => {
+  const [rows] = await pool.query('SELECT id, label FROM consultant_roles ORDER BY sort_order');
+  res.json(rows);
+});
+
+app.get('/api/consultant/task-library', requireConsultantOrOwnAdmin, async (req, res) => {
+  const conditions = [];
+  const params = [];
+  for (const [param, column] of [
+    ['missionTypeId', 'mission_type_id'],
+    ['roleId', 'role_id'],
+    ['sapModuleId', 'sap_module_id'],
+  ]) {
+    if (req.query[param]) {
+      conditions.push(`(${column} IS NULL OR ${column} = ?)`);
+      params.push(req.query[param]);
+    }
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const [rows] = await pool.query(`SELECT id, label FROM task_library ${where} ORDER BY sort_order`, params);
+  res.json(rows);
+});
+
+app.post('/api/generate-cv', requireConsultantOrOwnAdmin, async (req, res) => {
+  const [[consultantRow]] = await pool.query('SELECT archived_at FROM consultants WHERE id = ?', [
+    req.consultant.id,
+  ]);
+  if (consultantRow?.archived_at) {
+    return res.status(403).json({ detail: 'Ce profil est archivé et ne peut plus être modifié.' });
+  }
+
   const validationError = validateGenerateCvPayload(req.body);
   if (validationError) return res.status(400).json({ detail: validationError });
 
-  const { title, projects = [], certifications = [] } = req.body;
+  const {
+    title,
+    projects = [],
+    certifications = [],
+    certificationDetails = [],
+    profileSummary = '',
+    languages = [],
+    formations = [],
+    skills = [],
+  } = req.body;
   const consultantId = req.consultant.id;
 
   const conn = await pool.getConnection();
@@ -274,22 +590,53 @@ app.post('/api/generate-cv', requireConsultant, async (req, res) => {
       title: previousDetail.title,
       projects: previousDetail.projects,
       certifications: previousDetail.certifications,
+      certificationDetails: previousDetail.certificationDetails,
+      profileSummary: previousDetail.profileSummary,
+      languages: previousDetail.languages,
+      formations: previousDetail.formations,
+      skills: previousDetail.skills,
     };
     const submittedData = {
       title,
       projects: await enrichProjectsSnapshot(projects),
       certifications: certifications.filter(Boolean),
+      certificationDetails,
+      profileSummary,
+      languages,
+      formations,
+      skills,
     };
 
-    await conn.query(
-      "UPDATE change_requests SET status = 'superseded' WHERE consultant_id = ? AND status = 'pending'",
+    const [supersededRows] = await conn.query(
+      "SELECT id FROM change_requests WHERE consultant_id = ? AND status = 'pending'",
       [consultantId]
     );
+    if (supersededRows.length > 0) {
+      await conn.query("UPDATE change_requests SET status = 'superseded' WHERE consultant_id = ? AND status = 'pending'", [
+        consultantId,
+      ]);
+    }
     const [result] = await conn.query(
       'INSERT INTO change_requests (consultant_id, status, submitted_data, previous_data) VALUES (?, ?, ?, ?)',
       [consultantId, 'pending', JSON.stringify(submittedData), JSON.stringify(previousData)]
     );
     const changeRequestId = result.insertId;
+
+    // A consultant re-submitting while an earlier request is still pending
+    // silently killed that older request with no trace - an admin who had
+    // it open (or clicked a stale link) would get a bare "already
+    // processed" error on Approve with no explanation. Auditing the
+    // transition on the OLD request makes its own history self-explanatory.
+    for (const { id: supersededId } of supersededRows) {
+      await insertAuditRow(conn, {
+        changeRequestId: supersededId,
+        action: 'superseded',
+        actorType: 'consultant',
+        actorId: consultantId,
+        actorLabel: consultant.name,
+        details: { supersededByChangeRequestId: changeRequestId },
+      });
+    }
 
     await insertAuditRow(conn, {
       changeRequestId,
@@ -313,7 +660,7 @@ app.post('/api/generate-cv', requireConsultant, async (req, res) => {
   }
 });
 
-function mapProjectRow(r) {
+function mapProjectRow(r, referentialModuleIds) {
   return {
     id: r.id,
     client: r.client,
@@ -324,14 +671,70 @@ function mapProjectRow(r) {
     sortOrder: r.sort_order,
     startDate: r.start_date,
     endDate: r.end_date,
+    sector: r.sector,
+    country: r.country,
+    projectType: r.project_type,
+    status: r.status,
+    projectManager: r.project_manager,
+    sponsor: r.sponsor,
+    technologies: r.technologies ? r.technologies.split(',').filter(Boolean) : [],
+    realizationStartDate: r.realization_start_date,
+    goLiveDate: r.go_live_date,
+    hypercareStartDate: r.hypercare_start_date,
+    hypercareEndDate: r.hypercare_end_date,
+    closureDate: r.closure_date,
+    experienceType: r.experience_type,
+    referentialModuleIds: referentialModuleIds || [],
   };
 }
 
 async function fetchAllProjects() {
-  const [rows] = await pool.query(
-    'SELECT id, client, module, mission_type, description, parent_id, sort_order, start_date, end_date FROM catalog_projects'
-  );
-  return rows.map(mapProjectRow);
+  const [rows] = await pool.query(`
+    SELECT id, client, module, mission_type, description, parent_id, sort_order, start_date, end_date,
+           sector, country, project_type, status, project_manager, sponsor, technologies,
+           realization_start_date, go_live_date, hypercare_start_date, hypercare_end_date, closure_date,
+           experience_type
+    FROM catalog_projects
+  `);
+  const [moduleLinks] = await pool.query('SELECT project_id, sap_module_id FROM catalog_project_modules');
+  const modulesByProject = new Map();
+  for (const link of moduleLinks) {
+    if (!modulesByProject.has(link.project_id)) modulesByProject.set(link.project_id, []);
+    modulesByProject.get(link.project_id).push(link.sap_module_id);
+  }
+  return rows.map((r) => mapProjectRow(r, modulesByProject.get(r.id)));
+}
+
+// end_date auto-computation: if the caller doesn't explicitly provide an
+// end date, derive it from the hypercare/go-live dates so "date de fin" is
+// never left blank once a project has real lifecycle dates, while staying
+// fully overridable (an explicit endDate always wins).
+function computeEndDate({ endDate, hypercareEndDate, goLiveDate }) {
+  if (endDate) return endDate;
+  if (hypercareEndDate) return hypercareEndDate;
+  if (goLiveDate) {
+    // Pure integer arithmetic on the Y/M/D components, not a JS Date object -
+    // Date('YYYY-MM-DD') parses as UTC while getMonth/setMonth operate in
+    // local time, which silently shifts the result by a day depending on
+    // the server's timezone offset.
+    const [y, m, d] = goLiveDate.split('-').map(Number);
+    const totalMonths = m - 1 + 2;
+    const newYear = y + Math.floor(totalMonths / 12);
+    const newMonth = (totalMonths % 12) + 1;
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${newYear}-${pad(newMonth)}-${pad(d)}`;
+  }
+  return null;
+}
+
+async function replaceProjectModules(conn, projectId, sapModuleIds) {
+  await conn.query('DELETE FROM catalog_project_modules WHERE project_id = ?', [projectId]);
+  for (const sapModuleId of sapModuleIds || []) {
+    await conn.query('INSERT INTO catalog_project_modules (project_id, sap_module_id) VALUES (?, ?)', [
+      projectId,
+      sapModuleId,
+    ]);
+  }
 }
 
 // Catalogue de projets maintenu par l'admin ; la liste (sans donnees
@@ -346,11 +749,22 @@ function emptyToNull(v) {
   return v === '' || v === undefined ? null : v;
 }
 
-app.post('/api/admin/projects', requireAdmin, async (req, res) => {
-  const { client, modules = [], missionType, description } = req.body;
+// A strict DATE column rejects/mangles anything that isn't YYYY-MM-DD (a
+// bare year like "2023" silently becomes "0000-00-00" instead of erroring)
+// - the consultant-facing wizard's certification-date question is a quick,
+// optional text field, not a date picker, so whatever's typed needs this
+// guard before it can reach a DATE column.
+function toValidDateOrNull(v) {
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+}
+
+app.post('/api/admin/projects', requireAdminOrPmo, async (req, res) => {
+  const { client, modules = [], missionType, description, referentialModuleIds = [] } = req.body;
   const parentId = req.body.parentId != null && req.body.parentId !== '' ? Number(req.body.parentId) : null;
   const startDate = emptyToNull(req.body.startDate);
-  const endDate = emptyToNull(req.body.endDate);
+  const hypercareEndDate = emptyToNull(req.body.hypercareEndDate);
+  const goLiveDate = emptyToNull(req.body.goLiveDate);
+  const endDate = computeEndDate({ endDate: emptyToNull(req.body.endDate), hypercareEndDate, goLiveDate });
 
   let sortOrder = req.body.sortOrder;
   if (sortOrder === undefined) {
@@ -368,21 +782,59 @@ app.post('/api/admin/projects', requireAdmin, async (req, res) => {
     }
   }
 
-  const [result] = await pool.query(
-    `INSERT INTO catalog_projects
-       (client, module, mission_type, description, parent_id, sort_order, start_date, end_date)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [client, modules.join(','), missionType, description || '', parentId, sortOrder, startDate, endDate]
-  );
-  res.json({ id: result.insertId });
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [result] = await conn.query(
+      `INSERT INTO catalog_projects
+         (client, module, mission_type, description, parent_id, sort_order, start_date, end_date,
+          sector, country, project_type, status, project_manager, sponsor, technologies,
+          realization_start_date, go_live_date, hypercare_start_date, hypercare_end_date, closure_date,
+          experience_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        client,
+        modules.join(','),
+        missionType,
+        description || '',
+        parentId,
+        sortOrder,
+        startDate,
+        endDate,
+        emptyToNull(req.body.sector),
+        emptyToNull(req.body.country),
+        emptyToNull(req.body.projectType),
+        emptyToNull(req.body.status),
+        emptyToNull(req.body.projectManager),
+        emptyToNull(req.body.sponsor),
+        (req.body.technologies || []).join(','),
+        emptyToNull(req.body.realizationStartDate),
+        goLiveDate,
+        emptyToNull(req.body.hypercareStartDate),
+        hypercareEndDate,
+        emptyToNull(req.body.closureDate),
+        emptyToNull(req.body.experienceType),
+      ]
+    );
+    await replaceProjectModules(conn, result.insertId, referentialModuleIds);
+    await conn.commit();
+    res.json({ id: result.insertId });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 });
 
-app.put('/api/admin/projects/:id', requireAdmin, async (req, res) => {
+app.put('/api/admin/projects/:id', requireAdminOrPmo, async (req, res) => {
   const id = Number(req.params.id);
-  const { client, modules = [], missionType, description } = req.body;
+  const { client, modules = [], missionType, description, referentialModuleIds = [] } = req.body;
   const parentId = req.body.parentId != null && req.body.parentId !== '' ? Number(req.body.parentId) : null;
   const startDate = emptyToNull(req.body.startDate);
-  const endDate = emptyToNull(req.body.endDate);
+  const hypercareEndDate = emptyToNull(req.body.hypercareEndDate);
+  const goLiveDate = emptyToNull(req.body.goLiveDate);
+  const endDate = computeEndDate({ endDate: emptyToNull(req.body.endDate), hypercareEndDate, goLiveDate });
 
   if (parentId !== null) {
     const allProjects = await fetchAllProjects();
@@ -391,17 +843,56 @@ app.put('/api/admin/projects/:id', requireAdmin, async (req, res) => {
     }
   }
 
-  const [result] = await pool.query(
-    `UPDATE catalog_projects
-     SET client = ?, module = ?, mission_type = ?, description = ?, parent_id = ?, start_date = ?, end_date = ?
-     WHERE id = ?`,
-    [client, modules.join(','), missionType, description || '', parentId, startDate, endDate, id]
-  );
-  if (result.affectedRows === 0) return res.status(404).json({ detail: 'Projet introuvable' });
-  res.json({ ok: true });
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [result] = await conn.query(
+      `UPDATE catalog_projects
+       SET client = ?, module = ?, mission_type = ?, description = ?, parent_id = ?, start_date = ?, end_date = ?,
+           sector = ?, country = ?, project_type = ?, status = ?, project_manager = ?, sponsor = ?, technologies = ?,
+           realization_start_date = ?, go_live_date = ?, hypercare_start_date = ?, hypercare_end_date = ?, closure_date = ?,
+           experience_type = ?
+       WHERE id = ?`,
+      [
+        client,
+        modules.join(','),
+        missionType,
+        description || '',
+        parentId,
+        startDate,
+        endDate,
+        emptyToNull(req.body.sector),
+        emptyToNull(req.body.country),
+        emptyToNull(req.body.projectType),
+        emptyToNull(req.body.status),
+        emptyToNull(req.body.projectManager),
+        emptyToNull(req.body.sponsor),
+        (req.body.technologies || []).join(','),
+        emptyToNull(req.body.realizationStartDate),
+        goLiveDate,
+        emptyToNull(req.body.hypercareStartDate),
+        hypercareEndDate,
+        emptyToNull(req.body.closureDate),
+        emptyToNull(req.body.experienceType),
+        id,
+      ]
+    );
+    if (result.affectedRows === 0) {
+      await conn.rollback();
+      return res.status(404).json({ detail: 'Projet introuvable' });
+    }
+    await replaceProjectModules(conn, id, referentialModuleIds);
+    await conn.commit();
+    res.json({ ok: true });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 });
 
-app.put('/api/admin/projects/:id/position', requireAdmin, async (req, res) => {
+app.put('/api/admin/projects/:id/position', requireAdminOrPmo, async (req, res) => {
   const id = Number(req.params.id);
   const parentId = req.body.parentId != null && req.body.parentId !== '' ? Number(req.body.parentId) : null;
   const { sortOrder } = req.body;
@@ -422,9 +913,64 @@ app.put('/api/admin/projects/:id/position', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/admin/projects/:id', requireAdmin, async (req, res) => {
+app.delete('/api/admin/projects/:id', requireAdminOrPmo, async (req, res) => {
   const [result] = await pool.query('DELETE FROM catalog_projects WHERE id = ?', [req.params.id]);
   if (result.affectedRows === 0) return res.status(404).json({ detail: 'Projet introuvable' });
+  res.json({ ok: true });
+});
+
+const PROJECT_DOCS_DIR = path.join(__dirname, 'uploads', 'project-documents');
+fs.mkdirSync(PROJECT_DOCS_DIR, { recursive: true });
+// Internal admin-only tool, no strict mimetype allowlist beyond a size cap -
+// same convention as candidate/stage document uploads in routes/candidates.js.
+const uploadProjectDocument = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+function mapProjectDocumentRow(r) {
+  return { id: r.id, projectId: r.project_id, originalName: r.original_name, uploadedAt: r.uploaded_at };
+}
+
+app.get('/api/admin/projects/:id/documents', requireAdminOrPmo, async (req, res) => {
+  const [rows] = await pool.query(
+    'SELECT * FROM catalog_project_documents WHERE project_id = ? ORDER BY uploaded_at DESC',
+    [req.params.id]
+  );
+  res.json(rows.map(mapProjectDocumentRow));
+});
+
+app.post('/api/admin/projects/:id/documents', requireAdminOrPmo, (req, res) => {
+  uploadProjectDocument.single('file')(req, res, async (err) => {
+    if (err) return res.status(400).json({ detail: 'Fichier invalide ou trop volumineux' });
+    if (!req.file) return res.status(400).json({ detail: 'Aucun fichier fourni' });
+    const projectId = Number(req.params.id);
+    const ext = path.extname(req.file.originalname || '');
+    const safeExt = /^\.[a-zA-Z0-9]{1,10}$/.test(ext) ? ext : '';
+    const filename = `${projectId}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}${safeExt}`;
+    const relativePath = path.join('uploads', 'project-documents', filename);
+    fs.writeFileSync(path.join(PROJECT_DOCS_DIR, filename), req.file.buffer);
+    const [result] = await pool.query(
+      'INSERT INTO catalog_project_documents (project_id, file_path, original_name) VALUES (?, ?, ?)',
+      [projectId, relativePath, req.file.originalname]
+    );
+    res.json(mapProjectDocumentRow({
+      id: result.insertId,
+      project_id: projectId,
+      original_name: req.file.originalname,
+      uploaded_at: new Date(),
+    }));
+  });
+});
+
+app.get('/api/admin/project-documents/:id/download', requireAdminOrPmo, async (req, res) => {
+  const [[doc]] = await pool.query('SELECT * FROM catalog_project_documents WHERE id = ?', [req.params.id]);
+  if (!doc) return res.status(404).json({ detail: 'Document introuvable' });
+  res.download(path.join(__dirname, doc.file_path), doc.original_name);
+});
+
+app.delete('/api/admin/project-documents/:id', requireAdminOrPmo, async (req, res) => {
+  const [[doc]] = await pool.query('SELECT * FROM catalog_project_documents WHERE id = ?', [req.params.id]);
+  if (!doc) return res.status(404).json({ detail: 'Document introuvable' });
+  fs.unlink(path.join(__dirname, doc.file_path), () => {});
+  await pool.query('DELETE FROM catalog_project_documents WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 });
 
@@ -432,7 +978,7 @@ function mapTaskRow(r) {
   return { id: r.id, projectId: r.project_id, label: r.label, done: !!r.done, sortOrder: r.sort_order };
 }
 
-app.get('/api/admin/project-tasks', requireAdmin, async (req, res) => {
+app.get('/api/admin/project-tasks', requireAdminOrPmo, async (req, res) => {
   const { projectId } = req.query;
   if (!projectId) return res.status(400).json({ detail: 'projectId requis' });
   const [rows] = await pool.query(
@@ -442,7 +988,7 @@ app.get('/api/admin/project-tasks', requireAdmin, async (req, res) => {
   res.json(rows.map(mapTaskRow));
 });
 
-app.post('/api/admin/project-tasks', requireAdmin, async (req, res) => {
+app.post('/api/admin/project-tasks', requireAdminOrPmo, async (req, res) => {
   const { projectId, label } = req.body;
   if (!projectId || !label) return res.status(400).json({ detail: 'projectId et label requis' });
 
@@ -457,7 +1003,7 @@ app.post('/api/admin/project-tasks', requireAdmin, async (req, res) => {
   res.json({ id: result.insertId, projectId: Number(projectId), label, done: false, sortOrder: row.nextOrder });
 });
 
-app.put('/api/admin/project-tasks/:id', requireAdmin, async (req, res) => {
+app.put('/api/admin/project-tasks/:id', requireAdminOrPmo, async (req, res) => {
   const { label, done, sortOrder } = req.body;
   const fields = [];
   const values = [];
@@ -481,19 +1027,49 @@ app.put('/api/admin/project-tasks/:id', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/admin/project-tasks/:id', requireAdmin, async (req, res) => {
+app.delete('/api/admin/project-tasks/:id', requireAdminOrPmo, async (req, res) => {
   const [result] = await pool.query('DELETE FROM catalog_project_tasks WHERE id = ?', [req.params.id]);
   if (result.affectedRows === 0) return res.status(404).json({ detail: 'Tache introuvable' });
   res.json({ ok: true });
 });
 
 app.get('/api/consultants', requireAdmin, async (req, res) => {
-  const [rows] = await pool.query('SELECT id, name, title, username FROM consultants');
-  res.json(rows);
+  // Departed/archived consultants are excluded from the default (operational)
+  // list - the dedicated "Consultants archivés" view passes onlyArchived=1
+  // to see them, includeArchived=1 to see everyone regardless of status.
+  let where = 'WHERE c.archived_at IS NULL';
+  if (req.query.onlyArchived) where = 'WHERE c.archived_at IS NOT NULL';
+  else if (req.query.includeArchived) where = '';
+  const [rows] = await pool.query(`
+    SELECT c.id, c.name, c.title, c.username, (c.photo_path IS NOT NULL) AS hasPhoto,
+           c.status_id AS statusId, cs.label AS statusLabel, c.archived_at AS archivedAt
+    FROM consultants c
+    LEFT JOIN consultant_statuses cs ON cs.id = c.status_id
+    ${where}
+  `);
+  const [skillRows] = await pool.query(
+    "SELECT consultant_id, label FROM consultant_skills WHERE category = 'module'"
+  );
+  const modulesByConsultant = new Map();
+  for (const r of skillRows) {
+    if (!modulesByConsultant.has(r.consultant_id)) modulesByConsultant.set(r.consultant_id, []);
+    modulesByConsultant.get(r.consultant_id).push(r.label);
+  }
+  res.json(rows.map((r) => ({ ...r, hasPhoto: !!r.hasPhoto, modules: modulesByConsultant.get(r.id) || [] })));
 });
 
+async function replaceConsultantMissionTypes(conn, consultantId, missionTypeIds) {
+  await conn.query('DELETE FROM consultant_mission_types WHERE consultant_id = ?', [consultantId]);
+  for (const missionTypeId of missionTypeIds || []) {
+    await conn.query('INSERT INTO consultant_mission_types (consultant_id, mission_type_id) VALUES (?, ?)', [
+      consultantId,
+      missionTypeId,
+    ]);
+  }
+}
+
 app.post('/api/admin/consultants', requireAdmin, async (req, res) => {
-  const { name, title, username, password } = req.body;
+  const { name, title, username, password, missionTypeIds = [] } = req.body;
   if (!name || !username || !password) {
     return res.status(400).json({ detail: 'Nom, identifiant et mot de passe requis' });
   }
@@ -504,15 +1080,41 @@ app.post('/api/admin/consultants', requireAdmin, async (req, res) => {
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const [result] = await pool.query(
-    'INSERT INTO consultants (name, title, username, password_hash) VALUES (?, ?, ?, ?)',
-    [name, title || '', username, passwordHash]
-  );
-  res.json({ id: result.insertId });
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [result] = await conn.query(
+      `INSERT INTO consultants
+         (name, title, username, password_hash, seniority_level, first_name, last_name, email, phone, address, nationality, gender)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        name,
+        title || '',
+        username,
+        passwordHash,
+        emptyToNull(req.body.seniorityLevel),
+        emptyToNull(req.body.firstName),
+        emptyToNull(req.body.lastName),
+        emptyToNull(req.body.email),
+        emptyToNull(req.body.phone),
+        emptyToNull(req.body.address),
+        emptyToNull(req.body.nationality),
+        emptyToNull(req.body.gender),
+      ]
+    );
+    await replaceConsultantMissionTypes(conn, result.insertId, missionTypeIds);
+    await conn.commit();
+    res.json({ id: result.insertId });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 });
 
 app.put('/api/admin/consultants/:id', requireAdmin, async (req, res) => {
-  const { name, title, username } = req.body;
+  const { name, title, username, missionTypeIds = [] } = req.body;
   if (!name || !username) {
     return res.status(400).json({ detail: 'Nom et identifiant requis' });
   }
@@ -525,12 +1127,40 @@ app.put('/api/admin/consultants/:id', requireAdmin, async (req, res) => {
     return res.status(409).json({ detail: 'Cet identifiant est deja utilise' });
   }
 
-  const [result] = await pool.query('UPDATE consultants SET name = ?, title = ?, username = ? WHERE id = ?', [
-    name,
-    title || '',
-    username,
-    req.params.id,
-  ]);
+  const conn = await pool.getConnection();
+  let result;
+  try {
+    await conn.beginTransaction();
+    [result] = await conn.query(
+      `UPDATE consultants
+       SET name = ?, title = ?, username = ?, seniority_level = ?, first_name = ?, last_name = ?,
+           email = ?, phone = ?, address = ?, nationality = ?, gender = ?
+       WHERE id = ?`,
+      [
+        name,
+        title || '',
+        username,
+        emptyToNull(req.body.seniorityLevel),
+        emptyToNull(req.body.firstName),
+        emptyToNull(req.body.lastName),
+        emptyToNull(req.body.email),
+        emptyToNull(req.body.phone),
+        emptyToNull(req.body.address),
+        emptyToNull(req.body.nationality),
+        emptyToNull(req.body.gender),
+        req.params.id,
+      ]
+    );
+    if (result.affectedRows > 0) {
+      await replaceConsultantMissionTypes(conn, req.params.id, missionTypeIds);
+    }
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
   if (result.affectedRows === 0) return res.status(404).json({ detail: 'Consultant introuvable' });
   res.json({ id: Number(req.params.id), name, title: title || '', username });
 });
@@ -560,14 +1190,524 @@ app.get('/api/consultants/:id', requireAdmin, async (req, res) => {
   res.json(detail);
 });
 
+// A manager's only consultant-record access, self-scoped via their own
+// admins.consultant_id link (ignores any :id - there is none to pass) - the
+// standard /api/consultants/:id and /api/admin/consultants/:id routes above
+// are requireAdmin-only (admin/rh) since the practice-manager scope
+// reduction removed a manager's access to every OTHER consultant's record.
+app.get('/api/admin/me/consultant', requireAdminOrManager, async (req, res) => {
+  if (!req.admin.consultantId) return res.status(404).json({ detail: "Aucun profil consultant n'est lié à ce compte." });
+  const detail = await fetchConsultantDetail(req.admin.consultantId);
+  if (!detail) return res.status(404).json({ detail: 'Consultant introuvable' });
+  res.json(detail);
+});
+
+app.put('/api/admin/me/consultant', requireAdminOrManager, async (req, res) => {
+  if (!req.admin.consultantId) return res.status(404).json({ detail: "Aucun profil consultant n'est lié à ce compte." });
+  const { name, title, missionTypeIds = [] } = req.body;
+  if (!name) return res.status(400).json({ detail: 'Nom requis' });
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query(
+      `UPDATE consultants
+       SET name = ?, title = ?, seniority_level = ?, first_name = ?, last_name = ?,
+           email = ?, phone = ?, address = ?, nationality = ?, gender = ?
+       WHERE id = ?`,
+      [
+        name,
+        title || '',
+        emptyToNull(req.body.seniorityLevel),
+        emptyToNull(req.body.firstName),
+        emptyToNull(req.body.lastName),
+        emptyToNull(req.body.email),
+        emptyToNull(req.body.phone),
+        emptyToNull(req.body.address),
+        emptyToNull(req.body.nationality),
+        emptyToNull(req.body.gender),
+        req.admin.consultantId,
+      ]
+    );
+    await replaceConsultantMissionTypes(conn, req.admin.consultantId, missionTypeIds);
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+  res.json({ ok: true });
+});
+
+// Name-only picker for the manager's follow-ups screen (attach a new
+// follow-up to one of their module's consultants) - deliberately not the
+// full scoped-consultant management surface that was removed; admin/rh get
+// every active consultant, matching the unrestricted access they have
+// everywhere else.
+app.get('/api/admin/me/module-consultants', requireAdminOrManager, async (req, res) => {
+  const [rows] = await pool.query('SELECT id, name, title FROM consultants WHERE archived_at IS NULL ORDER BY name');
+  if (req.admin.role !== 'manager') return res.json(rows);
+  const [skillRows] = await pool.query("SELECT consultant_id, label FROM consultant_skills WHERE category = 'module'");
+  const [moduleRows] = await pool.query('SELECT id, code FROM sap_modules');
+  const scopedIds = new Set();
+  for (const r of skillRows) {
+    const parts = r.label.split('/').map((p) => p.trim().toUpperCase());
+    const ids = moduleRows.filter((m) => parts.includes(m.code.toUpperCase())).map((m) => m.id);
+    if (ids.some((id) => req.admin.moduleIds.includes(id))) scopedIds.add(r.consultant_id);
+  }
+  res.json(rows.filter((r) => scopedIds.has(r.id)));
+});
+
+function mapFollowupRow(r) {
+  return {
+    id: r.id,
+    consultantId: r.consultant_id,
+    consultantName: r.consultant_name,
+    note: r.note,
+    dueDate: r.due_date,
+    status: r.status,
+    createdByUsername: r.created_by_username,
+    createdAt: r.created_at,
+    resolvedAt: r.resolved_at,
+  };
+}
+
+// A manager only sees/manages follow-ups for consultants in their module
+// scope, or their own linked profile - assertConsultantInScope alone would
+// wrongly 403 a manager whose own consultant record has no module skill
+// overlap with themselves as a manager, so "it's their own profile" is
+// checked first as a separate, always-allowed case.
+async function assertFollowupConsultantAccess(req, consultantId) {
+  if (req.admin.role !== 'manager') return true;
+  if (req.admin.consultantId && Number(req.admin.consultantId) === Number(consultantId)) return true;
+  return assertConsultantInScope(req, consultantId);
+}
+
+// Global, cross-consultant list for the dashboard widget - ordered so
+// overdue/soonest-due pending items surface first, done ones last. A
+// manager only sees consultants in their module scope (or themselves).
+app.get('/api/admin/followups', requireAdminOrManager, async (req, res) => {
+  const status = req.query.status || 'pending';
+  const [rows] = await pool.query(
+    `SELECT f.*, c.name AS consultant_name, a.username AS created_by_username
+     FROM consultant_followups f
+     JOIN consultants c ON c.id = f.consultant_id
+     LEFT JOIN admins a ON a.id = f.created_by_admin_id
+     WHERE f.status = ?
+     ORDER BY (f.due_date IS NULL), f.due_date ASC, f.created_at DESC`,
+    [status]
+  );
+  let mapped = rows.map(mapFollowupRow);
+  if (req.admin.role === 'manager') {
+    const results = await Promise.all(mapped.map((f) => assertFollowupConsultantAccess(req, f.consultantId)));
+    mapped = mapped.filter((_, i) => results[i]);
+  }
+  res.json(mapped);
+});
+
+app.get('/api/admin/consultants/:id/followups', requireAdminOrManager, async (req, res) => {
+  if (!(await assertFollowupConsultantAccess(req, req.params.id))) {
+    return res.status(403).json({ detail: 'Ce consultant est hors de votre périmètre.' });
+  }
+  const [rows] = await pool.query(
+    `SELECT f.*, c.name AS consultant_name, a.username AS created_by_username
+     FROM consultant_followups f
+     JOIN consultants c ON c.id = f.consultant_id
+     LEFT JOIN admins a ON a.id = f.created_by_admin_id
+     WHERE f.consultant_id = ?
+     ORDER BY (f.status = 'pending') DESC, (f.due_date IS NULL), f.due_date ASC, f.created_at DESC`,
+    [req.params.id]
+  );
+  res.json(rows.map(mapFollowupRow));
+});
+
+app.post('/api/admin/consultants/:id/followups', requireAdminOrManager, async (req, res) => {
+  if (!(await assertFollowupConsultantAccess(req, req.params.id))) {
+    return res.status(403).json({ detail: 'Ce consultant est hors de votre périmètre.' });
+  }
+  const note = (req.body.note || '').trim();
+  if (!note) return res.status(400).json({ detail: 'Note requise.' });
+  const [result] = await pool.query(
+    'INSERT INTO consultant_followups (consultant_id, note, due_date, created_by_admin_id) VALUES (?, ?, ?, ?)',
+    [req.params.id, note, req.body.dueDate || null, req.admin.id]
+  );
+  res.json({ id: result.insertId });
+});
+
+app.post('/api/admin/followups/:id/resolve', requireAdminOrManager, async (req, res) => {
+  const [[followup]] = await pool.query('SELECT consultant_id FROM consultant_followups WHERE id = ?', [req.params.id]);
+  if (!followup) return res.status(404).json({ detail: 'Rappel introuvable' });
+  if (!(await assertFollowupConsultantAccess(req, followup.consultant_id))) {
+    return res.status(403).json({ detail: 'Ce consultant est hors de votre périmètre.' });
+  }
+  const [result] = await pool.query(
+    "UPDATE consultant_followups SET status = 'done', resolved_at = NOW(), resolved_by_admin_id = ? WHERE id = ?",
+    [req.admin.id, req.params.id]
+  );
+  if (result.affectedRows === 0) return res.status(404).json({ detail: 'Rappel introuvable' });
+  res.json({ ok: true });
+});
+
 app.get('/api/consultants/:id/cv', requireAdmin, async (req, res) => {
   const consultantId = req.params.id;
   const detail = await fetchConsultantDetail(consultantId);
   if (!detail) return res.status(404).json({ detail: 'Consultant introuvable' });
 
   const outPath = outputPathFor(consultantId);
-  await generatePptx(detail, outPath);
+  const photoPath = await photoAbsolutePathFor(consultantId);
+  await generatePptx(detail, outPath, { photoPath });
   res.download(outPath, `CV_${detail.name}.pptx`);
+});
+
+app.get('/api/admin/me/consultant/cv', requireAdminOrManager, async (req, res) => {
+  if (!req.admin.consultantId) return res.status(404).json({ detail: "Aucun profil consultant n'est lié à ce compte." });
+  const detail = await fetchConsultantDetail(req.admin.consultantId);
+  if (!detail) return res.status(404).json({ detail: 'Consultant introuvable' });
+
+  const outPath = outputPathFor(req.admin.consultantId);
+  const photoPath = await photoAbsolutePathFor(req.admin.consultantId);
+  await generatePptx(detail, outPath, { photoPath });
+  res.download(outPath, `CV_${detail.name}.pptx`);
+});
+
+// Bulk export: one PPTX per requested consultant, streamed back as a single
+// ZIP - same generatePptx/outputPathFor/photoAbsolutePathFor building blocks
+// as the single-CV download above, just looped and archived instead of
+// res.download()'d individually.
+app.post('/api/admin/consultants/bulk-cv', requireAdmin, async (req, res) => {
+  const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
+  if (ids.length === 0) return res.status(400).json({ detail: 'Aucun consultant sélectionné.' });
+
+  res.attachment(`CVs_${new Date().toISOString().slice(0, 10)}.zip`);
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.on('error', (err) => {
+    if (!res.headersSent) res.status(500);
+    res.end();
+    console.error('bulk-cv archive error:', err);
+  });
+  archive.pipe(res);
+
+  const usedNames = new Set();
+  for (const consultantId of ids) {
+    const detail = await fetchConsultantDetail(consultantId);
+    if (!detail) continue;
+    const outPath = outputPathFor(consultantId);
+    const photoPath = await photoAbsolutePathFor(consultantId);
+    await generatePptx(detail, outPath, { photoPath });
+    let entryName = `CV_${detail.name}.pptx`;
+    let suffix = 2;
+    while (usedNames.has(entryName)) {
+      entryName = `CV_${detail.name} (${suffix}).pptx`;
+      suffix += 1;
+    }
+    usedNames.add(entryName);
+    archive.file(outPath, { name: entryName });
+  }
+  await archive.finalize();
+});
+
+// Self-service download of the consultant's own, currently-approved CV -
+// scoped to req.consultant.id (from their own auth), never a client-
+// supplied id, so there's no way to request anyone else's file this way.
+app.get('/api/consultant/me/cv', requireConsultantOrOwnAdmin, async (req, res) => {
+  const consultantId = req.consultant.id;
+  const detail = await fetchConsultantDetail(consultantId);
+  if (!detail) return res.status(404).json({ detail: 'Consultant introuvable' });
+
+  const outPath = outputPathFor(consultantId);
+  const photoPath = await photoAbsolutePathFor(consultantId);
+  await generatePptx(detail, outPath, { photoPath });
+  res.download(outPath, `CV_${detail.name}.pptx`);
+});
+
+// Photo is admin-managed only (quality/appropriateness control on a document
+// sent to clients), unlike the rest of the profile which flows through the
+// consultant approval workflow - it bypasses change_requests entirely, same
+// as username/password today.
+app.post('/api/admin/consultants/:id/photo', requireAdmin, (req, res) => {
+  uploadPhoto.single('photo')(req, res, async (err) => {
+    if (err || !req.file) {
+      return res.status(400).json({ detail: 'Photo invalide (JPEG/PNG/WebP, 5 Mo maximum).' });
+    }
+
+    const consultantId = req.params.id;
+    const [[consultant]] = await pool.query('SELECT photo_path FROM consultants WHERE id = ?', [consultantId]);
+    if (!consultant) return res.status(404).json({ detail: 'Consultant introuvable' });
+
+    if (consultant.photo_path) {
+      fs.unlink(path.join(__dirname, consultant.photo_path), () => {});
+    }
+
+    const ext = PHOTO_MIME_EXT[req.file.mimetype];
+    const relativePath = `uploads/photos/${consultantId}.${ext}`;
+    fs.writeFileSync(path.join(__dirname, relativePath), req.file.buffer);
+
+    await pool.query('UPDATE consultants SET photo_path = ? WHERE id = ?', [relativePath, consultantId]);
+    res.json({ ok: true });
+  });
+});
+
+app.delete('/api/admin/consultants/:id/photo', requireAdmin, async (req, res) => {
+  const [[consultant]] = await pool.query('SELECT photo_path FROM consultants WHERE id = ?', [req.params.id]);
+  if (!consultant) return res.status(404).json({ detail: 'Consultant introuvable' });
+
+  if (consultant.photo_path) {
+    fs.unlink(path.join(__dirname, consultant.photo_path), () => {});
+  }
+  await pool.query('UPDATE consultants SET photo_path = NULL WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+});
+
+app.get('/api/consultants/:id/photo', requireAdmin, async (req, res) => {
+  const [[consultant]] = await pool.query('SELECT photo_path FROM consultants WHERE id = ?', [req.params.id]);
+  if (!consultant || !consultant.photo_path) return res.status(404).json({ detail: 'Photo introuvable' });
+  res.sendFile(path.join(__dirname, consultant.photo_path));
+});
+
+app.get('/api/admin/me/consultant/photo', requireAdminOrManager, async (req, res) => {
+  if (!req.admin.consultantId) return res.status(404).json({ detail: 'Photo introuvable' });
+  const [[consultant]] = await pool.query('SELECT photo_path FROM consultants WHERE id = ?', [req.admin.consultantId]);
+  if (!consultant || !consultant.photo_path) return res.status(404).json({ detail: 'Photo introuvable' });
+  res.sendFile(path.join(__dirname, consultant.photo_path));
+});
+
+app.get('/api/consultant/me/photo', requireConsultantOrOwnAdmin, async (req, res) => {
+  const [[consultant]] = await pool.query('SELECT photo_path FROM consultants WHERE id = ?', [req.consultant.id]);
+  if (!consultant || !consultant.photo_path) return res.status(404).json({ detail: 'Photo introuvable' });
+  res.sendFile(path.join(__dirname, consultant.photo_path));
+});
+
+app.get('/api/admin/activity', requireAdmin, async (req, res) => {
+  const [rows] = await pool.query(
+    `SELECT a.id, a.change_request_id, a.action, a.actor_type, a.actor_label, a.created_at,
+            c.id AS consultant_id, c.name AS consultant_name
+     FROM change_request_audit a
+     JOIN change_requests cr ON cr.id = a.change_request_id
+     JOIN consultants c ON c.id = cr.consultant_id
+     ORDER BY a.created_at DESC
+     LIMIT 20`
+  );
+  const [departureRows] = await pool.query(
+    `SELECT da.id, da.action, da.actor_label, da.created_at,
+            c.id AS consultant_id, c.name AS consultant_name
+     FROM consultant_departure_audit da
+     JOIN consultants c ON c.id = da.consultant_id
+     ORDER BY da.created_at DESC
+     LIMIT 20`
+  );
+  const combined = [
+    ...rows.map((r) => ({
+      id: `cr-${r.id}`,
+      source: 'change_request',
+      changeRequestId: r.change_request_id,
+      action: r.action,
+      actorType: r.actor_type,
+      actorLabel: r.actor_label,
+      createdAt: r.created_at,
+      consultantId: r.consultant_id,
+      consultantName: r.consultant_name,
+    })),
+    ...departureRows.map((r) => ({
+      id: `dep-${r.id}`,
+      source: 'departure',
+      action: r.action,
+      actorType: 'admin',
+      actorLabel: r.actor_label,
+      createdAt: r.created_at,
+      consultantId: r.consultant_id,
+      consultantName: r.consultant_name,
+    })),
+  ];
+  combined.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(combined.slice(0, 20));
+});
+
+// Server-side aggregates for the dashboard - unlike the rest of this app's
+// fetch-all-then-count-client-side convention (fine for the small consultant/
+// project tables), candidates are expected to grow with real ATS usage, so
+// these are computed via COUNT/GROUP BY rather than pulling every row.
+app.get('/api/admin/dashboard-stats', requireAdmin, async (req, res) => {
+  const [[{ subProjectsCount }]] = await pool.query(
+    'SELECT COUNT(*) AS subProjectsCount FROM catalog_projects WHERE parent_id IS NOT NULL'
+  );
+  // A lot (sub-project) counts as a project here, same as everywhere else in
+  // the app (fetchAllProjects/the catalog list already return every row,
+  // parent or child, with no distinction) - so this deliberately does not
+  // filter by parent_id.
+  const [[{ finalizedProjectsCount }]] = await pool.query(
+    'SELECT COUNT(*) AS finalizedProjectsCount FROM catalog_projects WHERE end_date IS NOT NULL AND end_date <= CURDATE()'
+  );
+  const [[{ totalCandidates }]] = await pool.query('SELECT COUNT(*) AS totalCandidates FROM candidates');
+  const [candidatesByStatusRows] = await pool.query(
+    'SELECT status, COUNT(*) AS count FROM candidates GROUP BY status'
+  );
+  const [candidatesByStageRows] = await pool.query(
+    `SELECT ps.id AS stageId, ps.name AS stageName, ps.sort_order AS sortOrder, COUNT(c.id) AS count
+     FROM pipeline_stages ps
+     LEFT JOIN candidates c ON c.current_stage_id = ps.id
+     GROUP BY ps.id, ps.name, ps.sort_order
+     ORDER BY ps.sort_order`
+  );
+  const [[{ recruitmentsThisMonth }]] = await pool.query(
+    `SELECT COUNT(*) AS recruitmentsThisMonth
+     FROM candidate_stage_history sh
+     JOIN pipeline_stages ps ON ps.id = sh.stage_id
+     WHERE ps.is_terminal_success = TRUE
+       AND YEAR(sh.entered_at) = YEAR(CURDATE()) AND MONTH(sh.entered_at) = MONTH(CURDATE())`
+  );
+
+  res.json({
+    subProjectsCount,
+    finalizedProjectsCount,
+    totalCandidates,
+    candidatesByStatus: candidatesByStatusRows.map((r) => ({ status: r.status, count: r.count })),
+    candidatesByStage: candidatesByStageRows.map((r) => ({ stageId: r.stageId, stageName: r.stageName, count: r.count })),
+    recruitmentsThisMonth,
+  });
+});
+
+// HR turnover dashboard aggregates - only counts validated departures (a
+// 'declared'/'cancelled' row never affected consultants.archived_at, so it
+// shouldn't count as an actual departure here).
+app.get('/api/admin/hr-dashboard-stats', requireAdminOrRh, async (req, res) => {
+  const [[{ totalDepartures }]] = await pool.query(
+    "SELECT COUNT(*) AS totalDepartures FROM consultant_departures WHERE status = 'validated'"
+  );
+  const [[{ departuresThisMonth }]] = await pool.query(
+    `SELECT COUNT(*) AS departuresThisMonth FROM consultant_departures
+     WHERE status = 'validated' AND YEAR(departure_date) = YEAR(CURDATE()) AND MONTH(departure_date) = MONTH(CURDATE())`
+  );
+  const [byYearRows] = await pool.query(
+    `SELECT YEAR(departure_date) AS year, COUNT(*) AS count FROM consultant_departures
+     WHERE status = 'validated' AND departure_date >= DATE_SUB(CURDATE(), INTERVAL 5 YEAR)
+     GROUP BY YEAR(departure_date) ORDER BY year`
+  );
+  const [byReasonRows] = await pool.query(
+    `SELECT COALESCE(r.label, 'Non renseigné') AS reason, COUNT(*) AS count
+     FROM consultant_departures d
+     LEFT JOIN departure_reasons r ON r.id = d.reason_id
+     WHERE d.status = 'validated'
+     GROUP BY reason`
+  );
+  const [[{ avgTenureDays }]] = await pool.query(
+    `SELECT AVG(DATEDIFF(d.departure_date, c.hire_date)) AS avgTenureDays
+     FROM consultant_departures d
+     JOIN consultants c ON c.id = d.consultant_id
+     WHERE d.status = 'validated' AND c.hire_date IS NOT NULL`
+  );
+  const [byDepartmentRows] = await pool.query(
+    `SELECT COALESCE(c.department, 'Non renseigné') AS department, COUNT(*) AS count
+     FROM consultant_departures d
+     JOIN consultants c ON c.id = d.consultant_id
+     WHERE d.status = 'validated'
+     GROUP BY department`
+  );
+  const [byClientRows] = await pool.query(
+    `SELECT p.client AS client, COUNT(DISTINCT d.consultant_id) AS count
+     FROM consultant_departures d
+     JOIN consultant_projects cp ON cp.consultant_id = d.consultant_id
+     JOIN catalog_projects p ON p.id = cp.project_id
+     WHERE d.status = 'validated'
+     GROUP BY p.client
+     ORDER BY count DESC
+     LIMIT 10`
+  );
+  const [byModuleRows] = await pool.query(
+    `SELECT s.label AS module, COUNT(DISTINCT d.consultant_id) AS count
+     FROM consultant_departures d
+     JOIN consultant_skills s ON s.consultant_id = d.consultant_id AND s.category = 'module'
+     WHERE d.status = 'validated'
+     GROUP BY s.label
+     ORDER BY count DESC`
+  );
+  const [byRoleRows] = await pool.query(
+    `SELECT COALESCE(cr.label, 'Non renseigné') AS role, COUNT(DISTINCT d.consultant_id) AS count
+     FROM consultant_departures d
+     LEFT JOIN consultant_projects cp ON cp.consultant_id = d.consultant_id
+     LEFT JOIN consultant_roles cr ON cr.id = cp.role_id
+     WHERE d.status = 'validated'
+     GROUP BY role`
+  );
+  const [[{ departuresLast12Months }]] = await pool.query(
+    `SELECT COUNT(*) AS departuresLast12Months FROM consultant_departures
+     WHERE status = 'validated' AND departure_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)`
+  );
+  const [[{ activeHeadcount }]] = await pool.query(
+    'SELECT COUNT(*) AS activeHeadcount FROM consultants WHERE archived_at IS NULL'
+  );
+  // No historical headcount tracking exists, so "average headcount over the
+  // period" is approximated as (current active headcount + departures in the
+  // period) / 2 - a reasonable proxy for a trailing-12-months figure, not an
+  // exact reconstruction of past headcount.
+  const avgHeadcount = activeHeadcount + departuresLast12Months / 2;
+  const turnoverRate12Months = avgHeadcount > 0 ? (departuresLast12Months / avgHeadcount) * 100 : 0;
+
+  // --- Workforce-wide widgets (current active consultants, not departures) ---
+  const [workforceByModuleRows] = await pool.query(
+    `SELECT s.label AS module, COUNT(DISTINCT s.consultant_id) AS count
+     FROM consultant_skills s
+     JOIN consultants c ON c.id = s.consultant_id
+     WHERE s.category = 'module' AND c.archived_at IS NULL
+     GROUP BY s.label ORDER BY count DESC`
+  );
+  const [workforceByTechnologyRows] = await pool.query(
+    `SELECT s.label AS technology, COUNT(DISTINCT s.consultant_id) AS count
+     FROM consultant_skills s
+     JOIN consultants c ON c.id = s.consultant_id
+     WHERE s.category = 'technology' AND c.archived_at IS NULL
+     GROUP BY s.label ORDER BY count DESC`
+  );
+  const [workforceByClientRows] = await pool.query(
+    `SELECT p.client AS client, COUNT(DISTINCT cp.consultant_id) AS count
+     FROM consultant_projects cp
+     JOIN catalog_projects p ON p.id = cp.project_id
+     JOIN consultants c ON c.id = cp.consultant_id
+     WHERE c.archived_at IS NULL AND cp.ended_at IS NULL
+     GROUP BY p.client ORDER BY count DESC LIMIT 10`
+  );
+  const [rareSkillRows] = await pool.query(
+    `SELECT s.label AS module, COUNT(DISTINCT s.consultant_id) AS count
+     FROM consultant_skills s
+     JOIN consultants c ON c.id = s.consultant_id
+     WHERE s.category = 'module' AND c.archived_at IS NULL AND s.label IN (?)
+     GROUP BY s.label ORDER BY count ASC`,
+    [RARE_MODULES]
+  );
+  const [availabilityRows] = await pool.query(
+    `SELECT COALESCE(cs.label, 'Non renseigné') AS status, COUNT(*) AS count
+     FROM consultants c
+     LEFT JOIN consultant_statuses cs ON cs.id = c.status_id
+     WHERE c.archived_at IS NULL
+     GROUP BY status`
+  );
+  const [[{ certificationsExpiringSoon }]] = await pool.query(
+    `SELECT COUNT(*) AS certificationsExpiringSoon FROM certifications c
+     JOIN consultants cons ON cons.id = c.consultant_id
+     WHERE c.expiry_date IS NOT NULL AND cons.archived_at IS NULL
+       AND c.expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 60 DAY)`
+  );
+
+  res.json({
+    totalDepartures,
+    departuresThisMonth,
+    byYear: byYearRows.map((r) => ({ year: r.year, count: r.count })),
+    byReason: byReasonRows.map((r) => ({ reason: r.reason, count: r.count })),
+    avgTenureDays: avgTenureDays !== null ? Math.round(avgTenureDays) : null,
+    byDepartment: byDepartmentRows.map((r) => ({ department: r.department, count: r.count })),
+    byClient: byClientRows.map((r) => ({ client: r.client, count: r.count })),
+    byModule: byModuleRows.map((r) => ({ module: r.module, count: r.count })),
+    byRole: byRoleRows.map((r) => ({ role: r.role, count: r.count })),
+    departuresLast12Months,
+    turnoverRate12Months: Math.round(turnoverRate12Months * 10) / 10,
+    activeHeadcount,
+    workforceByModule: workforceByModuleRows.map((r) => ({ module: r.module, count: r.count })),
+    workforceByTechnology: workforceByTechnologyRows.map((r) => ({ technology: r.technology, count: r.count })),
+    workforceByClient: workforceByClientRows.map((r) => ({ client: r.client, count: r.count })),
+    rareSkills: rareSkillRows.map((r) => ({ module: r.module, count: r.count })),
+    availability: availabilityRows.map((r) => ({ status: r.status, count: r.count })),
+    certificationsExpiringSoon,
+  });
 });
 
 app.get('/api/admin/change-requests', requireAdmin, async (req, res) => {
@@ -589,6 +1729,26 @@ app.get('/api/admin/change-requests', requireAdmin, async (req, res) => {
   );
 });
 
+// JSON columns come back from mysql2 as strings that must be re-parsed
+// client-side; a malformed one previously threw an uncaught JSON.parse
+// error that Express 5 turned into a bare, undiagnosable "Une erreur
+// interne est survenue" for the whole request, with no way to tell which
+// column or row was at fault without server log access. Parsing each field
+// individually and reporting exactly which one failed (logged server-side,
+// and echoed in the response for this admin-only endpoint) turns that into
+// something actually debuggable.
+function safeJsonParse(raw, label, changeRequestId) {
+  try {
+    return parseJsonColumn(raw);
+  } catch (e) {
+    console.error(`[change-requests] failed to parse ${label} for change_request ${changeRequestId}: ${e.message}`);
+    const err = new Error(`Champ "${label}" illisible pour la demande #${changeRequestId} : ${e.message}`);
+    err.status = 500;
+    err.debugSnippet = String(raw).slice(0, 300);
+    throw err;
+  }
+}
+
 app.get('/api/admin/change-requests/:id', requireAdmin, async (req, res) => {
   const [[row]] = await pool.query(
     `SELECT cr.*, c.name AS consultant_name
@@ -604,28 +1764,32 @@ app.get('/api/admin/change-requests/:id', requireAdmin, async (req, res) => {
     [req.params.id]
   );
 
-  res.json({
-    id: row.id,
-    consultantId: row.consultant_id,
-    consultantName: row.consultant_name,
-    status: row.status,
-    submittedData: JSON.parse(row.submitted_data),
-    previousData: JSON.parse(row.previous_data),
-    resolvedData: row.resolved_data ? JSON.parse(row.resolved_data) : null,
-    submittedAt: row.submitted_at,
-    reviewedBy: row.reviewed_by,
-    reviewedAt: row.reviewed_at,
-    rejectionReason: row.rejection_reason,
-    audit: auditRows.map((a) => ({
-      id: a.id,
-      action: a.action,
-      actorType: a.actor_type,
-      actorId: a.actor_id,
-      actorLabel: a.actor_label,
-      details: a.details ? JSON.parse(a.details) : null,
-      createdAt: a.created_at,
-    })),
-  });
+  try {
+    res.json({
+      id: row.id,
+      consultantId: row.consultant_id,
+      consultantName: row.consultant_name,
+      status: row.status,
+      submittedData: safeJsonParse(row.submitted_data, 'submitted_data', row.id),
+      previousData: safeJsonParse(row.previous_data, 'previous_data', row.id),
+      resolvedData: safeJsonParse(row.resolved_data, 'resolved_data', row.id),
+      submittedAt: row.submitted_at,
+      reviewedBy: row.reviewed_by,
+      reviewedAt: row.reviewed_at,
+      rejectionReason: row.rejection_reason,
+      audit: auditRows.map((a) => ({
+        id: a.id,
+        action: a.action,
+        actorType: a.actor_type,
+        actorId: a.actor_id,
+        actorLabel: a.actor_label,
+        details: safeJsonParse(a.details, `audit[${a.id}].details`, row.id),
+        createdAt: a.created_at,
+      })),
+    });
+  } catch (e) {
+    res.status(e.status || 500).json({ detail: e.message, debugSnippet: e.debugSnippet });
+  }
 });
 
 app.put('/api/admin/change-requests/:id/approve', requireAdmin, async (req, res) => {
@@ -651,7 +1815,7 @@ app.put('/api/admin/change-requests/:id/approve', requireAdmin, async (req, res)
       return res.status(400).json({ detail: 'Cette demande a déjà été traitée' });
     }
 
-    const submittedData = JSON.parse(row.submitted_data);
+    const submittedData = parseJsonColumn(row.submitted_data);
     const dataToApply = editedData || submittedData;
 
     const allProjects = await fetchAllProjects();
@@ -668,18 +1832,107 @@ app.put('/api/admin/change-requests/:id/approve', requireAdmin, async (req, res)
       });
     }
 
-    await conn.query('UPDATE consultants SET title = ? WHERE id = ?', [dataToApply.title, row.consultant_id]);
+    await conn.query('UPDATE consultants SET title = ?, profile_summary = ?, profile_updated_at = NOW() WHERE id = ?', [
+      dataToApply.title,
+      dataToApply.profileSummary || null,
+      row.consultant_id,
+    ]);
+    // role_id is admin-set per assignment (not something the consultant's CV
+    // wizard collects), so it must survive this delete-then-reinsert - carry
+    // forward whatever was already set for each project_id.
+    const [existingRoleRows] = await conn.query(
+      'SELECT project_id, role_id FROM consultant_projects WHERE consultant_id = ?',
+      [row.consultant_id]
+    );
+    const roleIdByProject = new Map(existingRoleRows.map((r) => [r.project_id, r.role_id]));
+
+    // Metadata (issuing body, dates, validity, etc.) for a certification
+    // already on file must be carried forward by name on every approval,
+    // same reasoning as role_id above. For a brand new certification with
+    // no existing row, the wizard now collects this metadata itself
+    // (Structured experience/consultant-followup plan) - submittedCertDetailsByName
+    // is the fallback source for those.
+    const [existingCertRows] = await conn.query('SELECT * FROM certifications WHERE consultant_id = ?', [
+      row.consultant_id,
+    ]);
+    const certDetailsByName = new Map(existingCertRows.map((c) => [c.name, c]));
+    const submittedCertDetailsByName = new Map(
+      (dataToApply.certificationDetails || []).map((d) => [d.name, d])
+    );
+
     await conn.query('DELETE FROM consultant_projects WHERE consultant_id = ?', [row.consultant_id]);
     await conn.query('DELETE FROM certifications WHERE consultant_id = ?', [row.consultant_id]);
+    await conn.query('DELETE FROM consultant_languages WHERE consultant_id = ?', [row.consultant_id]);
+    await conn.query('DELETE FROM consultant_formations WHERE consultant_id = ?', [row.consultant_id]);
+    await conn.query('DELETE FROM consultant_skills WHERE consultant_id = ?', [row.consultant_id]);
     for (const p of dataToApply.projects || []) {
       const rolePointsText = Array.isArray(p.rolePoints) ? p.rolePoints.join('\n') : '';
+      const stageTagsText = Array.isArray(p.stageTags) && p.stageTags.length ? p.stageTags.join(',') : null;
+      const experiencePhasesText =
+        Array.isArray(p.experiencePhases) && p.experiencePhases.length ? p.experiencePhases.join(',') : null;
+      // roleId is now consultant-selectable (Structured experience entry
+      // plan) - prefer whatever the submission carries, only falling back to
+      // the previously admin-set value for older submissions that don't
+      // include it at all.
+      const roleId = p.roleId ?? roleIdByProject.get(p.projectId) ?? null;
       await conn.query(
-        'INSERT INTO consultant_projects (consultant_id, project_id, role_points) VALUES (?, ?, ?)',
-        [row.consultant_id, p.projectId, rolePointsText]
+        `INSERT INTO consultant_projects
+           (consultant_id, project_id, role_points, stage_tags, role_id, experience_level, experience_phases, experience_certification)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          row.consultant_id,
+          p.projectId,
+          rolePointsText,
+          stageTagsText,
+          roleId,
+          p.experienceLevel || null,
+          experiencePhasesText,
+          p.experienceCertification || null,
+        ]
       );
     }
     for (const cert of dataToApply.certifications || []) {
-      await conn.query('INSERT INTO certifications (consultant_id, name) VALUES (?, ?)', [row.consultant_id, cert]);
+      const existing = certDetailsByName.get(cert);
+      const submitted = submittedCertDetailsByName.get(cert);
+      await conn.query(
+        `INSERT INTO certifications
+           (consultant_id, name, issuing_body, certificate_number, obtained_date, expiry_date,
+            validity_years, status, sap_module_id, level, file_path, verification_url, credly_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          row.consultant_id,
+          cert,
+          existing?.issuing_body ?? emptyToNull(submitted?.issuingBody),
+          existing?.certificate_number ?? emptyToNull(submitted?.certificateNumber),
+          existing?.obtained_date ?? toValidDateOrNull(submitted?.obtainedDate),
+          existing?.expiry_date ?? null,
+          existing?.validity_years ?? emptyToNull(submitted?.validityYears),
+          existing?.status ?? null,
+          existing?.sap_module_id ?? null,
+          existing?.level ?? null,
+          existing?.file_path ?? null,
+          existing?.verification_url ?? null,
+          existing?.credly_url ?? null,
+        ]
+      );
+    }
+    for (const [i, lang] of (dataToApply.languages || []).entries()) {
+      await conn.query(
+        'INSERT INTO consultant_languages (consultant_id, name, level, sort_order) VALUES (?, ?, ?, ?)',
+        [row.consultant_id, lang.name, lang.level, i]
+      );
+    }
+    for (const [i, f] of (dataToApply.formations || []).entries()) {
+      await conn.query(
+        'INSERT INTO consultant_formations (consultant_id, year, degree, school, field_of_study, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
+        [row.consultant_id, f.year, f.degree, f.school, emptyToNull(f.fieldOfStudy), i]
+      );
+    }
+    for (const [i, s] of (dataToApply.skills || []).entries()) {
+      await conn.query(
+        'INSERT INTO consultant_skills (consultant_id, category, label, starred, sort_order) VALUES (?, ?, ?, ?, ?)',
+        [row.consultant_id, s.category, s.label, !!s.starred, i]
+      );
     }
 
     await conn.query(
@@ -760,7 +2013,51 @@ app.put('/api/admin/change-requests/:id/reject', requireAdmin, async (req, res) 
   }
 });
 
+// Candidates/pipeline-stages are RH-accessible; the /admins list inside
+// this same router is not, hence the second, stricter param.
+app.use('/api/admin', buildCandidatesRouter({ pool, requireAdmin: requireAdminOrRh, requireAdminOrManager }));
+app.use('/api/admin', buildProjectReferentialsRouter({ pool, requireAdmin }));
+app.use('/api/admin', buildConsultantReferentialsRouter({ pool, requireAdmin }));
+// Departures stay admin-only per the RH scope reduction (explicitly
+// excluded when the user chose RH's scope) - departures.js's factory param
+// is still named requireHrOrAdmin, just bound to the strict check now.
+app.use('/api/admin', buildDeparturesRouter({ pool, requireHrOrAdmin: requireAdmin, notifyDeparture }));
+app.use('/api/admin', buildAlertsRouter({ pool, requireAdmin: requireAdminOrRh }));
+app.use('/api/admin', buildStaffingRouter({ pool, requireAdmin: requireAdminOrRh }));
+app.use(
+  '/api/admin',
+  buildPracticeManagersRouter({
+    pool,
+    requireAdmin,
+    requireAdminOrManager,
+    assertConsultantInScope,
+    consultantModuleIds,
+    notifyModuleManagers,
+  })
+);
+app.use('/api/admin', buildRfpRouter({ pool, requireAdmin: requireAdminOrPmo }));
+app.use('/api/admin', buildAdministrativeTrackingRouter({ pool, requireAdmin }));
+
+app.get('/api/admin/me', requireAdminOrManager, (req, res) => {
+  res.json({
+    id: req.admin.id,
+    username: req.admin.username,
+    role: req.admin.role,
+    moduleIds: req.admin.moduleIds,
+    consultantId: req.admin.consultantId,
+  });
+});
+
+// Asset-shaped paths (a stray browser-extension sourcemap request, a typo'd
+// script src, etc.) that don't correspond to a real file should 404, not
+// silently get index.html back - returning HTML for something that ends in
+// .js/.map/.css/etc is exactly what produces "unexpected character at line
+// 1" JSON/sourcemap-parse errors in devtools, and is generally wrong
+// regardless: only real navigable routes should fall through to the SPA.
+const ASSET_EXTENSION_RE = /\.(js|mjs|css|map|json|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|eot|txt|xml)$/i;
+
 app.get(/^\/(?!api).*/, (req, res, next) => {
+  if (ASSET_EXTENSION_RE.test(req.path)) return next();
   const indexPath = path.join(__dirname, 'index.html');
   if (!fs.existsSync(indexPath)) return next();
   res.sendFile(indexPath);
@@ -783,6 +2080,13 @@ initSchema()
     app.listen(PORT, () => {
       console.log(`Server listening on port ${PORT}`);
     });
+    // Point-in-time queries (a date crossing a threshold), not discrete
+    // events - a periodic recompute is simpler than hooking every write path
+    // that could affect an alert condition. Once at boot, then hourly.
+    computeAlerts({ pool, notifyAdmins }).catch((e) => console.error('computeAlerts failed:', e));
+    setInterval(() => {
+      computeAlerts({ pool, notifyAdmins }).catch((e) => console.error('computeAlerts failed:', e));
+    }, 60 * 60 * 1000);
   })
   .catch((e) => {
     console.error('Failed to initialize database schema:', e);

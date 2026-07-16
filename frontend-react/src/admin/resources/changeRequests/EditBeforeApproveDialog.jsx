@@ -50,7 +50,20 @@ export default function EditBeforeApproveDialog({ changeRequestId, submittedData
     setCertifications((prev) => prev.filter((c) => c !== cert));
   }
 
-  const editedData = { title, projects, certifications };
+  // profileSummary/languages/formations/skills aren't editable in this dialog
+  // yet, but must still be carried through untouched - the backend treats
+  // editedData as a full replacement of submittedData, so omitting them here
+  // would silently wipe a consultant's profile fields on any "edit before
+  // approve", even one that only touches a project or the title.
+  const editedData = {
+    title,
+    projects,
+    certifications,
+    profileSummary: submittedData.profileSummary,
+    languages: submittedData.languages,
+    formations: submittedData.formations,
+    skills: submittedData.skills,
+  };
 
   return (
     <>

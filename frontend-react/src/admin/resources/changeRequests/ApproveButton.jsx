@@ -26,6 +26,16 @@ export default function ApproveButton({ changeRequestId, editedData }) {
       refresh();
     } catch (e) {
       notify(e.message, { type: 'error' });
+      // A stale open tab can still show Approve for a request that a newer
+      // submission from the same consultant superseded in the meantime -
+      // the backend correctly rejects it, but leaving the admin stuck on a
+      // now-dead page with just a red toast gives them no next step. Send
+      // them back to the (fresh) pending list, where the real actionable
+      // request is visible.
+      if (e.message === 'Cette demande a déjà été traitée') {
+        redirect('list', 'changeRequests');
+        refresh();
+      }
     } finally {
       setLoading(false);
     }

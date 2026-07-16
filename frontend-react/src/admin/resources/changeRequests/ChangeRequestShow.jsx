@@ -1,6 +1,7 @@
-import { Show, useShowContext } from 'react-admin';
-import { Box, Typography, Stack, Chip, CircularProgress } from '@mui/material';
-import ChangeRequestDiff from './ChangeRequestDiff';
+import { Show, useShowContext, useCreatePath } from 'react-admin';
+import { useNavigate } from 'react-router-dom';
+import { Box, Typography, Stack, Chip, CircularProgress, Link } from '@mui/material';
+import ChangeSummary from '../../../shared/ChangeSummary';
 import ApproveButton from './ApproveButton';
 import RejectDialog from './RejectDialog';
 import EditBeforeApproveDialog from './EditBeforeApproveDialog';
@@ -15,6 +16,8 @@ const STATUS_LABELS = {
 
 function ChangeRequestShowContent() {
   const { record, isPending } = useShowContext();
+  const navigate = useNavigate();
+  const createPath = useCreatePath();
   // react-admin may render with a partial cached record (from the list,
   // which lacks previousData/submittedData/audit) before the full getOne
   // response arrives.
@@ -27,6 +30,10 @@ function ChangeRequestShowContent() {
   }
 
   const isPendingStatus = record.status === 'pending';
+  const supersededByEntry =
+    record.status === 'superseded'
+      ? record.audit.find((a) => a.action === 'superseded' && a.details?.supersededByChangeRequestId)
+      : null;
 
   return (
     <Box sx={{ p: 3, maxWidth: 720 }}>
@@ -37,7 +44,7 @@ function ChangeRequestShowContent() {
         <Chip label={STATUS_LABELS[record.status] || record.status} size="small" />
       </Stack>
 
-      <ChangeRequestDiff previousData={record.previousData} newData={record.resolvedData || record.submittedData} />
+      <ChangeSummary previousData={record.previousData} newData={record.resolvedData || record.submittedData} />
 
       {isPendingStatus && (
         <Stack direction="row" spacing={1.5} sx={{ mt: 3, mb: 3 }}>
@@ -59,6 +66,44 @@ function ChangeRequestShowContent() {
           }}
         >
           <Typography sx={{ fontSize: 13.5 }}>Motif du rejet : {record.rejectionReason}</Typography>
+        </Box>
+      )}
+
+      {record.status === 'superseded' && (
+        <Box
+          sx={{
+            mb: 3,
+            p: 2,
+            border: '1px solid',
+            borderColor: 'warning.main',
+            borderRadius: 2,
+            bgcolor: 'warning.light',
+          }}
+        >
+          <Typography sx={{ fontSize: 13.5 }}>
+            Le consultant a soumis une nouvelle mise à jour avant que celle-ci ne soit traitée — cette demande n'est
+            plus actionnable.
+            {supersededByEntry && (
+              <>
+                {' '}
+                <Link
+                  component="button"
+                  onClick={() =>
+                    navigate(
+                      createPath({
+                        resource: 'changeRequests',
+                        type: 'show',
+                        id: supersededByEntry.details.supersededByChangeRequestId,
+                      })
+                    )
+                  }
+                  sx={{ fontSize: 13.5 }}
+                >
+                  Voir la demande actuelle à traiter
+                </Link>
+              </>
+            )}
+          </Typography>
         </Box>
       )}
 

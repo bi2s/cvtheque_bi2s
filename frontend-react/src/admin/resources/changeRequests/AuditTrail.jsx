@@ -1,10 +1,13 @@
-import { Box, Typography, Stack, Paper, Chip } from '@mui/material';
+import { Box, Typography, Stack, Paper, Chip, Link } from '@mui/material';
+import { useCreatePath } from 'react-admin';
+import { useNavigate } from 'react-router-dom';
 
 const ACTION_LABELS = {
   submitted: 'Soumis',
   approved: 'Approuvé',
   edited: 'Modifié',
   rejected: 'Rejeté',
+  superseded: 'Remplacé',
 };
 
 const ACTION_COLORS = {
@@ -12,9 +15,13 @@ const ACTION_COLORS = {
   approved: 'success',
   edited: 'warning',
   rejected: 'error',
+  superseded: 'default',
 };
 
 export default function AuditTrail({ audit }) {
+  const navigate = useNavigate();
+  const createPath = useCreatePath();
+
   return (
     <Box>
       <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
@@ -37,6 +44,26 @@ export default function AuditTrail({ audit }) {
             {entry.action === 'rejected' && entry.details?.reason && (
               <Typography sx={{ fontSize: 13.5, mt: 0.5, fontStyle: 'italic' }}>
                 « {entry.details.reason} »
+              </Typography>
+            )}
+            {entry.action === 'superseded' && entry.details?.supersededByChangeRequestId && (
+              <Typography sx={{ fontSize: 13.5, mt: 0.5 }}>
+                Remplacée par une nouvelle soumission du consultant —{' '}
+                <Link
+                  component="button"
+                  onClick={() =>
+                    navigate(
+                      createPath({
+                        resource: 'changeRequests',
+                        type: 'show',
+                        id: entry.details.supersededByChangeRequestId,
+                      })
+                    )
+                  }
+                  sx={{ fontSize: 13.5 }}
+                >
+                  voir la demande #{entry.details.supersededByChangeRequestId}
+                </Link>
               </Typography>
             )}
           </Paper>

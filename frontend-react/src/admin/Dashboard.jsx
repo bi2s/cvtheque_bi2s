@@ -1,49 +1,24 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGetList, useCreatePath } from 'react-admin';
-import { Box, Paper, Typography, Stack, CircularProgress, Chip } from '@mui/material';
+import { Box, Paper, Typography, Stack, CircularProgress } from '@mui/material';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutlineOutlined';
 import WorkOutlineIcon from '@mui/icons-material/WorkOutlineOutlined';
+import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 import VerifiedOutlinedIcon from '@mui/icons-material/VerifiedOutlined';
+import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined';
 import PendingActionsOutlinedIcon from '@mui/icons-material/PendingActionsOutlined';
+import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
+import CelebrationOutlinedIcon from '@mui/icons-material/CelebrationOutlined';
+import { API_BASE_URL } from '../api';
+import { getAuthHeader } from './authHeader';
+import RecentActivity from './RecentActivity';
+import FollowupsWidget from './FollowupsWidget';
+import KpiBarChart from './charts/KpiBarChart';
+import KpiDonutChart from './charts/KpiDonutChart';
+import { StatCard, ChartCard } from './DashboardCards';
 
-function StatCard({ icon, label, value, color, onClick }) {
-  return (
-    <Paper
-      variant="outlined"
-      onClick={onClick}
-      sx={{
-        p: 2.5,
-        borderRadius: 3,
-        flex: 1,
-        minWidth: 180,
-        cursor: onClick ? 'pointer' : 'default',
-        '&:hover': onClick ? { boxShadow: 3, borderColor: 'transparent' } : undefined,
-      }}
-    >
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-        <Box
-          sx={{
-            width: 42,
-            height: 42,
-            borderRadius: 2.5,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            bgcolor: `${color}.light`,
-            color: `${color}.main`,
-          }}
-        >
-          {icon}
-        </Box>
-        <Box>
-          <Typography sx={{ fontSize: 24, fontWeight: 700, lineHeight: 1.1 }}>{value}</Typography>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{label}</Typography>
-        </Box>
-      </Stack>
-    </Paper>
-  );
-}
+const STATUS_LABELS = { active: 'Actifs', rejected: 'Refusés', withdrawn: 'Retirés' };
 
 const CONSULTANTS_QUERY = { pagination: { page: 1, perPage: 1000 }, sort: { field: 'name', order: 'ASC' } };
 const PROJECTS_QUERY = { pagination: { page: 1, perPage: 1000 }, sort: { field: 'client', order: 'ASC' } };
@@ -52,6 +27,19 @@ const PENDING_REQUESTS_QUERY = {
   sort: { field: 'submittedAt', order: 'DESC' },
   filter: { status: 'pending' },
 };
+
+function useDashboardStats() {
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    const authHeader = getAuthHeader();
+    if (!authHeader) return;
+    fetch(`${API_BASE_URL}/api/admin/dashboard-stats`, { headers: { Authorization: authHeader } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then(setStats)
+      .catch(() => setStats(null));
+  }, []);
+  return stats;
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -62,6 +50,7 @@ export default function Dashboard() {
     'changeRequests',
     PENDING_REQUESTS_QUERY
   );
+  const stats = useDashboardStats();
 
   const missionCounts = useMemo(() => {
     if (!projects) return {};
@@ -84,11 +73,11 @@ export default function Dashboard() {
     return consultants.filter((c) => !c.username).length;
   }, [consultants]);
 
-  const loading = consultantsPending || projectsPending || pendingRequestsPending;
+  const loading = consultantsPending || projectsPending || pendingRequestsPending || !stats;
 
   return (
     <Box sx={{ p: { xs: 2, sm: 4 } }}>
-      <Box sx={{ maxWidth: 960, mx: 'auto' }}>
+      <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
         <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em', mb: 3 }}>
           Vue d'ensemble
         </Typography>
@@ -99,13 +88,14 @@ export default function Dashboard() {
           </Box>
         ) : (
           <>
-            <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', mb: 4 }}>
+            <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', mb: 2 }}>
               <StatCard icon={<PeopleOutlineIcon />} label="Consultants" value={consultants.length} color="primary" />
+              <StatCard icon={<WorkOutlineIcon />} label="Projets au catalogue" value={projects.length} color="success" />
               <StatCard
-                icon={<WorkOutlineIcon />}
-                label="Projets au catalogue"
-                value={projects.length}
-                color="success"
+                icon={<AccountTreeOutlinedIcon />}
+                label="Sous-projets (lots)"
+                value={stats.subProjectsCount}
+                color="secondary"
               />
               <StatCard
                 icon={<VerifiedOutlinedIcon />}
@@ -114,11 +104,32 @@ export default function Dashboard() {
                 color="warning"
               />
               <StatCard
+                icon={<TaskAltOutlinedIcon />}
+                label="Projets finalisés"
+                value={stats.finalizedProjectsCount}
+                color="success"
+              />
+            </Stack>
+            <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', mb: 4 }}>
+              <StatCard
                 icon={<PendingActionsOutlinedIcon />}
                 label="Demandes en attente"
                 value={pendingRequests.length}
                 color="secondary"
                 onClick={() => navigate(createPath({ resource: 'changeRequests', type: 'list' }))}
+              />
+              <StatCard
+                icon={<BadgeOutlinedIcon />}
+                label="Candidats"
+                value={stats.totalCandidates}
+                color="primary"
+                onClick={() => navigate(createPath({ resource: 'candidates', type: 'list' }))}
+              />
+              <StatCard
+                icon={<CelebrationOutlinedIcon />}
+                label="Recrutements ce mois"
+                value={stats.recruitmentsThisMonth}
+                color="success"
               />
             </Stack>
 
@@ -133,34 +144,41 @@ export default function Dashboard() {
               </Paper>
             )}
 
-            <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap' }}>
-              <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, flex: 1, minWidth: 280 }}>
-                <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
-                  Répartition par type de mission
-                </Typography>
-                <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mt: 1.5 }}>
-                  {Object.entries(missionCounts).length === 0 && (
-                    <Typography sx={{ color: 'text.disabled', fontSize: 13.5 }}>Aucune donnée</Typography>
-                  )}
-                  {Object.entries(missionCounts).map(([type, count]) => (
-                    <Chip key={type} label={`${type} · ${count}`} variant="outlined" />
-                  ))}
-                </Stack>
-              </Paper>
+            <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap', mb: 3 }}>
+              <ChartCard title="Répartition par type de mission">
+                <KpiBarChart
+                  data={Object.entries(missionCounts).map(([name, value]) => ({ name, value }))}
+                  color="multi"
+                />
+              </ChartCard>
+              <ChartCard title="Répartition par module SAP">
+                <KpiBarChart data={Object.entries(moduleCounts).map(([name, value]) => ({ name, value }))} />
+              </ChartCard>
+            </Stack>
 
-              <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, flex: 1, minWidth: 280 }}>
-                <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
-                  Répartition par module SAP
-                </Typography>
-                <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mt: 1.5 }}>
-                  {Object.entries(moduleCounts).length === 0 && (
-                    <Typography sx={{ color: 'text.disabled', fontSize: 13.5 }}>Aucune donnée</Typography>
-                  )}
-                  {Object.entries(moduleCounts).map(([mod, count]) => (
-                    <Chip key={mod} label={`${mod} · ${count}`} color="primary" variant="outlined" />
-                  ))}
-                </Stack>
-              </Paper>
+            <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap' }}>
+              <ChartCard title="Pipeline de recrutement">
+                <KpiBarChart
+                  data={stats.candidatesByStage.map((s) => ({ name: s.stageName, value: s.count }))}
+                  horizontal
+                  color="multi"
+                  height={320}
+                />
+              </ChartCard>
+              <ChartCard title="Candidats par statut">
+                <KpiDonutChart
+                  data={stats.candidatesByStatus.map((s) => ({ name: STATUS_LABELS[s.status] || s.status, value: s.count }))}
+                />
+              </ChartCard>
+            </Stack>
+
+            <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap', mt: 3 }}>
+              <Box sx={{ flex: 1, minWidth: 320 }}>
+                <FollowupsWidget />
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 320 }}>
+                <RecentActivity />
+              </Box>
             </Stack>
           </>
         )}

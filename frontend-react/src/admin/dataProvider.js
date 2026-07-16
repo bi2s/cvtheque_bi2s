@@ -39,7 +39,9 @@ function paginateSortFilter(records, params, { searchFields = [], defaultSortFie
   }
   for (const [field, value] of Object.entries(exactFilters)) {
     if (value === undefined || value === null || value === '') continue;
-    result = result.filter((r) => String(r[field]) === String(value));
+    result = result.filter((r) =>
+      Array.isArray(r[field]) ? r[field].includes(value) : String(r[field]) === String(value)
+    );
   }
 
   const { field = defaultSortField, order = 'ASC' } = params.sort || {};
@@ -75,10 +77,13 @@ const consultantsResource = {
     return { data: { ...rest, id: response.id } };
   },
   async update(params) {
-    const { name, title, username } = params.data;
+    // Send the full record, not just {name, title, username} - the backend
+    // accepts seniorityLevel/missionTypeIds/personal-info fields/gender too
+    // (ConsultantProfileFields.jsx already exposes them on this form); a
+    // narrower payload here silently dropped every edit to those fields.
     const data = await apiFetch(`/api/admin/consultants/${params.id}`, {
       method: 'PUT',
-      body: JSON.stringify({ name, title, username }),
+      body: JSON.stringify(params.data),
     });
     return { data };
   },
@@ -130,10 +135,42 @@ const changeRequestsResource = {
   },
 };
 
+const candidatesResource = {
+  async getList(params) {
+    const all = await apiFetch('/api/admin/candidates');
+    return paginateSortFilter(all, params, {
+      searchFields: ['firstName', 'lastName', 'desiredPosition'],
+      defaultSortField: 'createdAt',
+    });
+  },
+  async getOne(params) {
+    const data = await apiFetch(`/api/admin/candidates/${params.id}`);
+    return { data };
+  },
+  // Creation happens via CandidateCvUpload.jsx's own multipart fetch (needs
+  // to send the CV file alongside the form fields) - it bypasses dataProvider
+  // entirely, same pattern as PhotoUploadButton.jsx, so this is never called.
+  async create() {
+    throw new Error('Use the CV upload flow to create a candidate.');
+  },
+  async update(params) {
+    const data = await apiFetch(`/api/admin/candidates/${params.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(params.data),
+    });
+    return { data };
+  },
+  async delete(params) {
+    await apiFetch(`/api/admin/candidates/${params.id}`, { method: 'DELETE' });
+    return { data: params.previousData };
+  },
+};
+
 const resources = {
   consultants: consultantsResource,
   catalogProjects: catalogProjectsResource,
   changeRequests: changeRequestsResource,
+  candidates: candidatesResource,
 };
 
 const dataProvider = {

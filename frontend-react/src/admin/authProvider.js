@@ -14,11 +14,11 @@ function readStoredAuth() {
 
 const authProvider = {
   async login({ username, password }) {
-    const res = await fetch(`${API_BASE_URL}/api/consultants`, {
-      headers: { Authorization: basicAuthHeader(username, password) },
-    });
+    const authHeader = basicAuthHeader(username, password);
+    const res = await fetch(`${API_BASE_URL}/api/admin/me`, { headers: { Authorization: authHeader } });
     if (!res.ok) throw new Error('Identifiants invalides');
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ username, password }));
+    const { role, moduleIds, consultantId } = await res.json();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ username, password, role, moduleIds, consultantId }));
   },
 
   async logout() {
@@ -43,7 +43,9 @@ const authProvider = {
   },
 
   async getPermissions() {
-    return null;
+    const auth = readStoredAuth();
+    if (!auth) return null;
+    return { role: auth.role || 'admin', moduleIds: auth.moduleIds || [], consultantId: auth.consultantId ?? null };
   },
 };
 
