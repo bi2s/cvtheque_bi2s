@@ -1,6 +1,23 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 
+// Mon-Fri count between two dates inclusive - same "business days" notion
+// StaffingPlanning.jsx's auto-computed "Jours" field already uses
+// client-side; needed again here, server-side, for monthly utilization.
+function countBusinessDays(start, end) {
+  let count = 0;
+  const cur = new Date(start);
+  cur.setHours(0, 0, 0, 0);
+  const last = new Date(end);
+  last.setHours(0, 0, 0, 0);
+  while (cur <= last) {
+    const day = cur.getDay();
+    if (day !== 0 && day !== 6) count++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
+
 async function insertPmAudit(
   pool,
   { consultantId, adminId, adminRole, sapModuleId, field, oldValue, newValue, reason }
@@ -104,6 +121,7 @@ module.exports = function buildPracticeManagersRouter({
   assertConsultantInScope,
   consultantModuleIds,
   notifyModuleManagers,
+  getAlertSettings,
 }) {
   const router = express.Router();
 
@@ -463,6 +481,7 @@ module.exports = function buildPracticeManagersRouter({
 
   // --- Module-scoped dashboard ---
   router.get('/practice-manager/dashboard-stats', requireAdmin, async (req, res) => {
+    const { missionEndingSoonDays, certificationExpiryWindowDays } = await getAlertSettings(pool);
     const moduleMap = await buildConsultantModuleMap(pool);
     const [allConsultants] = await pool.query(
       `SELECT c.id, cs.label AS statusLabel,
@@ -488,15 +507,15 @@ module.exports = function buildPracticeManagersRouter({
       const [[{ count: endingCount }]] = await pool.query(
         `SELECT COUNT(*) AS count FROM consultant_projects
          WHERE consultant_id IN (?) AND ended_at IS NULL AND planned_end_date IS NOT NULL
-           AND planned_end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)`,
-        [scopedIds]
+           AND planned_end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)`,
+        [scopedIds, missionEndingSoonDays]
       );
       endingSoon = endingCount;
       const [[{ count: certCount }]] = await pool.query(
         `SELECT COUNT(*) AS count FROM certifications
          WHERE consultant_id IN (?) AND expiry_date IS NOT NULL
-           AND expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 60 DAY)`,
-        [scopedIds]
+           AND expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)`,
+        [scopedIds, certificationExpiryWindowDays]
       );
       certsExpiringSoon = certCount;
       const [[{ count: reqCount }]] = await pool.query(
@@ -664,6 +683,20 @@ module.exports = function buildPracticeManagersRouter({
     if (!(await assertConsultantInScope(req, consultantId))) {
       return res.status(403).json({ detail: 'Ce consultant est hors de votre périmètre.' });
     }
+
+    // Non-blocking: a manager may deliberately log a short overlapping trip
+    // (e.g. a one-day client visit during another mission), so this warns
+    // rather than rejects - same "surface it, don't gate on it" precedent as
+    // the confirmed bulk-approve/recurring-deposit judgment calls elsewhere
+    // in this plan.
+    const [conflicts] = await pool.query(
+      `SELECT sa.id, sa.start_date, sa.end_date, p.client AS project_client
+       FROM staffing_assignments sa
+       LEFT JOIN catalog_projects p ON p.id = sa.project_id
+       WHERE sa.consultant_id = ? AND sa.start_date <= ? AND sa.end_date >= ?`,
+      [consultantId, endDate, startDate]
+    );
+
     const [result] = await pool.query(
       `INSERT INTO staffing_assignments
          (consultant_id, project_id, start_date, end_date, days_count, location, region, travel_mode,
@@ -685,7 +718,15 @@ module.exports = function buildPracticeManagersRouter({
         req.admin.id,
       ]
     );
-    res.json({ id: result.insertId });
+    res.json({
+      id: result.insertId,
+      conflicts: conflicts.map((c) => ({
+        id: c.id,
+        startDate: c.start_date,
+        endDate: c.end_date,
+        projectClient: c.project_client,
+      })),
+    });
   });
 
   router.get('/staffing-assignments', requireAdminOrManager, async (req, res) => {
@@ -710,6 +751,46 @@ module.exports = function buildPracticeManagersRouter({
       mapped = mapped.filter((r) => r.projectManagerAdminId === req.admin.id);
     }
     res.json(mapped);
+  });
+
+  // Current-month utilization %, approximated from staffing_assignments
+  // date ranges only (no allocation-% or partial-day field exists yet) -
+  // explicitly labeled as an approximation on the frontend, same
+  // "real but coarse signal" precedent as the existing surcharge alert
+  // heuristic in alerts.js.
+  router.get('/staffing-utilization', requireAdminOrManager, async (req, res) => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const workingDays = countBusinessDays(monthStart, monthEnd);
+    const isoMonthStart = monthStart.toISOString().slice(0, 10);
+    const isoMonthEnd = monthEnd.toISOString().slice(0, 10);
+
+    const [rows] = await pool.query(
+      `SELECT consultant_id, start_date, end_date FROM staffing_assignments
+       WHERE start_date <= ? AND end_date >= ?`,
+      [isoMonthEnd, isoMonthStart]
+    );
+
+    const assignedDaysByConsultant = new Map();
+    for (const r of rows) {
+      const overlapStart = new Date(Math.max(new Date(r.start_date), monthStart));
+      const overlapEnd = new Date(Math.min(new Date(r.end_date), monthEnd));
+      const days = countBusinessDays(overlapStart, overlapEnd);
+      assignedDaysByConsultant.set(r.consultant_id, (assignedDaysByConsultant.get(r.consultant_id) || 0) + days);
+    }
+
+    let entries = [...assignedDaysByConsultant.entries()].map(([consultantId, assignedDays]) => ({
+      consultantId,
+      assignedDays,
+      workingDays,
+      utilizationPct: workingDays > 0 ? Math.round((Math.min(assignedDays, workingDays) / workingDays) * 100) : 0,
+    }));
+    if (req.admin.role === 'manager') {
+      const moduleMap = await buildConsultantModuleMap(pool);
+      entries = entries.filter((e) => (moduleMap.get(e.consultantId) || []).some((id) => req.admin.moduleIds.includes(id)));
+    }
+    res.json(entries);
   });
 
   router.delete('/staffing-assignments/:id', requireAdminOrManager, async (req, res) => {

@@ -113,7 +113,7 @@ const AUDITED_FIELDS = [
   ['desiredSalary', 'desired_salary'],
 ];
 
-module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdminOrManager }) {
+module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdminOrManager, pushToAdminsAndRh }) {
   const router = express.Router();
 
   async function fetchCandidateDetail(id) {
@@ -640,6 +640,13 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
       });
 
       await conn.commit();
+      if (pushToAdminsAndRh) {
+        pushToAdminsAndRh(pool, {
+          title: 'Candidat — changement d\'étape',
+          body: `${candidate.first_name} ${candidate.last_name} → ${stage.name}`,
+          url: `/admin/candidates/${id}/show`,
+        }).catch(() => {});
+      }
       res.json({ ok: true });
     } catch (e) {
       await conn.rollback();

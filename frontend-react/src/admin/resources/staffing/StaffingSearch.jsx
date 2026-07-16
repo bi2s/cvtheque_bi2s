@@ -10,6 +10,8 @@ import {
   Avatar,
   Chip,
   CircularProgress,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import { API_BASE_URL } from '../../../api';
@@ -40,6 +42,12 @@ function ResultCard({ consultant }) {
             {consultant.rareModules.length > 0 && (
               <Chip label={`Rare : ${consultant.rareModules.join(', ')}`} size="small" variant="outlined" color="secondary" />
             )}
+            <Chip
+              label={consultant.hasCurrentAssignment ? 'En mission actuellement' : 'Disponible maintenant'}
+              size="small"
+              variant="outlined"
+              color={consultant.hasCurrentAssignment ? 'default' : 'success'}
+            />
           </Stack>
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
             {consultant.title} {consultant.seniorityLevel ? `— ${consultant.seniorityLevel}` : ''}
@@ -59,7 +67,14 @@ function ResultCard({ consultant }) {
 
 export default function StaffingSearch() {
   const [guidedText, setGuidedText] = useState('');
-  const [filters, setFilters] = useState({ module: '', technology: '', language: '', languageLevel: '', seniority: '' });
+  const [filters, setFilters] = useState({
+    module: '',
+    technology: '',
+    language: '',
+    languageLevel: '',
+    seniority: '',
+    availability: false,
+  });
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -71,7 +86,9 @@ export default function StaffingSearch() {
   async function search() {
     setLoading(true);
     try {
-      const params = new URLSearchParams(Object.fromEntries(Object.entries(filters).filter(([, v]) => v)));
+      const params = new URLSearchParams(
+        Object.fromEntries(Object.entries(filters).filter(([, v]) => v).map(([k, v]) => [k, v === true ? '1' : v]))
+      );
       const res = await fetch(`${API_BASE_URL}/api/admin/staffing-search?${params}`, {
         headers: { Authorization: getAuthHeader() },
       });
@@ -175,6 +192,15 @@ export default function StaffingSearch() {
             </MenuItem>
           ))}
         </TextField>
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={filters.availability}
+              onChange={(e) => setFilters((f) => ({ ...f, availability: e.target.checked }))}
+            />
+          }
+          label="Disponible immédiatement"
+        />
         <Button variant="contained" startIcon={<SearchIcon />} onClick={search} disabled={loading}>
           Rechercher
         </Button>

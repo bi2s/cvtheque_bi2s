@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useCreatePath } from 'react-admin';
+import { useCreatePath, useNotify, usePermissions } from 'react-admin';
 import {
   Box,
   Typography,
@@ -14,6 +14,82 @@ import {
 } from '@mui/material';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
+
+// Admin-only (the backend route is requireAdmin-strict, not
+// requireAdminOrRh like the rest of this page) - these thresholds are an
+// app-wide tunable, same reasoning as any other global setting.
+function AlertSettingsForm() {
+  const { permissions } = usePermissions();
+  const notify = useNotify();
+  const [settings, setSettings] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (permissions?.role !== 'admin') return;
+    fetch(`${API_BASE_URL}/api/admin/alert-settings`, { headers: { Authorization: getAuthHeader() } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setSettings);
+  }, [permissions?.role]);
+
+  if (permissions?.role !== 'admin' || !settings) return null;
+
+  async function save() {
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/alert-settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: getAuthHeader() },
+        body: JSON.stringify(settings),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        notify(body.detail || 'Échec de l\'enregistrement', { type: 'error' });
+        return;
+      }
+      setSettings(await res.json());
+      notify('Seuils enregistrés.', { type: 'success' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 3 }}>
+      <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700, display: 'block', mb: 1 }}>
+        Seuils d'alerte
+      </Typography>
+      <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <TextField
+          type="number"
+          size="small"
+          label="Certification : fenêtre d'expiration (j)"
+          value={settings.certificationExpiryWindowDays}
+          onChange={(e) => setSettings((s) => ({ ...s, certificationExpiryWindowDays: Number(e.target.value) }))}
+          sx={{ width: 260 }}
+        />
+        <TextField
+          type="number"
+          size="small"
+          label="Profil considéré non à jour après (j)"
+          value={settings.profileStaleDays}
+          onChange={(e) => setSettings((s) => ({ ...s, profileStaleDays: Number(e.target.value) }))}
+          sx={{ width: 260 }}
+        />
+        <TextField
+          type="number"
+          size="small"
+          label="Mission bientôt terminée (j)"
+          value={settings.missionEndingSoonDays}
+          onChange={(e) => setSettings((s) => ({ ...s, missionEndingSoonDays: Number(e.target.value) }))}
+          sx={{ width: 220 }}
+        />
+        <Button variant="contained" onClick={save} disabled={saving}>
+          {saving ? 'Enregistrement...' : 'Enregistrer'}
+        </Button>
+      </Stack>
+    </Paper>
+  );
+}
 
 const SEVERITY_COLORS = { critical: 'error', warning: 'warning', info: 'default' };
 const SEVERITY_LABELS = { critical: 'Critique', warning: 'Avertissement', info: 'Info' };
@@ -65,6 +141,8 @@ export default function AlertsCenter() {
       <Typography sx={{ color: 'text.secondary', fontSize: 13.5, mb: 2 }}>
         Recalculées automatiquement toutes les heures — certifications, profils incomplets ou non mis à jour, affectations multiples.
       </Typography>
+
+      <AlertSettingsForm />
 
       <Stack direction="row" spacing={1.5} sx={{ mb: 3 }}>
         <TextField select size="small" label="Statut" value={status} onChange={(e) => setStatus(e.target.value)} sx={{ width: 160 }}>

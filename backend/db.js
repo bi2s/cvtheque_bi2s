@@ -1057,6 +1057,43 @@ async function initSchema() {
         FOREIGN KEY (case_file_id) REFERENCES case_files(id) ON DELETE CASCADE
       )
     `);
+
+    // Single-row-by-convention settings table (id fixed at 1) - the alert
+    // thresholds computeAlerts()/practiceManagers.js's dashboard used to
+    // read as hardcoded module constants now live here so an admin can
+    // tune them without a code change. mission_ending_soon_days covers
+    // practiceManagers.js's separate "missions ending soon" stat, which
+    // used its own inline 30-day literal.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS alert_settings (
+        id INT PRIMARY KEY DEFAULT 1,
+        certification_expiry_window_days INT NOT NULL DEFAULT 60,
+        profile_stale_days INT NOT NULL DEFAULT 90,
+        mission_ending_soon_days INT NOT NULL DEFAULT 30
+      )
+    `);
+    await conn.query('INSERT IGNORE INTO alert_settings (id) VALUES (1)');
+
+    // subject_type/subject_id is a polymorphic reference (admins.id or
+    // consultants.id) rather than two nullable FK columns, since a browser
+    // push subscription belongs to exactly one of this app's two separate
+    // login types - see routes/push.js. endpoint(191) keeps the unique
+    // index within InnoDB's utf8mb4 key-length limit while still covering
+    // real push-service endpoint URLs (FCM/Mozilla autopush are far short
+    // of 191 chars in practice).
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        subject_type VARCHAR(20) NOT NULL,
+        subject_id INT NOT NULL,
+        endpoint VARCHAR(500) NOT NULL,
+        p256dh VARCHAR(255) NOT NULL,
+        auth VARCHAR(255) NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_push_endpoint (endpoint(191)),
+        INDEX idx_push_subject (subject_type, subject_id)
+      )
+    `);
   } finally {
     conn.release();
   }

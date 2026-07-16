@@ -20,6 +20,7 @@ const {
   requireAdminOrPmo,
   requireAdminOrManager,
   requireConsultantOrOwnAdmin,
+  requireConsultant,
   seedAdminFromEnv,
   parseBasicAuth,
   consultantModuleIds,
@@ -39,11 +40,13 @@ const buildProjectReferentialsRouter = require('./routes/projectReferentials');
 const buildConsultantReferentialsRouter = require('./routes/consultantReferentials');
 const buildDeparturesRouter = require('./routes/departures');
 const buildAlertsRouter = require('./routes/alerts');
-const { computeAlerts } = buildAlertsRouter;
+const { computeAlerts, getAlertSettings } = buildAlertsRouter;
 const buildStaffingRouter = require('./routes/staffing');
 const buildPracticeManagersRouter = require('./routes/practiceManagers');
 const buildRfpRouter = require('./routes/rfp');
 const buildAdministrativeTrackingRouter = require('./routes/administrativeTracking');
+const buildPushRouter = require('./routes/push');
+const { pushToAdminsAndRh, pushToConsultant } = buildPushRouter;
 
 const STAGE_TAGS = ['Explore', 'Realize', 'Deploy', 'Run'];
 const SKILL_CATEGORIES = ['module', 'flow', 'technology', 'methodology'];
@@ -656,6 +659,11 @@ app.post('/api/generate-cv', requireConsultantOrOwnAdmin, async (req, res) => {
     await conn.commit();
 
     notifyNewChangeRequest(consultant.name, changeRequestId).catch(() => {});
+    pushToAdminsAndRh(pool, {
+      title: 'Nouvelle demande de mise à jour',
+      body: `${consultant.name} a soumis une mise à jour de profil.`,
+      url: `/admin/changeRequests/${changeRequestId}/show`,
+    }).catch(() => {});
 
     res.json({ ok: true, status: 'pending', changeRequestId });
   } catch (e) {
@@ -1974,14 +1982,25 @@ async function approveChangeRequestRow(conn, { id, editedData, adminId, adminUse
 }
 
 // Looks up the consultant's on-file email/name post-commit and fires the
-// decision notice - kept outside the transaction since it's best-effort and
-// must never affect the approve/reject outcome itself. No-ops silently via
-// notifyConsultantDecision -> notifyAdminEmail if there's no email on file
-// or SMTP isn't configured.
+// decision notice on every channel - kept outside the transaction since
+// it's best-effort and must never affect the approve/reject outcome
+// itself. Each channel no-ops independently and silently when not
+// applicable: notifyConsultantDecision -> notifyAdminEmail skips without an
+// email on file or SMTP configured; pushToConsultant skips without a VAPID
+// config or a saved subscription for this consultant.
 async function notifyConsultantOfDecision(consultantId, { approved, reason }) {
   const [[consultant]] = await pool.query('SELECT name, email FROM consultants WHERE id = ?', [consultantId]);
-  if (!consultant?.email) return;
-  await notifyConsultantDecision(consultant.email, consultant.name, { approved, reason });
+  if (!consultant) return;
+  if (consultant.email) {
+    await notifyConsultantDecision(consultant.email, consultant.name, { approved, reason });
+  }
+  await pushToConsultant(pool, consultantId, {
+    title: approved ? 'Mise à jour approuvée' : 'Mise à jour refusée',
+    body: approved
+      ? 'Votre mise à jour de profil a été approuvée et est visible sur votre CV.'
+      : `Votre mise à jour de profil a été refusée. Motif : ${reason || 'non précisé'}.`,
+    url: '/',
+  });
 }
 
 app.put('/api/admin/change-requests/:id/approve', requireAdmin, async (req, res) => {
@@ -2217,14 +2236,14 @@ app.put('/api/admin/change-requests/bulk-resolve', requireAdmin, async (req, res
 
 // Candidates/pipeline-stages are RH-accessible; the /admins list inside
 // this same router is not, hence the second, stricter param.
-app.use('/api/admin', buildCandidatesRouter({ pool, requireAdmin: requireAdminOrRh, requireAdminOrManager }));
+app.use('/api/admin', buildCandidatesRouter({ pool, requireAdmin: requireAdminOrRh, requireAdminOrManager, pushToAdminsAndRh }));
 app.use('/api/admin', buildProjectReferentialsRouter({ pool, requireAdmin }));
 app.use('/api/admin', buildConsultantReferentialsRouter({ pool, requireAdmin }));
 // Departures stay admin-only per the RH scope reduction (explicitly
 // excluded when the user chose RH's scope) - departures.js's factory param
 // is still named requireHrOrAdmin, just bound to the strict check now.
 app.use('/api/admin', buildDeparturesRouter({ pool, requireHrOrAdmin: requireAdmin, notifyDeparture }));
-app.use('/api/admin', buildAlertsRouter({ pool, requireAdmin: requireAdminOrRh }));
+app.use('/api/admin', buildAlertsRouter({ pool, requireAdmin: requireAdminOrRh, requireAdminStrict: requireAdmin }));
 app.use('/api/admin', buildStaffingRouter({ pool, requireAdmin: requireAdminOrRh }));
 app.use(
   '/api/admin',
@@ -2235,10 +2254,12 @@ app.use(
     assertConsultantInScope,
     consultantModuleIds,
     notifyModuleManagers,
+    getAlertSettings,
   })
 );
 app.use('/api/admin', buildRfpRouter({ pool, requireAdmin: requireAdminOrPmo }));
 app.use('/api/admin', buildAdministrativeTrackingRouter({ pool, requireAdmin }));
+app.use('/api/push', buildPushRouter({ pool, requireAdminOrRh, requireConsultant }));
 
 app.get('/api/admin/me', requireAdminOrManager, (req, res) => {
   res.json({
@@ -2285,9 +2306,9 @@ initSchema()
     // Point-in-time queries (a date crossing a threshold), not discrete
     // events - a periodic recompute is simpler than hooking every write path
     // that could affect an alert condition. Once at boot, then hourly.
-    computeAlerts({ pool, notifyAdmins }).catch((e) => console.error('computeAlerts failed:', e));
+    computeAlerts({ pool, notifyAdmins, pushToAdminsAndRh }).catch((e) => console.error('computeAlerts failed:', e));
     setInterval(() => {
-      computeAlerts({ pool, notifyAdmins }).catch((e) => console.error('computeAlerts failed:', e));
+      computeAlerts({ pool, notifyAdmins, pushToAdminsAndRh }).catch((e) => console.error('computeAlerts failed:', e));
     }, 60 * 60 * 1000);
   })
   .catch((e) => {

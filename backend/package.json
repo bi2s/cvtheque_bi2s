@@ -26,6 +26,7 @@
     "nodemailer": "^9.0.3",
     "pdf-parse": "^2.4.5",
     "pptxgenjs": "^4.0.1",
+    "web-push": "^3.6.7",
     "xlsx": "https://cdn.sheetjs.com/xlsx-latest/xlsx-latest.tgz"
   }
 }

@@ -53,6 +53,7 @@ export default function StaffingPlanning() {
   const [consultants, setConsultants] = useState([]);
   const [projects, setProjects] = useState([]);
   const [admins, setAdmins] = useState([]);
+  const [utilization, setUtilization] = useState([]);
   const [form, setForm] = useState({
     consultantId: '',
     projectId: '',
@@ -73,6 +74,10 @@ export default function StaffingPlanning() {
     fetch(`${API_BASE_URL}/api/admin/staffing-assignments`, { headers: { Authorization: getAuthHeader() } })
       .then((r) => r.json())
       .then(setAssignments);
+    fetch(`${API_BASE_URL}/api/admin/staffing-utilization`, { headers: { Authorization: getAuthHeader() } })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setUtilization)
+      .catch(() => setUtilization([]));
   }
 
   useEffect(load, []);
@@ -102,6 +107,14 @@ export default function StaffingPlanning() {
       notify('custom.server_error', { type: 'error', messageArgs: { detail: 'Échec' } });
       return;
     }
+    const body = await res.json().catch(() => ({}));
+    if (body.conflicts?.length > 0) {
+      const periods = body.conflicts.map((c) => `${c.projectClient || '—'} (${c.startDate} → ${c.endDate})`).join(', ');
+      notify(`Attention : affectation chevauchant une autre mission déjà planifiée - ${periods}`, {
+        type: 'warning',
+        autoHideDuration: 8000,
+      });
+    }
     setForm({
       consultantId: '',
       projectId: '',
@@ -128,6 +141,7 @@ export default function StaffingPlanning() {
 
   const isManager = permissions?.role === 'manager';
   const isMissionRole = ['responsable_mission', 'chef_projet'].includes(permissions?.role);
+  const utilizationByConsultant = new Map(utilization.map((u) => [u.consultantId, u]));
 
   return (
     <Box sx={{ p: 3, maxWidth: 1300 }}>
@@ -321,6 +335,7 @@ export default function StaffingPlanning() {
               <TableCell>Projet</TableCell>
               <TableCell>Période</TableCell>
               <TableCell>Jours</TableCell>
+              <TableCell>Occupation (mois, approx.)</TableCell>
               <TableCell>Emplacement</TableCell>
               <TableCell>Région</TableCell>
               <TableCell>Déplacement</TableCell>
@@ -341,6 +356,18 @@ export default function StaffingPlanning() {
                   {a.startDate} → {a.endDate}
                 </TableCell>
                 <TableCell>{a.daysCount ? <Chip size="small" label={a.daysCount} /> : '—'}</TableCell>
+                <TableCell>
+                  {utilizationByConsultant.has(a.consultantId) ? (
+                    <Chip
+                      size="small"
+                      label={`${utilizationByConsultant.get(a.consultantId).utilizationPct}%`}
+                      color={utilizationByConsultant.get(a.consultantId).utilizationPct >= 100 ? 'warning' : 'default'}
+                      variant="outlined"
+                    />
+                  ) : (
+                    '—'
+                  )}
+                </TableCell>
                 <TableCell>{a.location === 'sur_site' ? 'Sur site' : a.location === 'a_distance' ? 'À distance' : '—'}</TableCell>
                 <TableCell>{a.region || '—'}</TableCell>
                 <TableCell>{a.travelMode || '—'}</TableCell>

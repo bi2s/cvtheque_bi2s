@@ -24,6 +24,7 @@ import {
   generateExperienceDescription,
 } from './experienceTemplate';
 import { genderedConsultantLabel } from './genderize';
+import { subscribeToPush, getPushSubscriptionStatus, pushSupported } from './pushClient';
 
 const SAP_CERTIFICATIONS = [
   'SAP Certified Application Associate - SD S/4HANA',
@@ -1768,6 +1769,7 @@ export default function ChatCvScreen() {
         <ConsultantDashboard
           name={name}
           title={title}
+          credentials={credentials}
           projects={projects}
           projectLookup={projectLookup}
           selectedCerts={selectedCerts}
@@ -1827,9 +1829,44 @@ export default function ChatCvScreen() {
   );
 }
 
+// Opt-in only (no permission prompt on load) - lets a consultant get pushed
+// their own approve/reject decision without email being set up. Silently
+// hides itself if the browser doesn't support push at all.
+function ConsultantPushButton({ credentials }) {
+  const [status, setStatus] = useState('checking');
+
+  useEffect(() => {
+    if (!pushSupported()) {
+      setStatus('unsupported');
+      return;
+    }
+    getPushSubscriptionStatus().then(setStatus);
+  }, []);
+
+  if (status === 'unsupported') return null;
+
+  async function handleClick() {
+    if (status === 'subscribed' || status === 'checking') return;
+    setStatus('checking');
+    try {
+      await subscribeToPush('consultant', basicAuthHeader(credentials.username, credentials.password));
+      setStatus('subscribed');
+    } catch {
+      setStatus('not-subscribed');
+    }
+  }
+
+  return (
+    <Button variant="text" color="inherit" onClick={handleClick} disabled={status !== 'not-subscribed'}>
+      {status === 'subscribed' ? 'Notifications activées' : 'Activer les notifications'}
+    </Button>
+  );
+}
+
 function ConsultantDashboard({
   name,
   title,
+  credentials,
   projects,
   projectLookup,
   selectedCerts,
@@ -1882,6 +1919,7 @@ function ConsultantDashboard({
           <Button variant="outlined" onClick={onDownloadCv} disabled={downloading}>
             {downloading ? 'Téléchargement...' : 'Télécharger mon CV'}
           </Button>
+          <ConsultantPushButton credentials={credentials} />
           <Button variant="text" color="inherit" onClick={onLogout}>
             Se déconnecter
           </Button>

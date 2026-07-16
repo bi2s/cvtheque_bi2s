@@ -46,6 +46,16 @@ function scoreConsultant(consultant, criteria) {
     if (met) earned += 20;
     breakdown.push({ dimension: 'Séniorité', requested: criteria.seniority, met, points: met ? 20 : 0, max: 20 });
   }
+  // Opt-in (criteria.availability) so the plain staffing-search page is
+  // byte-for-byte unaffected unless the caller explicitly asks for this
+  // dimension - "met" means no staffing_assignments row currently
+  // overlaps today's date (see fetchStaffingPool's hasCurrentAssignment).
+  if (criteria.availability) {
+    possible += 20;
+    const met = !consultant.hasCurrentAssignment;
+    if (met) earned += 20;
+    breakdown.push({ dimension: 'Disponibilité', requested: 'Disponible maintenant', met, points: met ? 20 : 0, max: 20 });
+  }
 
   const score = possible > 0 ? Math.round((earned / possible) * 100) : null;
   return { score, possible, breakdown };
@@ -70,6 +80,10 @@ async function fetchStaffingPool(pool) {
   const [certRows] = await pool.query(
     "SELECT consultant_id, COUNT(*) AS activeCount FROM certifications WHERE expiry_date IS NULL OR expiry_date >= CURDATE() GROUP BY consultant_id"
   );
+  const [currentAssignmentRows] = await pool.query(
+    'SELECT DISTINCT consultant_id FROM staffing_assignments WHERE start_date <= CURDATE() AND end_date >= CURDATE()'
+  );
+  const hasCurrentAssignmentSet = new Set(currentAssignmentRows.map((r) => r.consultant_id));
 
   const modulesBy = new Map();
   const techBy = new Map();
@@ -96,6 +110,7 @@ async function fetchStaffingPool(pool) {
     technologies: techBy.get(c.id) || [],
     languages: languagesBy.get(c.id) || [],
     activeCertificationCount: certCountBy.get(c.id) || 0,
+    hasCurrentAssignment: hasCurrentAssignmentSet.has(c.id),
   }));
 }
 
@@ -114,6 +129,7 @@ function rankConsultants(pool_data, criteria) {
       technologies: c.technologies,
       languages: c.languages,
       activeCertificationCount: c.activeCertificationCount,
+      hasCurrentAssignment: c.hasCurrentAssignment,
       rareModules: c.modules.filter((m) => RARE_MODULES.includes(m)),
       score,
       breakdown,
@@ -137,6 +153,7 @@ module.exports = function buildStaffingRouter({ pool, requireAdmin }) {
       language: req.query.language || null,
       languageLevel: req.query.languageLevel || null,
       seniority: req.query.seniority || null,
+      availability: req.query.availability === '1' || req.query.availability === 'true',
     };
     const pool_data = await fetchStaffingPool(pool);
     res.json(rankConsultants(pool_data, criteria));
@@ -152,6 +169,7 @@ module.exports = function buildStaffingRouter({ pool, requireAdmin }) {
       language: req.body.language || null,
       languageLevel: req.body.languageLevel || null,
       seniority: req.body.seniority || null,
+      availability: !!req.body.availability,
     };
     const pool_data = await fetchStaffingPool(pool);
     res.json(rankConsultants(pool_data, criteria));

@@ -55,8 +55,19 @@ async function closeStaleAlerts(conn, type, stillActiveConsultantIds) {
   );
 }
 
-const CERTIFICATION_EXPIRY_WINDOW_DAYS = 60;
-const PROFILE_STALE_DAYS = 90;
+// Fallback defaults only used if the alert_settings row is somehow missing
+// (it's seeded at schema-init time, so this is just belt-and-braces).
+const DEFAULT_CERTIFICATION_EXPIRY_WINDOW_DAYS = 60;
+const DEFAULT_PROFILE_STALE_DAYS = 90;
+
+async function getAlertSettings(pool) {
+  const [[row]] = await pool.query('SELECT * FROM alert_settings WHERE id = 1');
+  return {
+    certificationExpiryWindowDays: row?.certification_expiry_window_days ?? DEFAULT_CERTIFICATION_EXPIRY_WINDOW_DAYS,
+    profileStaleDays: row?.profile_stale_days ?? DEFAULT_PROFILE_STALE_DAYS,
+    missionEndingSoonDays: row?.mission_ending_soon_days ?? 30,
+  };
+}
 
 // Recomputes every alert type this app can currently detect (see the plan's
 // scoping note: passport/visa/contract-ending alerts need fields nothing
@@ -64,7 +75,8 @@ const PROFILE_STALE_DAYS = 90;
 // Idempotent - safe to call repeatedly (setInterval in server.js, plus once
 // at boot). Returns the newly-created critical alerts so the caller can
 // notify on those only, not on every recompute.
-async function computeAlerts({ pool, notifyAdmins }) {
+async function computeAlerts({ pool, notifyAdmins, pushToAdminsAndRh }) {
+  const { certificationExpiryWindowDays, profileStaleDays } = await getAlertSettings(pool);
   const conn = await pool.getConnection();
   const newCritical = [];
   try {
@@ -100,7 +112,7 @@ async function computeAlerts({ pool, notifyAdmins }) {
          AND c.expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)
          AND cons.archived_at IS NULL
        GROUP BY c.consultant_id, cons.name`,
-      [CERTIFICATION_EXPIRY_WINDOW_DAYS]
+      [certificationExpiryWindowDays]
     );
     const expiringIds = [];
     for (const r of expiringRows) {
@@ -149,7 +161,7 @@ async function computeAlerts({ pool, notifyAdmins }) {
       `SELECT id, name, profile_updated_at FROM consultants
        WHERE archived_at IS NULL AND profile_updated_at IS NOT NULL
          AND profile_updated_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
-      [PROFILE_STALE_DAYS]
+      [profileStaleDays]
     );
     const staleIds = [];
     for (const r of staleRows) {
@@ -158,7 +170,7 @@ async function computeAlerts({ pool, notifyAdmins }) {
         type: 'profile_stale',
         severity: 'info',
         consultantId: r.id,
-        title: `Profil sans mise à jour depuis ${PROFILE_STALE_DAYS} jours — ${r.name}`,
+        title: `Profil sans mise à jour depuis ${profileStaleDays} jours — ${r.name}`,
         detail: `Dernière mise à jour : ${r.profile_updated_at}`,
       });
     }
@@ -200,13 +212,46 @@ async function computeAlerts({ pool, notifyAdmins }) {
       link: `${process.env.FRONTEND_URL || ''}/admin/alerts`,
     }).catch(() => {});
   }
+  if (newCritical.length > 0 && pushToAdminsAndRh) {
+    pushToAdminsAndRh(pool, {
+      title: `${newCritical.length} nouvelle(s) alerte(s) critique(s)`,
+      body: newCritical.map((a) => a.title).join(', '),
+      url: '/admin/alerts',
+    }).catch(() => {});
+  }
 
   return newCritical;
 }
 
 // Same DI-factory pattern as routes/candidates.js. Mounted under /api/admin.
-module.exports = function buildAlertsRouter({ pool, requireAdmin }) {
+// requireAdmin here is actually requireAdminOrRh (RH's Pilotage RH scope
+// includes alerts) - the settings themselves are stricter (admin-only,
+// same reasoning as any other app-wide tunable), hence the separate
+// requireAdminStrict param.
+module.exports = function buildAlertsRouter({ pool, requireAdmin, requireAdminStrict }) {
   const router = express.Router();
+
+  router.get('/alert-settings', requireAdminStrict, async (req, res) => {
+    res.json(await getAlertSettings(pool));
+  });
+
+  router.put('/alert-settings', requireAdminStrict, async (req, res) => {
+    const certificationExpiryWindowDays = Number(req.body.certificationExpiryWindowDays);
+    const profileStaleDays = Number(req.body.profileStaleDays);
+    const missionEndingSoonDays = Number(req.body.missionEndingSoonDays);
+    if (
+      !Number.isInteger(certificationExpiryWindowDays) || certificationExpiryWindowDays < 1 ||
+      !Number.isInteger(profileStaleDays) || profileStaleDays < 1 ||
+      !Number.isInteger(missionEndingSoonDays) || missionEndingSoonDays < 1
+    ) {
+      return res.status(400).json({ detail: 'Les seuils doivent être des nombres entiers positifs.' });
+    }
+    await pool.query(
+      `UPDATE alert_settings SET certification_expiry_window_days = ?, profile_stale_days = ?, mission_ending_soon_days = ? WHERE id = 1`,
+      [certificationExpiryWindowDays, profileStaleDays, missionEndingSoonDays]
+    );
+    res.json(await getAlertSettings(pool));
+  });
 
   router.get('/alerts', requireAdmin, async (req, res) => {
     const conditions = ['a.status = ?'];
@@ -243,3 +288,4 @@ module.exports = function buildAlertsRouter({ pool, requireAdmin }) {
 };
 
 module.exports.computeAlerts = computeAlerts;
+module.exports.getAlertSettings = getAlertSettings;
