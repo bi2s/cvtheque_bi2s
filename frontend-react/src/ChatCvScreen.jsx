@@ -1748,6 +1748,7 @@ export default function ChatCvScreen() {
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: 'background.default' }}>
       <AppHeader
         title="CVthèque"
+        className="no-print"
         actions={
           <Tooltip title="Espace Admin">
             <Button
@@ -1782,6 +1783,7 @@ export default function ChatCvScreen() {
       ) : isPreview ? (
         <Box sx={{ flex: 1, overflowY: 'auto' }}>
           <Box
+            className="no-print"
             sx={{
               p: 2,
               borderBottom: '1px solid',
@@ -1790,10 +1792,15 @@ export default function ChatCvScreen() {
               position: 'sticky',
               top: 0,
               zIndex: 1,
+              display: 'flex',
+              gap: 1.5,
             }}
           >
             <Button variant="outlined" onClick={() => setStep(STEP.DASHBOARD)}>
               Retour au tableau de bord
+            </Button>
+            <Button variant="contained" onClick={() => window.print()}>
+              Télécharger en PDF
             </Button>
           </Box>
           <CvPreview detail={previewDetail} photoUrl={photoUrl} />

@@ -52,8 +52,16 @@ const COLOR = {
   gris: '5A6360',
   navy: '12455E',
   white: 'FFFFFF',
-  pill: 'DCF6EA',
+  // Opaque equivalent of CvPreview.jsx's translucent rgba(47,234,153,.15)
+  // pill background composited over white (PowerPoint shape fills don't
+  // support alpha the same way CSS does) - was DCF6EA, a close but not
+  // exact match.
+  pill: 'E0FCF0',
   border: 'E3E8E6',
+  // Matches CvPreview.jsx's #127a55 accent (role/client-name text, table
+  // links) - the on-screen preview and this export should read as the same
+  // brand, not two different shades of green for the same accent role.
+  accentGreen: '127A55',
 };
 
 const FONT = 'Arial';
@@ -416,7 +424,7 @@ function addExperienceSlides(pres, data, startPage) {
         slide.addText(
           [
             { text: 'RÔLE  ', options: { bold: true, color: COLOR.charbon } },
-            { text: roleText, options: {} },
+            { text: roleText, options: { color: COLOR.accentGreen } },
           ],
           { x: x + 0.2, y: cy, w: cardW - 0.4, h: 0.3, fontFace: FONT, fontSize: 8, color: COLOR.gris, valign: 'top' }
         );
@@ -505,7 +513,7 @@ function addFormationSlide(pres, data, pageNum) {
     const rows = [
       [
         { text: 'Date', options: tableHeaderStyle },
-        { text: 'Diplôme', options: tableHeaderStyle },
+        { text: 'Diplôme(s) obtenu(s)', options: tableHeaderStyle },
         { text: 'Établissement', options: tableHeaderStyle },
         { text: 'Spécialité', options: tableHeaderStyle },
       ],
@@ -545,18 +553,25 @@ function addFormationSlide(pres, data, pageNum) {
       [
         { text: 'Date', options: tableHeaderStyle },
         { text: 'Certification', options: tableHeaderStyle },
+        { text: 'N° Référence', options: tableHeaderStyle },
         { text: 'Validité', options: tableHeaderStyle },
         { text: 'Organisme', options: tableHeaderStyle },
       ],
+      // Reference column (certificateNumber/credlyUrl/verificationUrl) was
+      // previously missing entirely from this table, even though
+      // CvPreview.jsx treats it as a first-class column - same fallback
+      // chain as the web version, so the exported file no longer silently
+      // drops this data.
       ...shown.map((c) => [
         { text: c.obtainedDate || '', options: tableCellStyle },
         { text: c.name || '', options: tableCellStyle },
+        { text: c.certificateNumber || c.credlyUrl || c.verificationUrl || '—', options: tableCellStyle },
         { text: c.validityYears ? `${c.validityYears} an${c.validityYears > 1 ? 's' : ''}` : '—', options: tableCellStyle },
         { text: c.issuingBody || '—', options: tableCellStyle },
       ]),
     ];
     slide.addTable(rows, {
-      x: 0.6, y: cy, w: 5.7, colW: [0.75, 2.7, 1.0, 1.25], rowH: TABLE_ROW_H,
+      x: 0.6, y: cy, w: 5.7, colW: [0.6, 1.5, 1.55, 0.8, 1.25], rowH: TABLE_ROW_H,
       fontFace: FONT, border: { type: 'solid', color: 'E5E5E5', pt: 0.5 }, autoPage: false,
     });
     cy += TABLE_ROW_H * (shown.length + 1);

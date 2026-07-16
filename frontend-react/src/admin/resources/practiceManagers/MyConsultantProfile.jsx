@@ -188,9 +188,12 @@ export default function MyConsultantProfile() {
       </Typography>
 
       <Dialog open={previewOpen} onClose={() => setPreviewOpen(false)} fullScreen>
-        <AppBar position="sticky" color="default" elevation={1}>
+        <AppBar position="sticky" color="default" elevation={1} className="no-print">
           <Toolbar>
             <Typography sx={{ flex: 1 }}>Aperçu du CV — {record.name}</Typography>
+            <Button variant="contained" size="small" onClick={() => window.print()} sx={{ mr: 1.5 }}>
+              Télécharger en PDF
+            </Button>
             <IconButton onClick={() => setPreviewOpen(false)}>
               <CloseIcon />
             </IconButton>

@@ -132,6 +132,32 @@ const STYLE = `
     .cv-preview-page .xp{ page-break-inside:avoid; break-inside:avoid; }
     .cv-preview-page .cert-card, .cv-preview-page .profil, .cv-preview-page .sb-block{ page-break-inside:avoid; break-inside:avoid; }
   }
+  /* Not scoped under .cv-preview-page on purpose: this hides the app chrome
+     (AppHeader, "Retour"/"Télécharger en PDF" button bars) that wraps
+     CvPreview at each of its 3 mount points, which live outside this
+     component's own DOM subtree and so can't be reached by a selector
+     scoped to .cv-preview-page. A plain <style> tag applies to the whole
+     document regardless of where it's mounted, so this works the same way
+     .copy-btn's print-hiding above already relies on. */
+  @media print{
+    .no-print{ display:none !important; }
+  }
+  /* The two admin mount points (ConsultantShow.jsx, MyConsultantProfile.jsx)
+     show CvPreview inside a MUI fullScreen Dialog - MUI portals Dialog
+     content to a sibling of #root (document.body), not a descendant of it,
+     confirmed by inspecting the live DOM. That means the underlying
+     react-admin dashboard (sidebar/topbar) is still in the document and
+     still prints unless hidden separately - .no-print alone only reaches
+     inside the Dialog's own toolbar, not the page behind it. :has() lets one
+     rule cover both mount styles: only hide #root when a Dialog is actually
+     open (the admin case) - ChatCvScreen.jsx's inline, non-Dialog PREVIEW
+     step has no .MuiDialog-root sibling, so this rule simply doesn't match
+     there and #root (which IS the CV content in that context) stays visible.
+     Requires :has() support (Chrome/Edge 105+, Safari 15.4+, Firefox 121+) -
+     acceptable here since this is an internal tool on managed browsers. */
+  @media print{
+    body:has(.MuiDialog-root) #root{ display:none !important; }
+  }
 `;
 
 export default function CvPreview({ detail, photoUrl }) {
