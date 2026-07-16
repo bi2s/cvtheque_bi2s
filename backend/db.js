@@ -1027,6 +1027,13 @@ async function initSchema() {
         FOREIGN KEY (responsible_admin_id) REFERENCES admins(id) ON DELETE SET NULL
       )
     `);
+    // recurrence: null/'monthly'/'quarterly'/'yearly' - none stored as NULL
+    // rather than the string 'none', so "not recurring" (the overwhelming
+    // majority of existing rows) reads as the natural default.
+    // next_occurrence_generated guards against generating a second copy if
+    // a deposit's status is toggled back and forth through 'valide' again.
+    await ensureColumn(conn, 'administrative_deposits', 'recurrence', 'VARCHAR(20) NULL');
+    await ensureColumn(conn, 'administrative_deposits', 'next_occurrence_generated', 'BOOLEAN NOT NULL DEFAULT FALSE');
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS administrative_deposit_documents (

@@ -13,6 +13,15 @@ const uploadCaseFileDocument = multer({ storage: multer.memoryStorage(), limits:
 
 const DEPOSIT_TYPES = ['CNAS', 'Impots', 'Autre'];
 const DEPOSIT_STATUSES = ['a_preparer', 'depose', 'en_attente_retour', 'valide', 'rejete', 'a_relancer'];
+const RECURRENCES = ['monthly', 'quarterly', 'yearly'];
+
+function advanceDate(dateStr, recurrence) {
+  const d = new Date(dateStr);
+  if (recurrence === 'monthly') d.setMonth(d.getMonth() + 1);
+  else if (recurrence === 'quarterly') d.setMonth(d.getMonth() + 3);
+  else if (recurrence === 'yearly') d.setFullYear(d.getFullYear() + 1);
+  return d.toISOString().slice(0, 10);
+}
 const CASE_CATEGORIES = ['RH', 'Client', 'Projet', 'Administratif', 'Autre'];
 const CASE_STATUSES = ['ouvert', 'en_cours', 'en_attente', 'cloture', 'archive'];
 const CASE_PRIORITIES = ['faible', 'moyenne', 'haute'];
@@ -34,6 +43,8 @@ function mapDepositRow(r) {
     responsibleAdminId: r.responsible_admin_id,
     responsibleUsername: r.responsible_username,
     comment: r.comment,
+    recurrence: r.recurrence,
+    nextOccurrenceGenerated: !!r.next_occurrence_generated,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -88,6 +99,7 @@ module.exports = function buildAdministrativeTrackingRouter({ pool, requireAdmin
       status,
       responsibleAdminId,
       comment,
+      recurrence,
     } = req.body;
     if (!DEPOSIT_TYPES.includes(depositType)) return res.status(400).json({ detail: 'Type de dépôt invalide.' });
     if (!organism || !organism.trim()) return res.status(400).json({ detail: 'Organisme requis.' });
@@ -98,13 +110,16 @@ module.exports = function buildAdministrativeTrackingRouter({ pool, requireAdmin
       return res.status(400).json({ detail: 'Consultant requis lorsque "Concerné" = consultant.' });
     }
     if (!depositDate) return res.status(400).json({ detail: 'Date de dépôt requise.' });
+    if (recurrence && !RECURRENCES.includes(recurrence)) {
+      return res.status(400).json({ detail: 'Récurrence invalide.' });
+    }
     const finalStatus = DEPOSIT_STATUSES.includes(status) ? status : 'a_preparer';
 
     const [result] = await pool.query(
       `INSERT INTO administrative_deposits
          (deposit_type, deposit_type_other, organism, reference, concerned_type, consultant_id,
-          deposit_date, due_date, return_date, status, responsible_admin_id, comment)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          deposit_date, due_date, return_date, status, responsible_admin_id, comment, recurrence)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         depositType,
         depositType === 'Autre' ? depositTypeOther || null : null,
@@ -118,6 +133,7 @@ module.exports = function buildAdministrativeTrackingRouter({ pool, requireAdmin
         finalStatus,
         responsibleAdminId || null,
         comment || null,
+        recurrence || null,
       ]
     );
     res.json({ id: result.insertId });
@@ -137,6 +153,7 @@ module.exports = function buildAdministrativeTrackingRouter({ pool, requireAdmin
       status,
       responsibleAdminId,
       comment,
+      recurrence,
     } = req.body;
     if (!DEPOSIT_TYPES.includes(depositType)) return res.status(400).json({ detail: 'Type de dépôt invalide.' });
     if (!organism || !organism.trim()) return res.status(400).json({ detail: 'Organisme requis.' });
@@ -144,12 +161,21 @@ module.exports = function buildAdministrativeTrackingRouter({ pool, requireAdmin
       return res.status(400).json({ detail: 'Champ "concerné" invalide.' });
     }
     if (!DEPOSIT_STATUSES.includes(status)) return res.status(400).json({ detail: 'Statut invalide.' });
+    if (recurrence && !RECURRENCES.includes(recurrence)) {
+      return res.status(400).json({ detail: 'Récurrence invalide.' });
+    }
+
+    const [[existing]] = await pool.query(
+      'SELECT next_occurrence_generated FROM administrative_deposits WHERE id = ?',
+      [req.params.id]
+    );
+    if (!existing) return res.status(404).json({ detail: 'Dépôt introuvable' });
 
     const [result] = await pool.query(
       `UPDATE administrative_deposits SET
          deposit_type = ?, deposit_type_other = ?, organism = ?, reference = ?, concerned_type = ?,
          consultant_id = ?, deposit_date = ?, due_date = ?, return_date = ?, status = ?,
-         responsible_admin_id = ?, comment = ?
+         responsible_admin_id = ?, comment = ?, recurrence = ?
        WHERE id = ?`,
       [
         depositType,
@@ -164,11 +190,44 @@ module.exports = function buildAdministrativeTrackingRouter({ pool, requireAdmin
         status,
         responsibleAdminId || null,
         comment || null,
+        recurrence || null,
         req.params.id,
       ]
     );
     if (result.affectedRows === 0) return res.status(404).json({ detail: 'Dépôt introuvable' });
-    res.json({ ok: true });
+
+    // Auto-generate the next occurrence the moment a recurring deposit is
+    // fully resolved ('valide') - guarded by next_occurrence_generated so
+    // toggling the status back and forth doesn't spawn duplicates.
+    let nextOccurrenceId = null;
+    if (status === 'valide' && recurrence && !existing.next_occurrence_generated) {
+      const baseDate = dueDate || depositDate;
+      const nextDate = advanceDate(baseDate, recurrence);
+      const [insertResult] = await pool.query(
+        `INSERT INTO administrative_deposits
+           (deposit_type, deposit_type_other, organism, reference, concerned_type, consultant_id,
+            deposit_date, due_date, status, responsible_admin_id, comment, recurrence)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'a_preparer', ?, ?, ?)`,
+        [
+          depositType,
+          depositType === 'Autre' ? depositTypeOther || null : null,
+          organism.trim(),
+          reference || null,
+          concernedType,
+          concernedType === 'consultant' ? consultantId : null,
+          nextDate,
+          nextDate,
+          responsibleAdminId || null,
+          `Généré automatiquement (récurrence) depuis le dépôt #${req.params.id}.`,
+          recurrence,
+        ]
+      );
+      nextOccurrenceId = insertResult.insertId;
+      await pool.query('UPDATE administrative_deposits SET next_occurrence_generated = TRUE WHERE id = ?', [
+        req.params.id,
+      ]);
+    }
+    res.json({ ok: true, nextOccurrenceId });
   });
 
   router.delete('/administrative-deposits/:id', requireAdmin, async (req, res) => {

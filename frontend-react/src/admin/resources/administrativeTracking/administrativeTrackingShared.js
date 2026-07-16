@@ -22,6 +22,8 @@ export const DEPOSIT_STATUS_COLORS = {
 };
 export const DEPOSIT_TERMINAL_STATUSES = ['valide', 'rejete'];
 
+export const RECURRENCE_LABELS = { monthly: 'Mensuel', quarterly: 'Trimestriel', yearly: 'Annuel' };
+
 export const CASE_CATEGORIES = ['RH', 'Client', 'Projet', 'Administratif', 'Autre'];
 
 export const CASE_STATUS_LABELS = {
@@ -43,9 +45,13 @@ export const CASE_TERMINAL_STATUSES = ['cloture', 'archive'];
 export const CASE_PRIORITY_LABELS = { faible: 'Faible', moyenne: 'Moyenne', haute: 'Haute' };
 export const CASE_PRIORITY_COLORS = { faible: 'default', moyenne: 'warning', haute: 'error' };
 
-// 'overdue' | 'soon' (< 7 days) | null - only meaningful for rows not
-// already in a terminal status, since a closed/validated item's due date
-// no longer matters.
+export const SOON_DAYS = 7;
+export const UPCOMING_DAYS = 30;
+
+// 'overdue' | 'soon' (<= SOON_DAYS) | 'upcoming' (SOON_DAYS < d <=
+// UPCOMING_DAYS) | null - only meaningful for rows not already in a
+// terminal status, since a closed/validated item's due date no longer
+// matters.
 export function dueUrgency(dueDate, status, terminalStatuses) {
   if (!dueDate || terminalStatuses.includes(status)) return null;
   const due = new Date(dueDate);
@@ -53,6 +59,12 @@ export function dueUrgency(dueDate, status, terminalStatuses) {
   today.setHours(0, 0, 0, 0);
   const diffDays = Math.round((due - today) / 86400000);
   if (diffDays < 0) return 'overdue';
-  if (diffDays <= 7) return 'soon';
+  if (diffDays <= SOON_DAYS) return 'soon';
+  if (diffDays <= UPCOMING_DAYS) return 'upcoming';
   return null;
 }
+
+// Three visually distinct treatments instead of collapsing 'soon' and
+// 'upcoming' into the same warning color - shared so DepositsTracker.jsx
+// and CaseFilesTracker.jsx never drift on what each tier looks like.
+export const URGENCY_COLORS = { overdue: 'error.main', soon: 'warning.main', upcoming: 'info.main' };

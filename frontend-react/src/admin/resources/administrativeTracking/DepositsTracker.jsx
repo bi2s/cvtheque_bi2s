@@ -23,13 +23,22 @@ import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
 import PendingActionsOutlinedIcon from '@mui/icons-material/PendingActionsOutlined';
 import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
+import EventOutlinedIcon from '@mui/icons-material/EventOutlined';
 import ChecklistOutlinedIcon from '@mui/icons-material/ChecklistOutlined';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
 import { StatCard } from '../../DashboardCards';
 import DepositFormDialog from './DepositFormDialog';
 import RecordDocumentsDialog from './RecordDocumentsDialog';
-import { DEPOSIT_TYPES, DEPOSIT_STATUS_LABELS, DEPOSIT_STATUS_COLORS, DEPOSIT_TERMINAL_STATUSES, dueUrgency } from './administrativeTrackingShared';
+import {
+  DEPOSIT_TYPES,
+  DEPOSIT_STATUS_LABELS,
+  DEPOSIT_STATUS_COLORS,
+  DEPOSIT_TERMINAL_STATUSES,
+  dueUrgency,
+  URGENCY_COLORS,
+  RECURRENCE_LABELS,
+} from './administrativeTrackingShared';
 
 export default function DepositsTracker() {
   const [deposits, setDeposits] = useState(null);
@@ -92,14 +101,16 @@ export default function DepositsTracker() {
     if (!deposits) return null;
     let overdue = 0;
     let soon = 0;
+    let upcoming = 0;
     let pending = 0;
     for (const d of deposits) {
       const urgency = dueUrgency(d.dueDate, d.status, DEPOSIT_TERMINAL_STATUSES);
       if (urgency === 'overdue') overdue += 1;
       else if (urgency === 'soon') soon += 1;
+      else if (urgency === 'upcoming') upcoming += 1;
       if (!DEPOSIT_TERMINAL_STATUSES.includes(d.status)) pending += 1;
     }
-    return { total: deposits.length, pending, overdue, soon };
+    return { total: deposits.length, pending, overdue, soon, upcoming };
   }, [deposits]);
 
   return (
@@ -110,6 +121,7 @@ export default function DepositsTracker() {
           <StatCard icon={<PendingActionsOutlinedIcon />} label="En cours" value={stats.pending} color="secondary" />
           <StatCard icon={<ErrorOutlineOutlinedIcon />} label="Échéances dépassées" value={stats.overdue} color="error" />
           <StatCard icon={<WarningAmberOutlinedIcon />} label="Sous 7 jours" value={stats.soon} color="warning" />
+          <StatCard icon={<EventOutlinedIcon />} label="À venir (30 j)" value={stats.upcoming} color="info" />
         </Stack>
       )}
 
@@ -185,16 +197,26 @@ export default function DepositsTracker() {
                 const urgency = dueUrgency(d.dueDate, d.status, DEPOSIT_TERMINAL_STATUSES);
                 return (
                   <TableRow key={d.id} hover>
-                    <TableCell>{d.depositType === 'Autre' ? d.depositTypeOther || 'Autre' : d.depositType}</TableCell>
+                    <TableCell>
+                      {d.depositType === 'Autre' ? d.depositTypeOther || 'Autre' : d.depositType}
+                      {d.recurrence && (
+                        <Chip size="small" variant="outlined" label={RECURRENCE_LABELS[d.recurrence]} sx={{ ml: 0.75, height: 18, fontSize: 10.5 }} />
+                      )}
+                    </TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>{d.organism}</TableCell>
                     <TableCell>{d.reference || '—'}</TableCell>
                     <TableCell>{d.concernedType === 'consultant' ? d.consultantName || '—' : 'Société'}</TableCell>
                     <TableCell>{d.depositDate}</TableCell>
-                    <TableCell sx={urgency ? { color: urgency === 'overdue' ? 'error.main' : 'warning.main', fontWeight: 600 } : undefined}>
+                    <TableCell sx={urgency ? { color: URGENCY_COLORS[urgency], fontWeight: 600 } : undefined}>
                       {d.dueDate || '—'}
                     </TableCell>
                     <TableCell>
                       <Chip size="small" label={DEPOSIT_STATUS_LABELS[d.status]} color={DEPOSIT_STATUS_COLORS[d.status]} />
+                      {d.recurrence && d.nextOccurrenceGenerated && (
+                        <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 0.25 }}>
+                          → prochaine échéance générée
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell sx={{ fontSize: 12, color: 'text.disabled' }}>{d.responsibleUsername || '—'}</TableCell>
                     <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>

@@ -23,6 +23,7 @@ import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
 import PendingActionsOutlinedIcon from '@mui/icons-material/PendingActionsOutlined';
 import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
+import EventOutlinedIcon from '@mui/icons-material/EventOutlined';
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
@@ -37,6 +38,7 @@ import {
   CASE_PRIORITY_LABELS,
   CASE_PRIORITY_COLORS,
   dueUrgency,
+  URGENCY_COLORS,
 } from './administrativeTrackingShared';
 
 export default function CaseFilesTracker() {
@@ -93,14 +95,16 @@ export default function CaseFilesTracker() {
     if (!caseFiles) return null;
     let overdue = 0;
     let soon = 0;
+    let upcoming = 0;
     let open = 0;
     for (const c of caseFiles) {
       const urgency = dueUrgency(c.dueDate, c.status, CASE_TERMINAL_STATUSES);
       if (urgency === 'overdue') overdue += 1;
       else if (urgency === 'soon') soon += 1;
+      else if (urgency === 'upcoming') upcoming += 1;
       if (!CASE_TERMINAL_STATUSES.includes(c.status)) open += 1;
     }
-    return { total: caseFiles.length, open, overdue, soon };
+    return { total: caseFiles.length, open, overdue, soon, upcoming };
   }, [caseFiles]);
 
   return (
@@ -111,6 +115,7 @@ export default function CaseFilesTracker() {
           <StatCard icon={<PendingActionsOutlinedIcon />} label="Ouverts / en cours" value={stats.open} color="secondary" />
           <StatCard icon={<ErrorOutlineOutlinedIcon />} label="Échéances dépassées" value={stats.overdue} color="error" />
           <StatCard icon={<WarningAmberOutlinedIcon />} label="Sous 7 jours" value={stats.soon} color="warning" />
+          <StatCard icon={<EventOutlinedIcon />} label="À venir (30 j)" value={stats.upcoming} color="info" />
         </Stack>
       )}
 
@@ -195,7 +200,7 @@ export default function CaseFilesTracker() {
                     <TableCell sx={{ fontWeight: 600 }}>{c.title}</TableCell>
                     <TableCell>{c.category}</TableCell>
                     <TableCell>{c.openedDate}</TableCell>
-                    <TableCell sx={urgency ? { color: urgency === 'overdue' ? 'error.main' : 'warning.main', fontWeight: 600 } : undefined}>
+                    <TableCell sx={urgency ? { color: URGENCY_COLORS[urgency], fontWeight: 600 } : undefined}>
                       {c.dueDate || '—'}
                     </TableCell>
                     <TableCell>

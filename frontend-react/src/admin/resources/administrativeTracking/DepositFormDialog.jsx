@@ -9,7 +9,7 @@ import {
   TextField,
   MenuItem,
 } from '@mui/material';
-import { DEPOSIT_TYPES, DEPOSIT_STATUS_LABELS } from './administrativeTrackingShared';
+import { DEPOSIT_TYPES, DEPOSIT_STATUS_LABELS, RECURRENCE_LABELS } from './administrativeTrackingShared';
 
 const EMPTY_FORM = {
   depositType: 'CNAS',
@@ -24,6 +24,7 @@ const EMPTY_FORM = {
   status: 'a_preparer',
   responsibleAdminId: '',
   comment: '',
+  recurrence: '',
 };
 
 export default function DepositFormDialog({ open, onClose, onSaved, deposit, consultants, admins, saveFn }) {
@@ -47,6 +48,7 @@ export default function DepositFormDialog({ open, onClose, onSaved, deposit, con
         status: deposit.status,
         responsibleAdminId: deposit.responsibleAdminId || '',
         comment: deposit.comment || '',
+        recurrence: deposit.recurrence || '',
       });
     } else {
       setForm(EMPTY_FORM);
@@ -201,6 +203,22 @@ export default function DepositFormDialog({ open, onClose, onSaved, deposit, con
               {admins.map((a) => (
                 <MenuItem key={a.id} value={a.id}>
                   {a.username}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Récurrence"
+              value={form.recurrence}
+              onChange={(e) => setForm({ ...form, recurrence: e.target.value })}
+              size="small"
+              fullWidth
+              helperText="Génère le prochain dépôt à la validation"
+            >
+              <MenuItem value="">Aucune</MenuItem>
+              {Object.entries(RECURRENCE_LABELS).map(([id, label]) => (
+                <MenuItem key={id} value={id}>
+                  {label}
                 </MenuItem>
               ))}
             </TextField>
