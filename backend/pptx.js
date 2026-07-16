@@ -40,7 +40,6 @@ function genderedConsultantLabel(gender) {
 
 const ASSETS = path.join(__dirname, 'assets');
 const GRADIENT_BG = path.join(ASSETS, 'gradient-bg.png');
-const SWOOSH_LINES = path.join(ASSETS, 'swoosh-lines.png');
 const LOCKUP_WHITE = path.join(ASSETS, 'lockup-white.png');
 const LOCKUP_COLOR = path.join(ASSETS, 'lockup-color.png');
 const LOCKUP_RATIO = 436 / 840; // height/width of the rendered lockup PNG
@@ -188,7 +187,6 @@ function primaryModuleLabel(data) {
 function addTitleSlide(pres, data, photoPath) {
   const slide = pres.addSlide();
   slide.addImage({ path: GRADIENT_BG, x: 0, y: 0, w: 13.33, h: 7.5 });
-  slide.addImage({ path: SWOOSH_LINES, x: 0, y: 0, w: 13.33, h: 7.5 });
   const logoH = 0.72;
   slide.addImage({ path: LOCKUP_WHITE, x: 0.7, y: 0.5, w: logoH / LOCKUP_RATIO, h: logoH });
 
