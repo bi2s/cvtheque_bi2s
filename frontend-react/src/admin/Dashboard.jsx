@@ -13,7 +13,6 @@ import CelebrationOutlinedIcon from '@mui/icons-material/CelebrationOutlined';
 import { API_BASE_URL } from '../api';
 import { getAuthHeader } from './authHeader';
 import RecentActivity from './RecentActivity';
-import FollowupsWidget from './FollowupsWidget';
 import KpiBarChart from './charts/KpiBarChart';
 import KpiDonutChart from './charts/KpiDonutChart';
 import { StatCard, ChartCard } from './DashboardCards';
@@ -173,9 +172,6 @@ export default function Dashboard() {
             </Stack>
 
             <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap', mt: 3 }}>
-              <Box sx={{ flex: 1, minWidth: 320 }}>
-                <FollowupsWidget />
-              </Box>
               <Box sx={{ flex: 1, minWidth: 320 }}>
                 <RecentActivity />
               </Box>

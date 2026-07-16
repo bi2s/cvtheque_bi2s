@@ -23,7 +23,6 @@ import BusinessCenterOutlinedIcon from '@mui/icons-material/BusinessCenterOutlin
 import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import RequestQuoteOutlinedIcon from '@mui/icons-material/RequestQuoteOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
-import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined';
 import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
 
@@ -158,7 +157,7 @@ function MenuGroup({ group, isActive, forceOpen }) {
 // This menu is shared by every role via CustomLayout, but GROUPS above only
 // lists resources that fullResources() registers for admin/rh - none of
 // them exist as routes for a manager (AdminApp.jsx registers just
-// myConsultant/managerFollowups for role==='manager'), so rendering GROUPS
+// myConsultant/staffingPlanning for role==='manager'), so rendering GROUPS
 // unconditionally sent managers to "Page manquante" on every click. Mirror
 // AdminApp.jsx's own role check here instead of assuming layout/menu are
 // resource-registration-aware by default.
@@ -171,11 +170,6 @@ export default function CustomMenu() {
       <Menu>
         <Menu.DashboardItem />
         <Menu.Item to="/admin/myConsultant" primaryText="Mon profil" leftIcon={<PeopleOutlineIcon fontSize="small" />} />
-        <Menu.Item
-          to="/admin/managerFollowups"
-          primaryText="Suivi consultants"
-          leftIcon={<TaskAltOutlinedIcon fontSize="small" />}
-        />
         <Menu.Item
           to="/admin/staffingPlanning"
           primaryText="Planning"

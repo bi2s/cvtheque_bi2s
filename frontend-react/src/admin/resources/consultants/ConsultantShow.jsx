@@ -28,7 +28,6 @@ import DownloadCvButton from './DownloadCvButton';
 import PhotoUploadButton from './PhotoUploadButton';
 import useAdminPhotoUrl from './useAdminPhotoUrl';
 import DepartureSection from './DepartureSection';
-import ConsultantFollowupSection from './ConsultantFollowupSection';
 import CvPreview from '../../../CvPreview';
 
 // Tab-separated rows paste as real cells into Excel/Word, unlike a plain
@@ -87,9 +86,12 @@ function ConsultantShowContent() {
       </Stack>
 
       <Dialog open={previewOpen} onClose={() => setPreviewOpen(false)} fullScreen>
-        <AppBar position="sticky" color="default" elevation={1}>
+        <AppBar position="sticky" color="default" elevation={1} className="no-print">
           <Toolbar>
             <Typography sx={{ flex: 1 }}>Aperçu du CV — {record.name}</Typography>
+            <Button variant="contained" size="small" onClick={() => window.print()} sx={{ mr: 1.5 }}>
+              Télécharger en PDF
+            </Button>
             <IconButton onClick={() => setPreviewOpen(false)}>
               <CloseIcon />
             </IconButton>
@@ -101,7 +103,6 @@ function ConsultantShowContent() {
       </Dialog>
 
       <DepartureSection consultant={record} />
-      <ConsultantFollowupSection consultant={record} />
 
       <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
         Projets

@@ -10,7 +10,6 @@ import ChecklistOutlinedIcon from '@mui/icons-material/ChecklistOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import QueryStatsOutlinedIcon from '@mui/icons-material/QueryStatsOutlined';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
-import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined';
 import PersonSearchOutlinedIcon from '@mui/icons-material/PersonSearchOutlined';
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
@@ -45,7 +44,6 @@ import AlertsCenter from './resources/alerts/AlertsCenter';
 import StaffingSearch from './resources/staffing/StaffingSearch';
 import ScopeAdmin from './resources/practiceManagers/ScopeAdmin';
 import MyConsultantProfile from './resources/practiceManagers/MyConsultantProfile';
-import ManagerFollowups from './resources/practiceManagers/ManagerFollowups';
 import StaffingPlanning from './resources/practiceManagers/StaffingPlanning';
 import RfpProposalList from './resources/rfp/RfpProposalList';
 import RfpWizard from './resources/rfp/RfpWizard';
@@ -54,16 +52,19 @@ import AdministrativeTracking from './resources/administrativeTracking/Administr
 import theme from '../theme';
 
 // 'manager'-role admins only ever see their own scoped surface - their own
-// linked consultant profile, a follow-ups view, and a staffing-planning
-// view, all scoped to their module's consultants; 'admin'/'rh' see every
-// resource exactly as before this section existed. Per the practice-manager
-// scope reduction, this deliberately no longer includes availability/
-// skills/certifications/leaves management for OTHER consultants (removed -
-// that surface lived in ScopedConsultantList/ManageConsultantDialog).
-// staffingPlanning is a deliberate, narrow exception to that reduction: the
-// user explicitly asked for managers to keep the ability to schedule their
-// consultants onto projects for date ranges ("c'est le responsable qui
-// affecte ça"), just not the broader availability/skills/certs surface.
+// linked consultant profile and a staffing-planning view, scoped to their
+// module's consultants; 'admin'/'rh' see every resource exactly as before
+// this section existed. Per the practice-manager scope reduction, this
+// deliberately no longer includes availability/skills/certifications/leaves
+// management for OTHER consultants (removed - that surface lived in
+// ScopedConsultantList/ManageConsultantDialog). staffingPlanning is a
+// deliberate, narrow exception to that reduction: the user explicitly asked
+// for managers to keep the ability to schedule their consultants onto
+// projects for date ranges ("c'est le responsable qui affecte ça"), just
+// not the broader availability/skills/certs surface. The follow-up
+// reminders view (managerFollowups) that used to sit here was removed
+// entirely at the user's request - the backend routes/table are untouched
+// (dead but harmless, easily revived), only the UI surface is gone.
 function managerResources() {
   return [
     <Resource
@@ -72,13 +73,6 @@ function managerResources() {
       list={MyConsultantProfile}
       icon={PeopleOutlineIcon}
       options={{ label: 'Mon profil' }}
-    />,
-    <Resource
-      key="managerFollowups"
-      name="managerFollowups"
-      list={ManagerFollowups}
-      icon={TaskAltOutlinedIcon}
-      options={{ label: 'Suivi consultants' }}
     />,
     <Resource
       key="staffingPlanning"
