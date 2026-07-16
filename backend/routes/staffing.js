@@ -5,56 +5,69 @@ function levelRank(level) {
   return LANGUAGE_LEVELS.indexOf((level || '').toUpperCase());
 }
 
+// Plain staffing-search/staffing-match never pass a weights override, so
+// they stay byte-for-byte identical to before weights became adjustable.
+// The RFP wizard is the only caller that can override these (per-proposal,
+// stored on rfp_proposals.scoring_weights).
+const DEFAULT_WEIGHTS = { module: 40, technology: 20, language: 20, seniority: 20, availability: 20 };
+
 // Deterministic weighted scoring - no LLM/embeddings, per the plan's
-// explicit no-AI decision. Each requested dimension contributes a fixed
-// weight to `possible`; a dimension not requested by the caller simply
-// isn't counted, so a consultant's score always reflects only what was
-// actually asked for. Shared by both /staffing-search (query params) and
+// explicit no-AI decision. Each requested dimension contributes its weight
+// to `possible`; a dimension not requested by the caller simply isn't
+// counted, so a consultant's score always reflects only what was actually
+// asked for. Shared by both /staffing-search (query params) and
 // /staffing-match (posted mission criteria) so there's exactly one scoring
 // implementation, not two that could drift apart.
-function scoreConsultant(consultant, criteria) {
+function scoreConsultant(consultant, criteria, weights) {
+  const w = { ...DEFAULT_WEIGHTS, ...weights };
   const breakdown = [];
   let earned = 0;
   let possible = 0;
 
   if (criteria.module) {
-    possible += 40;
+    possible += w.module;
     const met = consultant.modules.includes(criteria.module);
-    if (met) earned += 40;
-    breakdown.push({ dimension: 'Module SAP', requested: criteria.module, met, points: met ? 40 : 0, max: 40 });
+    if (met) earned += w.module;
+    breakdown.push({ dimension: 'Module SAP', requested: criteria.module, met, points: met ? w.module : 0, max: w.module });
   }
   if (criteria.technology) {
-    possible += 20;
+    possible += w.technology;
     const met = consultant.technologies.includes(criteria.technology);
-    if (met) earned += 20;
-    breakdown.push({ dimension: 'Technologie', requested: criteria.technology, met, points: met ? 20 : 0, max: 20 });
+    if (met) earned += w.technology;
+    breakdown.push({ dimension: 'Technologie', requested: criteria.technology, met, points: met ? w.technology : 0, max: w.technology });
   }
   if (criteria.language) {
-    possible += 20;
+    possible += w.language;
     const lang = consultant.languages.find((l) => l.name.toLowerCase() === criteria.language.toLowerCase());
     let met = false;
     if (lang) {
       met = criteria.languageLevel ? levelRank(lang.level) >= levelRank(criteria.languageLevel) : true;
     }
     const label = criteria.language + (criteria.languageLevel ? ` ${criteria.languageLevel}` : '');
-    breakdown.push({ dimension: 'Langue', requested: label, met, points: met ? 20 : 0, max: 20 });
-    if (met) earned += 20;
+    breakdown.push({ dimension: 'Langue', requested: label, met, points: met ? w.language : 0, max: w.language });
+    if (met) earned += w.language;
   }
   if (criteria.seniority) {
-    possible += 20;
+    possible += w.seniority;
     const met = consultant.seniorityLevel === criteria.seniority;
-    if (met) earned += 20;
-    breakdown.push({ dimension: 'Séniorité', requested: criteria.seniority, met, points: met ? 20 : 0, max: 20 });
+    if (met) earned += w.seniority;
+    breakdown.push({ dimension: 'Séniorité', requested: criteria.seniority, met, points: met ? w.seniority : 0, max: w.seniority });
   }
   // Opt-in (criteria.availability) so the plain staffing-search page is
   // byte-for-byte unaffected unless the caller explicitly asks for this
   // dimension - "met" means no staffing_assignments row currently
   // overlaps today's date (see fetchStaffingPool's hasCurrentAssignment).
   if (criteria.availability) {
-    possible += 20;
+    possible += w.availability;
     const met = !consultant.hasCurrentAssignment;
-    if (met) earned += 20;
-    breakdown.push({ dimension: 'Disponibilité', requested: 'Disponible maintenant', met, points: met ? 20 : 0, max: 20 });
+    if (met) earned += w.availability;
+    breakdown.push({
+      dimension: 'Disponibilité',
+      requested: 'Disponible maintenant',
+      met,
+      points: met ? w.availability : 0,
+      max: w.availability,
+    });
   }
 
   const score = possible > 0 ? Math.round((earned / possible) * 100) : null;
@@ -114,10 +127,10 @@ async function fetchStaffingPool(pool) {
   }));
 }
 
-function rankConsultants(pool_data, criteria) {
+function rankConsultants(pool_data, criteria, weights) {
   const hasCriteria = Object.values(criteria).some(Boolean);
   const scored = pool_data.map((c) => {
-    const { score, breakdown } = scoreConsultant(c, criteria);
+    const { score, breakdown } = scoreConsultant(c, criteria, weights);
     return {
       id: c.id,
       name: c.name,
@@ -181,3 +194,4 @@ module.exports = function buildStaffingRouter({ pool, requireAdmin }) {
 module.exports.scoreConsultant = scoreConsultant;
 module.exports.fetchStaffingPool = fetchStaffingPool;
 module.exports.rankConsultants = rankConsultants;
+module.exports.DEFAULT_WEIGHTS = DEFAULT_WEIGHTS;

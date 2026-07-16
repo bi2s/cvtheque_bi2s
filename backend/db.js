@@ -907,6 +907,15 @@ async function initSchema() {
         FOREIGN KEY (created_by_admin_id) REFERENCES admins(id) ON DELETE SET NULL
       )
     `);
+    // scoring_weights: a chosen {module,technology,language,seniority,
+    // availability} weight set for this proposal's consultant search -
+    // nullable so existing rows (and any search not tied to a proposal)
+    // fall back to scoreConsultant's own DEFAULT_WEIGHTS unchanged.
+    // outcome/outcome_note: nullable so existing rows are unaffected;
+    // 'won'/'lost'/null(=pending) drives the win-rate stat on the list page.
+    await ensureColumn(conn, 'rfp_proposals', 'scoring_weights', 'JSON NULL');
+    await ensureColumn(conn, 'rfp_proposals', 'outcome', 'VARCHAR(20) NULL');
+    await ensureColumn(conn, 'rfp_proposals', 'outcome_note', 'TEXT NULL');
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS rfp_proposal_consultants (

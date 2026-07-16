@@ -17,6 +17,8 @@ import {
   TableRow,
   TableCell,
   CircularProgress,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 import UploadFileIcon from '@mui/icons-material/UploadFileOutlined';
 import DownloadIcon from '@mui/icons-material/DownloadOutlined';
@@ -133,17 +135,54 @@ function ExtractionTab({ extractedData, onSave }) {
   );
 }
 
-function ConsultantsTab({ proposalId, selected, onChanged }) {
+const DEFAULT_WEIGHTS = { module: 40, technology: 20, language: 20, seniority: 20, availability: 20 };
+const WEIGHT_FIELDS = [
+  { key: 'module', label: 'Module SAP' },
+  { key: 'technology', label: 'Technologie' },
+  { key: 'language', label: 'Langue' },
+  { key: 'seniority', label: 'Séniorité' },
+  { key: 'availability', label: 'Disponibilité' },
+];
+
+function ConsultantsTab({ proposalId, proposal, selected, onChanged }) {
   const [filters, setFilters] = useState({ module: '', seniority: '' });
   const [results, setResults] = useState(null);
+  const [weights, setWeights] = useState(proposal.scoringWeights || DEFAULT_WEIGHTS);
+  const [savingWeights, setSavingWeights] = useState(false);
+
+  // Pre-fill from the tender's own detected modules on first load, so the
+  // search starts from what the cahier des charges actually asked for
+  // instead of a blank form - only when the admin hasn't already typed
+  // something in, so reloading the tab doesn't clobber a manual choice.
+  useEffect(() => {
+    const detected = proposal.extractedData?.detectedModules?.[0];
+    if (detected) setFilters((f) => (f.module ? f : { ...f, module: detected }));
+  }, [proposal.extractedData]);
 
   async function search() {
     const res = await fetch(`${API_BASE_URL}/api/admin/rfp-proposals/${proposalId}/select-consultants`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: getAuthHeader() },
-      body: JSON.stringify(filters),
+      body: JSON.stringify({ ...filters, weights }),
     });
     setResults(await res.json());
+  }
+
+  async function saveWeights() {
+    setSavingWeights(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/rfp-proposals/${proposalId}/scoring-weights`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: getAuthHeader() },
+        body: JSON.stringify({ weights }),
+      });
+      if (res.ok) {
+        const body = await res.json();
+        setWeights(body.weights);
+      }
+    } finally {
+      setSavingWeights(false);
+    }
   }
 
   async function addToProposal(c) {
@@ -187,6 +226,26 @@ function ConsultantsTab({ proposalId, selected, onChanged }) {
         </Stack>
       )}
 
+      <Typography sx={{ fontSize: 12, color: 'text.disabled', fontWeight: 700, mt: 2 }}>
+        POIDS DE SCORING (normalisés sur 100 à l'enregistrement)
+      </Typography>
+      <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
+        {WEIGHT_FIELDS.map((f) => (
+          <TextField
+            key={f.key}
+            type="number"
+            size="small"
+            label={f.label}
+            value={weights[f.key]}
+            onChange={(e) => setWeights((w) => ({ ...w, [f.key]: Number(e.target.value) }))}
+            sx={{ width: 130 }}
+          />
+        ))}
+        <Button variant="outlined" onClick={saveWeights} disabled={savingWeights}>
+          {savingWeights ? 'Enregistrement...' : 'Enregistrer les poids'}
+        </Button>
+      </Stack>
+
       <Typography sx={{ fontSize: 12, color: 'text.disabled', fontWeight: 700, mt: 2 }}>RECHERCHER DES CONSULTANTS</Typography>
       <Stack direction="row" spacing={1.5}>
         <TextField select size="small" label="Module" value={filters.module} onChange={(e) => setFilters((f) => ({ ...f, module: e.target.value }))} sx={{ width: 160 }}>
@@ -205,6 +264,15 @@ function ConsultantsTab({ proposalId, selected, onChanged }) {
             </MenuItem>
           ))}
         </TextField>
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={!!filters.availability}
+              onChange={(e) => setFilters((f) => ({ ...f, availability: e.target.checked }))}
+            />
+          }
+          label="Disponible immédiatement"
+        />
         <Button variant="outlined" onClick={search}>
           Rechercher
         </Button>
@@ -387,7 +455,7 @@ export default function RfpWizard() {
 
   return (
     <Box sx={{ p: 3, maxWidth: 900 }}>
-      <Button size="small" onClick={() => navigate('/rfp')} sx={{ mb: 1 }}>
+      <Button size="small" onClick={() => navigate('/admin/rfp')} sx={{ mb: 1 }}>
         ← Retour
       </Button>
       <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>
@@ -404,7 +472,7 @@ export default function RfpWizard() {
 
       {tab === 0 && <ImportTab proposal={proposal} onExtracted={load} />}
       {tab === 1 && <ExtractionTab extractedData={proposal.extractedData} onSave={saveExtractedData} />}
-      {tab === 2 && <ConsultantsTab proposalId={id} selected={consultants} onChanged={load} />}
+      {tab === 2 && <ConsultantsTab proposalId={id} proposal={proposal} selected={consultants} onChanged={load} />}
       {tab === 3 && <ComplianceTab proposalId={id} />}
       {tab === 4 && <ExportTab proposalId={id} />}
     </Box>

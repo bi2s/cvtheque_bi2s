@@ -5,7 +5,7 @@ const multer = require('multer');
 const { extractRfpFields, DOCX_MIMETYPE, XLSX_MIMETYPES } = require('../rfpExtractor');
 const { generateProposalDocx } = require('../rfpDocx');
 const buildStaffingRouter = require('./staffing');
-const { rankConsultants, fetchStaffingPool } = buildStaffingRouter;
+const { rankConsultants, fetchStaffingPool, DEFAULT_WEIGHTS } = buildStaffingRouter;
 const { parseJsonColumn } = require('../utils');
 
 const RFP_DOCS_DIR = path.join(__dirname, '..', 'uploads', 'rfp-sources');
@@ -24,6 +24,9 @@ function mapProposalRow(r) {
     sourceFilePath: r.source_file_path,
     extractedData: parseJsonColumn(r.extracted_data),
     status: r.status,
+    scoringWeights: r.scoring_weights ? parseJsonColumn(r.scoring_weights) : null,
+    outcome: r.outcome,
+    outcomeNote: r.outcome_note,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -100,6 +103,21 @@ module.exports = function buildRfpRouter({ pool, requireAdmin }) {
     res.json({ ok: true });
   });
 
+  const VALID_OUTCOMES = ['won', 'lost'];
+  router.put('/rfp-proposals/:id/outcome', requireAdmin, async (req, res) => {
+    const outcome = req.body.outcome || null;
+    if (outcome !== null && !VALID_OUTCOMES.includes(outcome)) {
+      return res.status(400).json({ detail: "Issue invalide (won, lost, ou null pour 'en attente')." });
+    }
+    const [result] = await pool.query('UPDATE rfp_proposals SET outcome = ?, outcome_note = ? WHERE id = ?', [
+      outcome,
+      req.body.outcomeNote || null,
+      req.params.id,
+    ]);
+    if (result.affectedRows === 0) return res.status(404).json({ detail: 'Proposition introuvable' });
+    res.json({ ok: true });
+  });
+
   // --- Upload + heuristic extraction ---
   router.post('/rfp-proposals/:id/upload', requireAdmin, (req, res) => {
     uploadRfpSource.single('file')(req, res, async (err) => {
@@ -148,17 +166,67 @@ module.exports = function buildRfpRouter({ pool, requireAdmin }) {
   });
 
   // --- Consultant selection (reuses the staffing module's scoring engine) ---
+  // The tender's own detected modules/certifications (from the upload's
+  // heuristic extraction) become the *default* criteria when the request
+  // body doesn't override them - previously this ignored extracted_data
+  // entirely and only ever used whatever the admin typed fresh. Only
+  // `module` is wired in (scoreConsultant has no certification dimension
+  // to default from detectedCertifications into) - takes the first
+  // detected module since the scoring engine only supports one at a time.
   router.post('/rfp-proposals/:id/select-consultants', requireAdmin, async (req, res) => {
+    const [[proposal]] = await pool.query('SELECT extracted_data, scoring_weights FROM rfp_proposals WHERE id = ?', [
+      req.params.id,
+    ]);
+    const extracted = proposal ? parseJsonColumn(proposal.extracted_data) || {} : {};
     const criteria = {
-      module: req.body.module || null,
+      module: req.body.module || extracted.detectedModules?.[0] || null,
       technology: req.body.technology || null,
       language: req.body.language || null,
       languageLevel: req.body.languageLevel || null,
       seniority: req.body.seniority || null,
+      availability: !!req.body.availability,
     };
+    const weights = req.body.weights || (proposal?.scoring_weights ? parseJsonColumn(proposal.scoring_weights) : undefined);
     const pool_data = await fetchStaffingPool(pool);
-    const ranked = rankConsultants(pool_data, criteria);
+    const ranked = rankConsultants(pool_data, criteria, weights);
     res.json(ranked);
+  });
+
+  // Extraction defaults exposed separately so the wizard's Consultants tab
+  // can pre-fill its filter form on load (module input, etc.) without
+  // duplicating the select-consultants scoring call just to read them.
+  router.get('/rfp-proposals/:id/default-criteria', requireAdmin, async (req, res) => {
+    const [[proposal]] = await pool.query('SELECT extracted_data, scoring_weights FROM rfp_proposals WHERE id = ?', [
+      req.params.id,
+    ]);
+    if (!proposal) return res.status(404).json({ detail: 'Proposition introuvable' });
+    const extracted = parseJsonColumn(proposal.extracted_data) || {};
+    res.json({
+      module: extracted.detectedModules?.[0] || null,
+      weights: proposal.scoring_weights ? parseJsonColumn(proposal.scoring_weights) : DEFAULT_WEIGHTS,
+    });
+  });
+
+  // Persists the admin's chosen weight set for this proposal's consultant
+  // search - normalized to sum to 100 so the score-% math in
+  // scoreConsultant stays meaningful regardless of what the sliders add up
+  // to client-side.
+  router.put('/rfp-proposals/:id/scoring-weights', requireAdmin, async (req, res) => {
+    const raw = req.body.weights || {};
+    const keys = ['module', 'technology', 'language', 'seniority', 'availability'];
+    const values = keys.map((k) => Math.max(0, Number(raw[k]) || 0));
+    const total = values.reduce((a, b) => a + b, 0);
+    if (total <= 0) return res.status(400).json({ detail: 'Au moins un critère doit avoir un poids positif.' });
+    const normalized = {};
+    keys.forEach((k, i) => {
+      normalized[k] = Math.round((values[i] / total) * 100);
+    });
+    const [result] = await pool.query('UPDATE rfp_proposals SET scoring_weights = ? WHERE id = ?', [
+      JSON.stringify(normalized),
+      req.params.id,
+    ]);
+    if (result.affectedRows === 0) return res.status(404).json({ detail: 'Proposition introuvable' });
+    res.json({ weights: normalized });
   });
 
   router.get('/rfp-proposals/:id/consultants', requireAdmin, async (req, res) => {
