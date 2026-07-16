@@ -17,6 +17,7 @@ import {
   IconButton,
 } from '@mui/material';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { useNotify, usePermissions } from 'react-admin';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
@@ -39,6 +40,20 @@ function countBusinessDays(startDate, endDate) {
   return count;
 }
 
+const EMPTY_FORM = {
+  consultantId: '',
+  projectId: '',
+  startDate: '',
+  endDate: '',
+  location: '',
+  region: '',
+  travelMode: '',
+  mileage: '',
+  missionResponsibleAdminId: '',
+  projectManagerAdminId: '',
+  comment: '',
+};
+
 // Minimal staffing/planning: a manager schedules a consultant onto a
 // project for a date range ("next week, 2 days on X"); admin/rh get an
 // unscoped overview of every assignment. Same self-contained-page
@@ -54,20 +69,9 @@ export default function StaffingPlanning() {
   const [projects, setProjects] = useState([]);
   const [admins, setAdmins] = useState([]);
   const [utilization, setUtilization] = useState([]);
-  const [form, setForm] = useState({
-    consultantId: '',
-    projectId: '',
-    startDate: '',
-    endDate: '',
-    location: '',
-    region: '',
-    travelMode: '',
-    mileage: '',
-    missionResponsibleAdminId: '',
-    projectManagerAdminId: '',
-    comment: '',
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const computedDays = countBusinessDays(form.startDate, form.endDate);
 
   function load() {
@@ -94,11 +98,14 @@ export default function StaffingPlanning() {
       .catch(() => setAdmins([]));
   }, []);
 
-  async function createAssignment() {
+  async function saveAssignment() {
     if (!form.consultantId || !form.projectId || !form.startDate || !form.endDate) return;
     setSaving(true);
-    const res = await fetch(`${API_BASE_URL}/api/admin/staffing-assignments`, {
-      method: 'POST',
+    const url = editingId
+      ? `${API_BASE_URL}/api/admin/staffing-assignments/${editingId}`
+      : `${API_BASE_URL}/api/admin/staffing-assignments`;
+    const res = await fetch(url, {
+      method: editingId ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: getAuthHeader() },
       body: JSON.stringify({ ...form, daysCount: computedDays }),
     });
@@ -115,20 +122,32 @@ export default function StaffingPlanning() {
         autoHideDuration: 8000,
       });
     }
-    setForm({
-      consultantId: '',
-      projectId: '',
-      startDate: '',
-      endDate: '',
-      location: '',
-      region: '',
-      travelMode: '',
-      mileage: '',
-      missionResponsibleAdminId: '',
-      projectManagerAdminId: '',
-      comment: '',
-    });
+    setForm(EMPTY_FORM);
+    setEditingId(null);
     load();
+  }
+
+  function startEdit(a) {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setEditingId(a.id);
+    setForm({
+      consultantId: a.consultantId || '',
+      projectId: a.projectId || '',
+      startDate: a.startDate || '',
+      endDate: a.endDate || '',
+      location: a.location || '',
+      region: a.region || '',
+      travelMode: a.travelMode || '',
+      mileage: a.mileage ?? '',
+      missionResponsibleAdminId: a.missionResponsibleAdminId || '',
+      projectManagerAdminId: a.projectManagerAdminId || '',
+      comment: a.comment || '',
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
   }
 
   async function removeAssignment(id) {
@@ -136,6 +155,7 @@ export default function StaffingPlanning() {
       method: 'DELETE',
       headers: { Authorization: getAuthHeader() },
     });
+    if (editingId === id) cancelEdit();
     load();
   }
 
@@ -159,7 +179,7 @@ export default function StaffingPlanning() {
       {!isMissionRole && (
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
         <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700, display: 'block', mb: 1 }}>
-          Nouvelle affectation
+          {editingId ? "Modifier l'affectation" : 'Nouvelle affectation'}
         </Typography>
         <Stack spacing={1.5}>
           <Stack direction="row" spacing={1.5}>
@@ -308,14 +328,20 @@ export default function StaffingPlanning() {
             size="small"
             fullWidth
           />
-          <Button
-            variant="contained"
-            onClick={createAssignment}
-            disabled={saving || !form.consultantId || !form.projectId || !form.startDate || !form.endDate}
-            sx={{ alignSelf: 'flex-start' }}
-          >
-            Affecter
-          </Button>
+          <Stack direction="row" spacing={1.5}>
+            <Button
+              variant="contained"
+              onClick={saveAssignment}
+              disabled={saving || !form.consultantId || !form.projectId || !form.startDate || !form.endDate}
+            >
+              {saving ? 'Enregistrement...' : editingId ? 'Modifier' : 'Affecter'}
+            </Button>
+            {editingId && (
+              <Button variant="text" color="inherit" onClick={cancelEdit}>
+                Annuler
+              </Button>
+            )}
+          </Stack>
         </Stack>
       </Paper>
       )}
@@ -376,11 +402,16 @@ export default function StaffingPlanning() {
                 <TableCell>{a.projectManagerUsername || '—'}</TableCell>
                 <TableCell>{a.comment || '—'}</TableCell>
                 <TableCell sx={{ fontSize: 12, color: 'text.disabled' }}>{a.createdByUsername || '—'}</TableCell>
-                <TableCell align="right">
+                <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                   {!isMissionRole && (
-                    <IconButton size="small" onClick={() => removeAssignment(a.id)}>
-                      <DeleteOutlineIcon fontSize="small" />
-                    </IconButton>
+                    <>
+                      <IconButton size="small" onClick={() => startEdit(a)}>
+                        <EditOutlinedIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton size="small" onClick={() => removeAssignment(a.id)}>
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </>
                   )}
                 </TableCell>
               </TableRow>

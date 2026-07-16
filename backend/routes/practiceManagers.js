@@ -729,6 +729,76 @@ module.exports = function buildPracticeManagersRouter({
     });
   });
 
+  router.put('/staffing-assignments/:id', requireAdminOrManager, async (req, res) => {
+    if (MISSION_ROLES.includes(req.admin.role)) {
+      return res.status(403).json({ detail: 'Accès en lecture seule.' });
+    }
+    const {
+      consultantId,
+      projectId,
+      startDate,
+      endDate,
+      daysCount,
+      location,
+      region,
+      travelMode,
+      mileage,
+      missionResponsibleAdminId,
+      projectManagerAdminId,
+      comment,
+    } = req.body;
+    if (!consultantId || !projectId || !startDate || !endDate) {
+      return res.status(400).json({ detail: 'consultantId, projectId, startDate et endDate requis.' });
+    }
+    if (!(await assertConsultantInScope(req, consultantId))) {
+      return res.status(403).json({ detail: 'Ce consultant est hors de votre périmètre.' });
+    }
+
+    // Same non-blocking overlap warning as create - excludes this row
+    // itself, otherwise every edit would "conflict" with its own
+    // pre-edit date range.
+    const [conflicts] = await pool.query(
+      `SELECT sa.id, sa.start_date, sa.end_date, p.client AS project_client
+       FROM staffing_assignments sa
+       LEFT JOIN catalog_projects p ON p.id = sa.project_id
+       WHERE sa.consultant_id = ? AND sa.id != ? AND sa.start_date <= ? AND sa.end_date >= ?`,
+      [consultantId, req.params.id, endDate, startDate]
+    );
+
+    const [result] = await pool.query(
+      `UPDATE staffing_assignments SET
+         consultant_id = ?, project_id = ?, start_date = ?, end_date = ?, days_count = ?, location = ?,
+         region = ?, travel_mode = ?, mileage = ?, mission_responsible_admin_id = ?,
+         project_manager_admin_id = ?, comment = ?
+       WHERE id = ?`,
+      [
+        consultantId,
+        projectId,
+        startDate,
+        endDate,
+        daysCount || null,
+        location || null,
+        region || null,
+        travelMode || null,
+        mileage || null,
+        missionResponsibleAdminId || null,
+        projectManagerAdminId || null,
+        comment || null,
+        req.params.id,
+      ]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ detail: 'Affectation introuvable' });
+    res.json({
+      ok: true,
+      conflicts: conflicts.map((c) => ({
+        id: c.id,
+        startDate: c.start_date,
+        endDate: c.end_date,
+        projectClient: c.project_client,
+      })),
+    });
+  });
+
   router.get('/staffing-assignments', requireAdminOrManager, async (req, res) => {
     const [rows] = await pool.query(
       `SELECT sa.*, c.name AS consultant_name, p.client AS project_client, a.username AS created_by_username,
