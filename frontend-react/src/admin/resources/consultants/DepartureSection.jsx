@@ -275,26 +275,24 @@ export default function DepartureSection({ consultant }) {
   const isArchived = !!consultant.archivedAt;
 
   return (
-    <Box sx={{ mt: 2, mb: 3 }}>
-      <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
-        Statut et départ
-      </Typography>
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mt: 1, mb: 1.5 }}>
+    <Box sx={{ mb: 1.5 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
         {consultant.statusLabel && (
           <Chip
             label={consultant.statusLabel}
             size="small"
             color={isArchived ? 'default' : 'primary'}
             variant={isArchived ? 'filled' : 'outlined'}
+            sx={{ height: 20, fontSize: 11 }}
           />
         )}
         {isArchived ? (
-          <Button size="small" variant="outlined" onClick={() => setReinstateOpen(true)}>
+          <Button size="small" variant="text" onClick={() => setReinstateOpen(true)} sx={{ fontSize: 12.5 }}>
             Réintégrer le consultant
           </Button>
         ) : pendingDeparture ? (
           <>
-            <Chip label="Départ déclaré, en attente de validation" size="small" color="warning" />
+            <Chip label="Départ déclaré, en attente de validation" size="small" color="warning" sx={{ height: 20, fontSize: 11 }} />
             <Button size="small" variant="contained" onClick={() => validateDeparture(pendingDeparture.id)}>
               Valider le départ
             </Button>
@@ -303,14 +301,20 @@ export default function DepartureSection({ consultant }) {
             </Button>
           </>
         ) : (
-          <Button size="small" variant="outlined" onClick={() => setDeclareOpen(true)}>
+          <Button
+            size="small"
+            variant="text"
+            color="inherit"
+            onClick={() => setDeclareOpen(true)}
+            sx={{ fontSize: 12.5, color: 'text.disabled' }}
+          >
             Déclarer un départ
           </Button>
         )}
       </Stack>
 
       {audit.length > 0 && (
-        <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'background.default' }}>
+        <Paper variant="outlined" sx={{ p: 1.5, mt: 1, bgcolor: 'background.default' }}>
           <Typography sx={{ fontSize: 12, color: 'text.disabled', fontWeight: 700, mb: 0.5 }}>
             HISTORIQUE DE DÉPART
           </Typography>
