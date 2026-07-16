@@ -4,6 +4,7 @@ import { useCreatePath } from 'react-admin';
 import { Box, Paper, Typography, Stack, CircularProgress, Chip } from '@mui/material';
 import { API_BASE_URL } from '../api';
 import { getAuthHeader } from './authHeader';
+import formatRelativeDate from './formatRelativeDate';
 
 const ACTION_LABELS = {
   submitted: 'a soumis une mise à jour',
@@ -30,18 +31,6 @@ const ACTION_COLORS = {
   cancelled: 'default',
   reinstated: 'success',
 };
-
-function formatRelativeDate(iso) {
-  const date = new Date(iso);
-  const diffMs = Date.now() - date.getTime();
-  const diffMin = Math.round(diffMs / 60000);
-  if (diffMin < 1) return "à l'instant";
-  if (diffMin < 60) return `il y a ${diffMin} min`;
-  const diffH = Math.round(diffMin / 60);
-  if (diffH < 24) return `il y a ${diffH} h`;
-  const diffD = Math.round(diffH / 24);
-  return `il y a ${diffD} j`;
-}
 
 export default function RecentActivity() {
   const navigate = useNavigate();

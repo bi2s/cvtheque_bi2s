@@ -6,6 +6,7 @@ import ApproveButton from './ApproveButton';
 import RejectDialog from './RejectDialog';
 import EditBeforeApproveDialog from './EditBeforeApproveDialog';
 import AuditTrail from './AuditTrail';
+import formatRelativeDate from '../../formatRelativeDate';
 
 const STATUS_LABELS = {
   pending: 'En attente',
@@ -41,6 +42,11 @@ function ChangeRequestShowContent() {
         <Typography variant="h6" sx={{ flex: 1 }}>
           {record.consultantName}
         </Typography>
+        {isPendingStatus && (
+          <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>
+            Soumis {formatRelativeDate(record.submittedAt)}
+          </Typography>
+        )}
         <Chip label={STATUS_LABELS[record.status] || record.status} size="small" />
       </Stack>
 

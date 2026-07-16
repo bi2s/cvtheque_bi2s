@@ -26,7 +26,13 @@ const {
   assertConsultantInScope,
 } = require('./auth');
 const { buildBreadcrumb, isDescendant } = require('./projectTree');
-const { notifyNewChangeRequest, notifyDeparture, notifyAdmins, notifyModuleManagers } = require('./notifications');
+const {
+  notifyNewChangeRequest,
+  notifyDeparture,
+  notifyAdmins,
+  notifyModuleManagers,
+  notifyConsultantDecision,
+} = require('./notifications');
 const { sendServerError, isPositiveInt, parseJsonColumn } = require('./utils');
 const buildCandidatesRouter = require('./routes/candidates');
 const buildProjectReferentialsRouter = require('./routes/projectReferentials');
@@ -1712,7 +1718,8 @@ app.get('/api/admin/hr-dashboard-stats', requireAdminOrRh, async (req, res) => {
 
 app.get('/api/admin/change-requests', requireAdmin, async (req, res) => {
   const [rows] = await pool.query(
-    `SELECT cr.id, cr.consultant_id, c.name AS consultant_name, cr.status, cr.submitted_at, cr.reviewed_at
+    `SELECT cr.id, cr.consultant_id, c.name AS consultant_name, cr.status, cr.submitted_at, cr.reviewed_at,
+            cr.previous_data, cr.submitted_data
      FROM change_requests cr
      JOIN consultants c ON c.id = cr.consultant_id
      ORDER BY cr.submitted_at DESC`
@@ -1725,6 +1732,16 @@ app.get('/api/admin/change-requests', requireAdmin, async (req, res) => {
       status: r.status,
       submittedAt: r.submitted_at,
       reviewedAt: r.reviewed_at,
+      // Lightweight flag only - the raw previous/submitted data snapshots
+      // stay off this list payload (ChangeRequestShow's getOne is the one
+      // place that needs the full data); this just lets the validation
+      // queue's bulk-action UI grey out non-trivial rows without an N+1
+      // getOne fetch per selected row. The bulk-resolve endpoint itself
+      // re-derives this server-side from the same columns before acting -
+      // this flag is UX-only, never trusted for the actual mutation.
+      isTrivial:
+        r.status === 'pending' &&
+        isTrivialChangeRequest(parseJsonColumn(r.previous_data), parseJsonColumn(r.submitted_data)),
     }))
   );
 });
@@ -1792,6 +1809,181 @@ app.get('/api/admin/change-requests/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// Core "apply an approval" logic, factored out so both the single-item
+// route and the bulk-resolve route (below) share exactly one
+// implementation - the bulk route needs each id to run in its own
+// transaction (one row's failure shouldn't roll back the others already
+// applied), so this takes an already-open, already-in-transaction `conn`
+// and returns a plain { ok, status, detail } result instead of writing to
+// `res` or managing the transaction itself; the caller commits/rolls back.
+async function approveChangeRequestRow(conn, { id, editedData, adminId, adminUsername }) {
+  const [[row]] = await conn.query('SELECT * FROM change_requests WHERE id = ? FOR UPDATE', [id]);
+  if (!row) {
+    return { ok: false, status: 404, detail: 'Demande introuvable' };
+  }
+  if (row.status !== 'pending') {
+    return { ok: false, status: 400, detail: 'Cette demande a déjà été traitée' };
+  }
+
+  const submittedData = parseJsonColumn(row.submitted_data);
+  const dataToApply = editedData || submittedData;
+
+  const allProjects = await fetchAllProjects();
+  const validIds = new Set(allProjects.map((p) => p.id));
+  const missingIds = (dataToApply.projects || [])
+    .map((p) => Number(p.projectId))
+    .filter((pid) => !validIds.has(pid));
+  if (missingIds.length > 0) {
+    return {
+      ok: false,
+      status: 400,
+      detail: `Certains projets sélectionnés n'existent plus dans le catalogue (id : ${missingIds.join(
+        ', '
+      )}). Modifiez la demande avant de valider.`,
+    };
+  }
+
+  await conn.query('UPDATE consultants SET title = ?, profile_summary = ?, profile_updated_at = NOW() WHERE id = ?', [
+    dataToApply.title,
+    dataToApply.profileSummary || null,
+    row.consultant_id,
+  ]);
+  // role_id is admin-set per assignment (not something the consultant's CV
+  // wizard collects), so it must survive this delete-then-reinsert - carry
+  // forward whatever was already set for each project_id.
+  const [existingRoleRows] = await conn.query(
+    'SELECT project_id, role_id FROM consultant_projects WHERE consultant_id = ?',
+    [row.consultant_id]
+  );
+  const roleIdByProject = new Map(existingRoleRows.map((r) => [r.project_id, r.role_id]));
+
+  // Metadata (issuing body, dates, validity, etc.) for a certification
+  // already on file must be carried forward by name on every approval,
+  // same reasoning as role_id above. For a brand new certification with
+  // no existing row, the wizard now collects this metadata itself
+  // (Structured experience/consultant-followup plan) - submittedCertDetailsByName
+  // is the fallback source for those.
+  const [existingCertRows] = await conn.query('SELECT * FROM certifications WHERE consultant_id = ?', [
+    row.consultant_id,
+  ]);
+  const certDetailsByName = new Map(existingCertRows.map((c) => [c.name, c]));
+  const submittedCertDetailsByName = new Map((dataToApply.certificationDetails || []).map((d) => [d.name, d]));
+
+  await conn.query('DELETE FROM consultant_projects WHERE consultant_id = ?', [row.consultant_id]);
+  await conn.query('DELETE FROM certifications WHERE consultant_id = ?', [row.consultant_id]);
+  await conn.query('DELETE FROM consultant_languages WHERE consultant_id = ?', [row.consultant_id]);
+  await conn.query('DELETE FROM consultant_formations WHERE consultant_id = ?', [row.consultant_id]);
+  await conn.query('DELETE FROM consultant_skills WHERE consultant_id = ?', [row.consultant_id]);
+  for (const p of dataToApply.projects || []) {
+    const rolePointsText = Array.isArray(p.rolePoints) ? p.rolePoints.join('\n') : '';
+    const stageTagsText = Array.isArray(p.stageTags) && p.stageTags.length ? p.stageTags.join(',') : null;
+    const experiencePhasesText =
+      Array.isArray(p.experiencePhases) && p.experiencePhases.length ? p.experiencePhases.join(',') : null;
+    // roleId is now consultant-selectable (Structured experience entry
+    // plan) - prefer whatever the submission carries, only falling back to
+    // the previously admin-set value for older submissions that don't
+    // include it at all.
+    const roleId = p.roleId ?? roleIdByProject.get(p.projectId) ?? null;
+    await conn.query(
+      `INSERT INTO consultant_projects
+         (consultant_id, project_id, role_points, stage_tags, role_id, experience_level, experience_phases, experience_certification)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        row.consultant_id,
+        p.projectId,
+        rolePointsText,
+        stageTagsText,
+        roleId,
+        p.experienceLevel || null,
+        experiencePhasesText,
+        p.experienceCertification || null,
+      ]
+    );
+  }
+  for (const cert of dataToApply.certifications || []) {
+    const existing = certDetailsByName.get(cert);
+    const submitted = submittedCertDetailsByName.get(cert);
+    await conn.query(
+      `INSERT INTO certifications
+         (consultant_id, name, issuing_body, certificate_number, obtained_date, expiry_date,
+          validity_years, status, sap_module_id, level, file_path, verification_url, credly_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        row.consultant_id,
+        cert,
+        existing?.issuing_body ?? emptyToNull(submitted?.issuingBody),
+        existing?.certificate_number ?? emptyToNull(submitted?.certificateNumber),
+        existing?.obtained_date ?? toValidDateOrNull(submitted?.obtainedDate),
+        existing?.expiry_date ?? null,
+        existing?.validity_years ?? emptyToNull(submitted?.validityYears),
+        existing?.status ?? null,
+        existing?.sap_module_id ?? null,
+        existing?.level ?? null,
+        existing?.file_path ?? null,
+        existing?.verification_url ?? null,
+        existing?.credly_url ?? null,
+      ]
+    );
+  }
+  for (const [i, lang] of (dataToApply.languages || []).entries()) {
+    await conn.query('INSERT INTO consultant_languages (consultant_id, name, level, sort_order) VALUES (?, ?, ?, ?)', [
+      row.consultant_id,
+      lang.name,
+      lang.level,
+      i,
+    ]);
+  }
+  for (const [i, f] of (dataToApply.formations || []).entries()) {
+    await conn.query(
+      'INSERT INTO consultant_formations (consultant_id, year, degree, school, field_of_study, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
+      [row.consultant_id, f.year, f.degree, f.school, emptyToNull(f.fieldOfStudy), i]
+    );
+  }
+  for (const [i, s] of (dataToApply.skills || []).entries()) {
+    await conn.query(
+      'INSERT INTO consultant_skills (consultant_id, category, label, starred, sort_order) VALUES (?, ?, ?, ?, ?)',
+      [row.consultant_id, s.category, s.label, !!s.starred, i]
+    );
+  }
+
+  await conn.query(
+    "UPDATE change_requests SET status = 'approved', resolved_data = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
+    [JSON.stringify(dataToApply), adminId, id]
+  );
+
+  if (editedData) {
+    await insertAuditRow(conn, {
+      changeRequestId: id,
+      action: 'edited',
+      actorType: 'admin',
+      actorId: adminId,
+      actorLabel: adminUsername,
+      details: editedData,
+    });
+  }
+  await insertAuditRow(conn, {
+    changeRequestId: id,
+    action: 'approved',
+    actorType: 'admin',
+    actorId: adminId,
+    actorLabel: adminUsername,
+    details: null,
+  });
+
+  return { ok: true, consultantId: row.consultant_id };
+}
+
+// Looks up the consultant's on-file email/name post-commit and fires the
+// decision notice - kept outside the transaction since it's best-effort and
+// must never affect the approve/reject outcome itself. No-ops silently via
+// notifyConsultantDecision -> notifyAdminEmail if there's no email on file
+// or SMTP isn't configured.
+async function notifyConsultantOfDecision(consultantId, { approved, reason }) {
+  const [[consultant]] = await pool.query('SELECT name, email FROM consultants WHERE id = ?', [consultantId]);
+  if (!consultant?.email) return;
+  await notifyConsultantDecision(consultant.email, consultant.name, { approved, reason });
+}
+
 app.put('/api/admin/change-requests/:id/approve', requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
   const { editedData } = req.body;
@@ -1804,162 +1996,18 @@ app.put('/api/admin/change-requests/:id/approve', requireAdmin, async (req, res)
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-
-    const [[row]] = await conn.query('SELECT * FROM change_requests WHERE id = ? FOR UPDATE', [id]);
-    if (!row) {
-      await conn.rollback();
-      return res.status(404).json({ detail: 'Demande introuvable' });
-    }
-    if (row.status !== 'pending') {
-      await conn.rollback();
-      return res.status(400).json({ detail: 'Cette demande a déjà été traitée' });
-    }
-
-    const submittedData = parseJsonColumn(row.submitted_data);
-    const dataToApply = editedData || submittedData;
-
-    const allProjects = await fetchAllProjects();
-    const validIds = new Set(allProjects.map((p) => p.id));
-    const missingIds = (dataToApply.projects || [])
-      .map((p) => Number(p.projectId))
-      .filter((pid) => !validIds.has(pid));
-    if (missingIds.length > 0) {
-      await conn.rollback();
-      return res.status(400).json({
-        detail: `Certains projets sélectionnés n'existent plus dans le catalogue (id : ${missingIds.join(
-          ', '
-        )}). Modifiez la demande avant de valider.`,
-      });
-    }
-
-    await conn.query('UPDATE consultants SET title = ?, profile_summary = ?, profile_updated_at = NOW() WHERE id = ?', [
-      dataToApply.title,
-      dataToApply.profileSummary || null,
-      row.consultant_id,
-    ]);
-    // role_id is admin-set per assignment (not something the consultant's CV
-    // wizard collects), so it must survive this delete-then-reinsert - carry
-    // forward whatever was already set for each project_id.
-    const [existingRoleRows] = await conn.query(
-      'SELECT project_id, role_id FROM consultant_projects WHERE consultant_id = ?',
-      [row.consultant_id]
-    );
-    const roleIdByProject = new Map(existingRoleRows.map((r) => [r.project_id, r.role_id]));
-
-    // Metadata (issuing body, dates, validity, etc.) for a certification
-    // already on file must be carried forward by name on every approval,
-    // same reasoning as role_id above. For a brand new certification with
-    // no existing row, the wizard now collects this metadata itself
-    // (Structured experience/consultant-followup plan) - submittedCertDetailsByName
-    // is the fallback source for those.
-    const [existingCertRows] = await conn.query('SELECT * FROM certifications WHERE consultant_id = ?', [
-      row.consultant_id,
-    ]);
-    const certDetailsByName = new Map(existingCertRows.map((c) => [c.name, c]));
-    const submittedCertDetailsByName = new Map(
-      (dataToApply.certificationDetails || []).map((d) => [d.name, d])
-    );
-
-    await conn.query('DELETE FROM consultant_projects WHERE consultant_id = ?', [row.consultant_id]);
-    await conn.query('DELETE FROM certifications WHERE consultant_id = ?', [row.consultant_id]);
-    await conn.query('DELETE FROM consultant_languages WHERE consultant_id = ?', [row.consultant_id]);
-    await conn.query('DELETE FROM consultant_formations WHERE consultant_id = ?', [row.consultant_id]);
-    await conn.query('DELETE FROM consultant_skills WHERE consultant_id = ?', [row.consultant_id]);
-    for (const p of dataToApply.projects || []) {
-      const rolePointsText = Array.isArray(p.rolePoints) ? p.rolePoints.join('\n') : '';
-      const stageTagsText = Array.isArray(p.stageTags) && p.stageTags.length ? p.stageTags.join(',') : null;
-      const experiencePhasesText =
-        Array.isArray(p.experiencePhases) && p.experiencePhases.length ? p.experiencePhases.join(',') : null;
-      // roleId is now consultant-selectable (Structured experience entry
-      // plan) - prefer whatever the submission carries, only falling back to
-      // the previously admin-set value for older submissions that don't
-      // include it at all.
-      const roleId = p.roleId ?? roleIdByProject.get(p.projectId) ?? null;
-      await conn.query(
-        `INSERT INTO consultant_projects
-           (consultant_id, project_id, role_points, stage_tags, role_id, experience_level, experience_phases, experience_certification)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          row.consultant_id,
-          p.projectId,
-          rolePointsText,
-          stageTagsText,
-          roleId,
-          p.experienceLevel || null,
-          experiencePhasesText,
-          p.experienceCertification || null,
-        ]
-      );
-    }
-    for (const cert of dataToApply.certifications || []) {
-      const existing = certDetailsByName.get(cert);
-      const submitted = submittedCertDetailsByName.get(cert);
-      await conn.query(
-        `INSERT INTO certifications
-           (consultant_id, name, issuing_body, certificate_number, obtained_date, expiry_date,
-            validity_years, status, sap_module_id, level, file_path, verification_url, credly_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          row.consultant_id,
-          cert,
-          existing?.issuing_body ?? emptyToNull(submitted?.issuingBody),
-          existing?.certificate_number ?? emptyToNull(submitted?.certificateNumber),
-          existing?.obtained_date ?? toValidDateOrNull(submitted?.obtainedDate),
-          existing?.expiry_date ?? null,
-          existing?.validity_years ?? emptyToNull(submitted?.validityYears),
-          existing?.status ?? null,
-          existing?.sap_module_id ?? null,
-          existing?.level ?? null,
-          existing?.file_path ?? null,
-          existing?.verification_url ?? null,
-          existing?.credly_url ?? null,
-        ]
-      );
-    }
-    for (const [i, lang] of (dataToApply.languages || []).entries()) {
-      await conn.query(
-        'INSERT INTO consultant_languages (consultant_id, name, level, sort_order) VALUES (?, ?, ?, ?)',
-        [row.consultant_id, lang.name, lang.level, i]
-      );
-    }
-    for (const [i, f] of (dataToApply.formations || []).entries()) {
-      await conn.query(
-        'INSERT INTO consultant_formations (consultant_id, year, degree, school, field_of_study, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
-        [row.consultant_id, f.year, f.degree, f.school, emptyToNull(f.fieldOfStudy), i]
-      );
-    }
-    for (const [i, s] of (dataToApply.skills || []).entries()) {
-      await conn.query(
-        'INSERT INTO consultant_skills (consultant_id, category, label, starred, sort_order) VALUES (?, ?, ?, ?, ?)',
-        [row.consultant_id, s.category, s.label, !!s.starred, i]
-      );
-    }
-
-    await conn.query(
-      "UPDATE change_requests SET status = 'approved', resolved_data = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
-      [JSON.stringify(dataToApply), req.admin.id, id]
-    );
-
-    if (editedData) {
-      await insertAuditRow(conn, {
-        changeRequestId: id,
-        action: 'edited',
-        actorType: 'admin',
-        actorId: req.admin.id,
-        actorLabel: req.admin.username,
-        details: editedData,
-      });
-    }
-    await insertAuditRow(conn, {
-      changeRequestId: id,
-      action: 'approved',
-      actorType: 'admin',
-      actorId: req.admin.id,
-      actorLabel: req.admin.username,
-      details: null,
+    const result = await approveChangeRequestRow(conn, {
+      id,
+      editedData,
+      adminId: req.admin.id,
+      adminUsername: req.admin.username,
     });
-
+    if (!result.ok) {
+      await conn.rollback();
+      return res.status(result.status).json({ detail: result.detail });
+    }
     await conn.commit();
+    notifyConsultantOfDecision(result.consultantId, { approved: true }).catch(() => {});
     res.json({ ok: true });
   } catch (e) {
     await conn.rollback();
@@ -1968,6 +2016,33 @@ app.put('/api/admin/change-requests/:id/approve', requireAdmin, async (req, res)
     conn.release();
   }
 });
+
+// Same factoring as approveChangeRequestRow above - shared by the
+// single-item route and bulk-resolve.
+async function rejectChangeRequestRow(conn, { id, reason, adminId, adminUsername }) {
+  const [[row]] = await conn.query('SELECT * FROM change_requests WHERE id = ? FOR UPDATE', [id]);
+  if (!row) {
+    return { ok: false, status: 404, detail: 'Demande introuvable' };
+  }
+  if (row.status !== 'pending') {
+    return { ok: false, status: 400, detail: 'Cette demande a déjà été traitée' };
+  }
+
+  await conn.query(
+    "UPDATE change_requests SET status = 'rejected', rejection_reason = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
+    [reason, adminId, id]
+  );
+  await insertAuditRow(conn, {
+    changeRequestId: id,
+    action: 'rejected',
+    actorType: 'admin',
+    actorId: adminId,
+    actorLabel: adminUsername,
+    details: { reason },
+  });
+
+  return { ok: true, consultantId: row.consultant_id };
+}
 
 app.put('/api/admin/change-requests/:id/reject', requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
@@ -1979,31 +2054,13 @@ app.put('/api/admin/change-requests/:id/reject', requireAdmin, async (req, res) 
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-
-    const [[row]] = await conn.query('SELECT * FROM change_requests WHERE id = ? FOR UPDATE', [id]);
-    if (!row) {
+    const result = await rejectChangeRequestRow(conn, { id, reason, adminId: req.admin.id, adminUsername: req.admin.username });
+    if (!result.ok) {
       await conn.rollback();
-      return res.status(404).json({ detail: 'Demande introuvable' });
+      return res.status(result.status).json({ detail: result.detail });
     }
-    if (row.status !== 'pending') {
-      await conn.rollback();
-      return res.status(400).json({ detail: 'Cette demande a déjà été traitée' });
-    }
-
-    await conn.query(
-      "UPDATE change_requests SET status = 'rejected', rejection_reason = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
-      [reason, req.admin.id, id]
-    );
-    await insertAuditRow(conn, {
-      changeRequestId: id,
-      action: 'rejected',
-      actorType: 'admin',
-      actorId: req.admin.id,
-      actorLabel: req.admin.username,
-      details: { reason },
-    });
-
     await conn.commit();
+    notifyConsultantOfDecision(result.consultantId, { approved: false, reason }).catch(() => {});
     res.json({ ok: true });
   } catch (e) {
     await conn.rollback();
@@ -2011,6 +2068,151 @@ app.put('/api/admin/change-requests/:id/reject', requireAdmin, async (req, res) 
   } finally {
     conn.release();
   }
+});
+
+// Trivial-change classification for bulk-resolve, below - mirrors
+// ChangeSummary.jsx's exported hasXChanged() functions (frontend, ES
+// modules) but re-implemented here since this is a CommonJS backend that
+// can't import that file directly. profileSummary is deliberately excluded
+// from the comparison: it's never independently editable by the consultant
+// (auto-regenerated from title/modules/projects/certs/languages on every
+// submission), so a title-only edit would otherwise always drag
+// profileSummary along as a second "changed" section and make the "Titre"
+// trivial category unreachable in practice.
+function changedSections(previousData, newData) {
+  const changed = new Set();
+  if ((previousData.title || '') !== (newData.title || '')) changed.add('title');
+
+  const prevLangByName = new Map((previousData.languages || []).map((l) => [l.name, l.level]));
+  const newLangByName = new Map((newData.languages || []).map((l) => [l.name, l.level]));
+  const allLangNames = new Set([...prevLangByName.keys(), ...newLangByName.keys()]);
+  if ([...allLangNames].some((name) => prevLangByName.get(name) !== newLangByName.get(name))) changed.add('languages');
+
+  const prevProjById = new Map((previousData.projects || []).map((p) => [p.projectId, p]));
+  const newProjById = new Map((newData.projects || []).map((p) => [p.projectId, p]));
+  const allProjIds = new Set([...prevProjById.keys(), ...newProjById.keys()]);
+  const projectsChanged = [...allProjIds].some((id) => {
+    const prev = prevProjById.get(id);
+    const next = newProjById.get(id);
+    if (!prev || !next) return true;
+    return (
+      JSON.stringify(prev.rolePoints || []) !== JSON.stringify(next.rolePoints || []) ||
+      JSON.stringify(prev.stageTags || []) !== JSON.stringify(next.stageTags || []) ||
+      (prev.roleId ?? null) !== (next.roleId ?? null) ||
+      (prev.experienceLevel ?? null) !== (next.experienceLevel ?? null) ||
+      JSON.stringify(prev.experiencePhases || []) !== JSON.stringify(next.experiencePhases || []) ||
+      (prev.experienceCertification ?? null) !== (next.experienceCertification ?? null)
+    );
+  });
+  if (projectsChanged) changed.add('projects');
+
+  const prevCertSet = new Set(previousData.certifications || []);
+  const newCertSet = new Set(newData.certifications || []);
+  if (prevCertSet.size !== newCertSet.size || [...prevCertSet].some((c) => !newCertSet.has(c)) || [...newCertSet].some((c) => !prevCertSet.has(c))) {
+    changed.add('certifications');
+  }
+
+  const prevSkillKeys = new Set((previousData.skills || []).map((s) => `${s.category}|${s.label}`));
+  const newSkillKeys = new Set((newData.skills || []).map((s) => `${s.category}|${s.label}`));
+  const prevStarred = (previousData.skills || []).find((s) => s.category === 'module' && s.starred)?.label;
+  const newStarred = (newData.skills || []).find((s) => s.category === 'module' && s.starred)?.label;
+  if (
+    prevSkillKeys.size !== newSkillKeys.size ||
+    [...prevSkillKeys].some((k) => !newSkillKeys.has(k)) ||
+    [...newSkillKeys].some((k) => !prevSkillKeys.has(k)) ||
+    prevStarred !== newStarred
+  ) {
+    changed.add('skills');
+  }
+
+  const formationKey = (f) => `${f.year || ''}|${f.degree || ''}|${f.school || ''}|${f.fieldOfStudy || ''}`;
+  const prevFormKeys = new Set((previousData.formations || []).map(formationKey));
+  const newFormKeys = new Set((newData.formations || []).map(formationKey));
+  if (
+    prevFormKeys.size !== newFormKeys.size ||
+    [...prevFormKeys].some((k) => !newFormKeys.has(k)) ||
+    [...newFormKeys].some((k) => !prevFormKeys.has(k))
+  ) {
+    changed.add('formations');
+  }
+
+  return changed;
+}
+
+// Confirmed with the user: trivial = exactly one section changed, and that
+// section is title or languages only.
+function isTrivialChangeRequest(previousData, newData) {
+  const changed = changedSections(previousData, newData);
+  return changed.size === 1 && (changed.has('title') || changed.has('languages'));
+}
+
+app.put('/api/admin/change-requests/bulk-resolve', requireAdmin, async (req, res) => {
+  const { ids, action } = req.body;
+  const reason = (req.body.reason || '').trim() || 'Rejet en masse (changement trivial)';
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > 50) {
+    return res.status(400).json({ detail: 'Liste d\'identifiants invalide (1 à 50).' });
+  }
+  if (!['approve', 'reject'].includes(action)) {
+    return res.status(400).json({ detail: 'Action invalide.' });
+  }
+
+  const results = [];
+  for (const rawId of ids) {
+    const id = Number(rawId);
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[row]] = await conn.query('SELECT * FROM change_requests WHERE id = ? FOR UPDATE', [id]);
+      if (!row) {
+        await conn.rollback();
+        results.push({ id, ok: false, detail: 'Demande introuvable' });
+        continue;
+      }
+      if (row.status !== 'pending') {
+        await conn.rollback();
+        results.push({ id, ok: false, detail: 'Déjà traitée' });
+        continue;
+      }
+      // Never trust the client's own triviality classification for
+      // something that mutates data - re-derive it here from the same
+      // previous_data/submitted_data snapshots the single-item review
+      // screen uses, and refuse to bulk-act on anything that doesn't
+      // qualify even if the client thought it did.
+      const previousData = parseJsonColumn(row.previous_data);
+      const submittedData = parseJsonColumn(row.submitted_data);
+      if (!isTrivialChangeRequest(previousData, submittedData)) {
+        await conn.rollback();
+        results.push({ id, ok: false, detail: 'Changement non trivial - à traiter individuellement.' });
+        continue;
+      }
+
+      const result =
+        action === 'approve'
+          ? await approveChangeRequestRow(conn, { id, editedData: undefined, adminId: req.admin.id, adminUsername: req.admin.username })
+          : await rejectChangeRequestRow(conn, {
+              id,
+              reason,
+              adminId: req.admin.id,
+              adminUsername: req.admin.username,
+            });
+      if (!result.ok) {
+        await conn.rollback();
+        results.push({ id, ok: false, detail: result.detail });
+        continue;
+      }
+      await conn.commit();
+      notifyConsultantOfDecision(result.consultantId, { approved: action === 'approve', reason }).catch(() => {});
+      results.push({ id, ok: true });
+    } catch (e) {
+      await conn.rollback();
+      console.error(`[error] bulk-resolve id=${id}:`, e);
+      results.push({ id, ok: false, detail: 'Erreur serveur' });
+    } finally {
+      conn.release();
+    }
+  }
+
+  res.json({ results });
 });
 
 // Candidates/pipeline-stages are RH-accessible; the /admins list inside

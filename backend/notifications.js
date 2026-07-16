@@ -136,10 +136,27 @@ function notifyDeparture(consultantName) {
   });
 }
 
+// The one notification direction that never existed until now: consultant-
+// facing, not admin-facing. Reuses notifyAdminEmail's exact per-recipient
+// primitive (same dormant-until-SMTP-configured behavior) since it already
+// does everything needed here - a single targeted email, no broadcast, no
+// Teams (a personal HR-decision notice has no reason to go to a shared
+// channel). No-ops cleanly if the consultant has no email on file.
+function notifyConsultantDecision(email, consultantName, { approved, reason }) {
+  const subject = approved
+    ? 'CVthèque : votre mise à jour de profil a été approuvée'
+    : 'CVthèque : votre mise à jour de profil a été refusée';
+  const summary = approved
+    ? `Bonjour ${consultantName}, votre mise à jour de profil a été approuvée et est maintenant visible sur votre CV.`
+    : `Bonjour ${consultantName}, votre mise à jour de profil n'a pas été approuvée. Motif : ${reason || 'non précisé'}.`;
+  return notifyAdminEmail(email, { subject, summary, link: '/' });
+}
+
 module.exports = {
   notifyAdmins,
   notifyNewChangeRequest,
   notifyDeparture,
+  notifyConsultantDecision,
   notifyAdminEmail,
   notifyModuleManagers,
   buildTeamsPayload,

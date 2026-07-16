@@ -1,5 +1,7 @@
 import { List, Datagrid, TextField, DateField, FunctionField, SelectInput } from 'react-admin';
-import { Chip } from '@mui/material';
+import { Chip, Typography } from '@mui/material';
+import formatRelativeDate from '../../formatRelativeDate';
+import BulkResolveButtons from './BulkResolveButtons';
 
 const STATUS_LABELS = {
   pending: 'En attente',
@@ -26,12 +28,14 @@ const filters = [
 ];
 
 const defaultFilter = { status: 'pending' };
-const defaultSort = { field: 'submittedAt', order: 'DESC' };
+// Oldest-first by default: the pending queue should surface what's been
+// waiting longest, not what just came in.
+const defaultSort = { field: 'submittedAt', order: 'ASC' };
 
 export default function ChangeRequestList() {
   return (
     <List filters={filters} filterDefaultValues={defaultFilter} sort={defaultSort} perPage={25}>
-      <Datagrid rowClick="show" bulkActionButtons={false}>
+      <Datagrid rowClick="show" bulkActionButtons={<BulkResolveButtons />}>
         <TextField source="consultantName" label="Consultant" />
         <FunctionField
           label="Statut"
@@ -44,6 +48,14 @@ export default function ChangeRequestList() {
           )}
         />
         <DateField source="submittedAt" label="Soumis le" showTime />
+        <FunctionField
+          label="Ancienneté"
+          render={(record) => (
+            <Typography sx={{ fontSize: 13 }} color={record.status === 'pending' ? 'text.secondary' : 'text.disabled'}>
+              {formatRelativeDate(record.submittedAt)}
+            </Typography>
+          )}
+        />
       </Datagrid>
     </List>
   );
