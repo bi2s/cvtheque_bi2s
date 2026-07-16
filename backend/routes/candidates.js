@@ -53,6 +53,7 @@ function mapCandidateRow(r) {
     linkedinUrl: r.linkedin_url,
     portfolioUrl: r.portfolio_url,
     desiredPosition: r.desired_position,
+    domain: r.domain,
     yearsExperience: r.years_experience,
     availability: r.availability,
     desiredSalary: r.desired_salary,
@@ -109,6 +110,7 @@ const AUDITED_FIELDS = [
   ['phone', 'phone'],
   ['location', 'location'],
   ['desiredPosition', 'desired_position'],
+  ['domain', 'domain'],
   ['availability', 'availability'],
   ['desiredSalary', 'desired_salary'],
 ];
@@ -372,8 +374,8 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
         const [result] = await conn.query(
           `INSERT INTO candidates
              (first_name, last_name, email, phone, location, linkedin_url, portfolio_url,
-              desired_position, years_experience, availability, desired_salary, cv_raw_text, current_stage_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              desired_position, domain, years_experience, availability, desired_salary, cv_raw_text, current_stage_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             firstName,
             lastName,
@@ -383,6 +385,7 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
             req.body.linkedinUrl || null,
             req.body.portfolioUrl || null,
             req.body.desiredPosition || null,
+            req.body.domain || null,
             req.body.yearsExperience ? Number(req.body.yearsExperience) : null,
             req.body.availability || null,
             req.body.desiredSalary || null,
@@ -471,13 +474,14 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
         linkedin_url: req.body.linkedinUrl || null,
         portfolio_url: req.body.portfolioUrl || null,
         desired_position: req.body.desiredPosition || null,
+        domain: req.body.domain || null,
         years_experience: req.body.yearsExperience ? Number(req.body.yearsExperience) : null,
         availability: req.body.availability || null,
         desired_salary: req.body.desiredSalary || null,
       };
       await conn.query(
         `UPDATE candidates SET first_name=?, last_name=?, email=?, phone=?, location=?, linkedin_url=?, portfolio_url=?,
-           desired_position=?, years_experience=?, availability=?, desired_salary=? WHERE id = ?`,
+           desired_position=?, domain=?, years_experience=?, availability=?, desired_salary=? WHERE id = ?`,
         [...Object.values(newValues), id]
       );
 

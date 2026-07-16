@@ -37,6 +37,7 @@ export default function CandidateEdit() {
   const [linkedinUrl, setLinkedinUrl] = useState('');
   const [portfolioUrl, setPortfolioUrl] = useState('');
   const [desiredPosition, setDesiredPosition] = useState('');
+  const [domain, setDomain] = useState('');
   const [yearsExperience, setYearsExperience] = useState('');
   const [availability, setAvailability] = useState('');
   const [desiredSalary, setDesiredSalary] = useState('');
@@ -61,6 +62,7 @@ export default function CandidateEdit() {
         setLinkedinUrl(data.linkedinUrl || '');
         setPortfolioUrl(data.portfolioUrl || '');
         setDesiredPosition(data.desiredPosition || '');
+        setDomain(data.domain || '');
         setYearsExperience(data.yearsExperience ?? '');
         setAvailability(data.availability || '');
         setDesiredSalary(data.desiredSalary || '');
@@ -105,6 +107,7 @@ export default function CandidateEdit() {
           linkedinUrl,
           portfolioUrl,
           desiredPosition,
+          domain,
           yearsExperience,
           availability,
           desiredSalary,
@@ -160,6 +163,7 @@ export default function CandidateEdit() {
           <Stack direction="row" spacing={2}>
             <TextField label="Localisation" value={location} onChange={(e) => setLocation(e.target.value)} size="small" fullWidth />
             <TextField label="Poste recherché" value={desiredPosition} onChange={(e) => setDesiredPosition(e.target.value)} size="small" fullWidth />
+            <TextField label="Domaine" value={domain} onChange={(e) => setDomain(e.target.value)} size="small" fullWidth />
           </Stack>
           <Stack direction="row" spacing={2}>
             <TextField label="LinkedIn" value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} size="small" fullWidth />

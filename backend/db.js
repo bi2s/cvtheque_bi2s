@@ -324,6 +324,11 @@ async function initSchema() {
         FOREIGN KEY (current_stage_id) REFERENCES pipeline_stages(id) ON DELETE SET NULL
       )
     `);
+    // Free text, same convention as desired_position - no fixed referential
+    // exists for "domaine" (could be a functional/SAP area like Finance or
+    // an industry sector like Banque/Télécom depending on the candidate),
+    // so this stays open text rather than guessing a taxonomy.
+    await ensureColumn(conn, 'candidates', 'domain', 'VARCHAR(255) NULL');
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS candidate_skills (

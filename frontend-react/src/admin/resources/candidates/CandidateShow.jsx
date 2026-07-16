@@ -197,6 +197,8 @@ function CandidateShowContent() {
           <Typography sx={{ fontSize: 13.5 }}>Email : {record.email || '—'}</Typography>
           <Typography sx={{ fontSize: 13.5 }}>Téléphone : {record.phone || '—'}</Typography>
           <Typography sx={{ fontSize: 13.5 }}>Localisation : {record.location || '—'}</Typography>
+          <Typography sx={{ fontSize: 13.5 }}>Poste recherché : {record.desiredPosition || '—'}</Typography>
+          <Typography sx={{ fontSize: 13.5 }}>Domaine : {record.domain || '—'}</Typography>
           <Typography sx={{ fontSize: 13.5 }}>LinkedIn : {record.linkedinUrl || '—'}</Typography>
           <Typography sx={{ fontSize: 13.5 }}>Portfolio : {record.portfolioUrl || '—'}</Typography>
           <Typography sx={{ fontSize: 13.5 }}>Années d'expérience : {record.yearsExperience ?? '—'}</Typography>

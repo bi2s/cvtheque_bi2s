@@ -59,6 +59,7 @@ export default function CandidateCvUpload() {
   const [linkedinUrl, setLinkedinUrl] = useState('');
   const [portfolioUrl, setPortfolioUrl] = useState('');
   const [desiredPosition, setDesiredPosition] = useState('');
+  const [domain, setDomain] = useState('');
   const [yearsExperience, setYearsExperience] = useState('');
   const [availability, setAvailability] = useState('');
   const [desiredSalary, setDesiredSalary] = useState('');
@@ -145,6 +146,7 @@ export default function CandidateCvUpload() {
       formData.append('linkedinUrl', linkedinUrl);
       formData.append('portfolioUrl', portfolioUrl);
       formData.append('desiredPosition', desiredPosition);
+      formData.append('domain', domain);
       formData.append('yearsExperience', yearsExperience);
       formData.append('availability', availability);
       formData.append('desiredSalary', desiredSalary);
@@ -284,6 +286,7 @@ export default function CandidateCvUpload() {
           <Stack direction="row" spacing={2}>
             <TextField label="Localisation" value={location} onChange={(e) => setLocation(e.target.value)} size="small" fullWidth />
             <TextField label="Poste recherché" value={desiredPosition} onChange={(e) => setDesiredPosition(e.target.value)} size="small" fullWidth />
+            <TextField label="Domaine" value={domain} onChange={(e) => setDomain(e.target.value)} size="small" fullWidth />
           </Stack>
           <Stack direction="row" spacing={2}>
             <TextField label="LinkedIn" value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} size="small" fullWidth />
