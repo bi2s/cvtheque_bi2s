@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useNotify } from 'react-admin';
 import {
   Box,
@@ -12,12 +12,16 @@ import {
   IconButton,
   CircularProgress,
   MenuItem,
+  Alert,
+  Link,
 } from '@mui/material';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import AddIcon from '@mui/icons-material/Add';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
+
+const DUPLICATE_REASON_LABELS = { email: 'email', phone: 'téléphone', name: 'nom similaire' };
 
 const SKILL_CATEGORIES = [
   { value: 'technical', label: 'Technique' },
@@ -42,6 +46,10 @@ export default function CandidateCvUpload() {
   const [saving, setSaving] = useState(false);
   const [rawText, setRawText] = useState('');
   const [showRawText, setShowRawText] = useState(false);
+  const [lowConfidence, setLowConfidence] = useState({});
+  const [detectedModules, setDetectedModules] = useState([]);
+  const [detectedCertifications, setDetectedCertifications] = useState([]);
+  const [duplicates, setDuplicates] = useState([]);
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -83,7 +91,8 @@ export default function CandidateCvUpload() {
         notify('custom.server_error', { type: 'error', messageArgs: { detail: body.detail || 'Échec de l’analyse du CV' } });
         return;
       }
-      const { rawText: text, guessedFields } = await res.json();
+      const { rawText: text, guessedFields, lowConfidence: lc, detectedModules: dm, detectedCertifications: dc, duplicates: dups } =
+        await res.json();
       setRawText(text);
       if (guessedFields.firstName) setFirstName(guessedFields.firstName);
       if (guessedFields.lastName) setLastName(guessedFields.lastName);
@@ -91,6 +100,10 @@ export default function CandidateCvUpload() {
       if (guessedFields.phone) setPhone(guessedFields.phone);
       if (guessedFields.linkedinUrl) setLinkedinUrl(guessedFields.linkedinUrl);
       if (guessedFields.portfolioUrl) setPortfolioUrl(guessedFields.portfolioUrl);
+      setLowConfidence(lc || {});
+      setDetectedModules(dm || []);
+      setDetectedCertifications(dc || []);
+      setDuplicates(dups || []);
       notify('custom.cv_analyzed', { type: 'info' });
     } finally {
       setParsing(false);
@@ -106,6 +119,14 @@ export default function CandidateCvUpload() {
     if (!newCert.trim()) return;
     setCertifications((prev) => [...prev, newCert.trim()]);
     setNewCert('');
+  }
+  function acceptDetectedModule(code) {
+    setSkills((prev) => (prev.some((s) => s.label === code) ? prev : [...prev, { category: 'technical', label: code }]));
+    setDetectedModules((prev) => prev.filter((c) => c !== code));
+  }
+  function acceptDetectedCertification(name) {
+    setCertifications((prev) => (prev.includes(name) ? prev : [...prev, name]));
+    setDetectedCertifications((prev) => prev.filter((c) => c !== name));
   }
 
   async function handleSave() {
@@ -191,18 +212,74 @@ export default function CandidateCvUpload() {
         )}
       </Paper>
 
+      {duplicates.length > 0 && (
+        <Alert severity="warning" sx={{ mb: 3, borderRadius: 3 }}>
+          <Typography sx={{ fontSize: 13.5, fontWeight: 600, mb: 0.5 }}>
+            {duplicates.length > 1 ? 'Candidats similaires déjà présents :' : 'Un candidat similaire existe déjà :'}
+          </Typography>
+          <Stack spacing={0.25}>
+            {duplicates.map((d) => (
+              <Typography key={d.id} sx={{ fontSize: 13 }}>
+                <Link component={RouterLink} to={`/admin/candidates/${d.id}/show`} target="_blank" rel="noopener">
+                  {d.name}
+                </Link>{' '}
+                ({d.reasons.map((r) => DUPLICATE_REASON_LABELS[r] || r).join(', ')})
+              </Typography>
+            ))}
+          </Stack>
+        </Alert>
+      )}
+
       <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, mb: 3 }}>
         <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
           Informations personnelles
         </Typography>
         <Stack spacing={2} sx={{ mt: 1.5 }}>
           <Stack direction="row" spacing={2}>
-            <TextField label="Prénom" value={firstName} onChange={(e) => setFirstName(e.target.value)} size="small" fullWidth required />
-            <TextField label="Nom" value={lastName} onChange={(e) => setLastName(e.target.value)} size="small" fullWidth required />
+            <TextField
+              label="Prénom"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              size="small"
+              fullWidth
+              required
+              color={lowConfidence.name ? 'warning' : undefined}
+              focused={lowConfidence.name || undefined}
+              helperText={lowConfidence.name ? 'Détection incertaine - à vérifier' : ' '}
+            />
+            <TextField
+              label="Nom"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              size="small"
+              fullWidth
+              required
+              color={lowConfidence.name ? 'warning' : undefined}
+              focused={lowConfidence.name || undefined}
+              helperText={lowConfidence.name ? 'Détection incertaine - à vérifier' : ' '}
+            />
           </Stack>
           <Stack direction="row" spacing={2}>
-            <TextField label="Email" value={email} onChange={(e) => setEmail(e.target.value)} size="small" fullWidth />
-            <TextField label="Téléphone" value={phone} onChange={(e) => setPhone(e.target.value)} size="small" fullWidth />
+            <TextField
+              label="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              size="small"
+              fullWidth
+              color={lowConfidence.email ? 'warning' : undefined}
+              focused={lowConfidence.email || undefined}
+              helperText={lowConfidence.email ? 'Trouvé loin du début du document - à vérifier' : ' '}
+            />
+            <TextField
+              label="Téléphone"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              size="small"
+              fullWidth
+              color={lowConfidence.phone ? 'warning' : undefined}
+              focused={lowConfidence.phone || undefined}
+              helperText={lowConfidence.phone ? 'Trouvé loin du début du document - à vérifier' : ' '}
+            />
           </Stack>
           <Stack direction="row" spacing={2}>
             <TextField label="Localisation" value={location} onChange={(e) => setLocation(e.target.value)} size="small" fullWidth />
@@ -234,6 +311,26 @@ export default function CandidateCvUpload() {
             />
           ))}
         </Stack>
+        {detectedModules.length > 0 && (
+          <Box sx={{ mb: 1.5 }}>
+            <Typography sx={{ fontSize: 12, color: 'text.disabled', mb: 0.5 }}>
+              Détecté(s) dans le CV, à confirmer :
+            </Typography>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+              {detectedModules.map((code) => (
+                <Chip
+                  key={code}
+                  label={code}
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                  icon={<AddIcon />}
+                  onClick={() => acceptDetectedModule(code)}
+                />
+              ))}
+            </Stack>
+          </Box>
+        )}
         <Stack direction="row" spacing={1}>
           <TextField select size="small" value={newSkillCategory} onChange={(e) => setNewSkillCategory(e.target.value)} sx={{ width: 160 }}>
             {SKILL_CATEGORIES.map((c) => (
@@ -291,6 +388,26 @@ export default function CandidateCvUpload() {
             <Chip key={i} label={c} onDelete={() => setCertifications((prev) => prev.filter((_, j) => j !== i))} size="small" />
           ))}
         </Stack>
+        {detectedCertifications.length > 0 && (
+          <Box sx={{ mb: 1.5 }}>
+            <Typography sx={{ fontSize: 12, color: 'text.disabled', mb: 0.5 }}>
+              Détecté(s) dans le CV, à confirmer :
+            </Typography>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+              {detectedCertifications.map((name) => (
+                <Chip
+                  key={name}
+                  label={name}
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                  icon={<AddIcon />}
+                  onClick={() => acceptDetectedCertification(name)}
+                />
+              ))}
+            </Stack>
+          </Box>
+        )}
         <Stack direction="row" spacing={1}>
           <TextField
             size="small"

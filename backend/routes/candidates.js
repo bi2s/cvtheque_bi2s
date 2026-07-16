@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
+const bcrypt = require('bcryptjs');
 
 const { extractCvFields, DOCX_MIMETYPE } = require('../cvParser');
 const { sendServerError, isPositiveInt, parseJsonColumn } = require('../utils');
@@ -58,6 +59,7 @@ function mapCandidateRow(r) {
     hasCv: !!r.cv_path,
     currentStageId: r.current_stage_id,
     stageName: r.stage_name,
+    isTerminalSuccess: !!r.is_terminal_success,
     status: r.status,
     rejectionReason: r.rejection_reason,
     createdAt: r.created_at,
@@ -71,6 +73,33 @@ async function insertCandidateAudit(conn, { candidateId, action, actorId, actorL
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [candidateId, action, actorId ?? null, actorLabel, field ?? null, oldValue ?? null, newValue ?? null, comment ?? null]
   );
+}
+
+function slugifyUsername(s) {
+  return (s || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function normalizePhone(phone) {
+  return (phone || '').replace(/\D/g, '');
+}
+
+function levenshtein(a, b) {
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] =
+        a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return dp[m][n];
 }
 
 const AUDITED_FIELDS = [
@@ -89,7 +118,7 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
 
   async function fetchCandidateDetail(id) {
     const [[row]] = await pool.query(
-      `SELECT c.*, ps.name AS stage_name FROM candidates c
+      `SELECT c.*, ps.name AS stage_name, ps.is_terminal_success FROM candidates c
        LEFT JOIN pipeline_stages ps ON ps.id = c.current_stage_id
        WHERE c.id = ?`,
       [id]
@@ -196,6 +225,54 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
     };
   }
 
+  // Non-blocking: an exact email match, an exact normalized-phone match, or
+  // a fuzzy name match (Levenshtein distance <=2, catching typos/accents/
+  // reordering) each surface as a warning with a link to the existing
+  // record - a genuine same-name-different-person or a legitimate
+  // re-application both still need to go through, so this never rejects.
+  async function findCandidateDuplicates({ email, phone, firstName, lastName, excludeId } = {}) {
+    const normalizedPhone = normalizePhone(phone);
+    const fullName = `${firstName || ''} ${lastName || ''}`.trim().toLowerCase();
+    if (!email && !normalizedPhone && !fullName) return [];
+
+    const [rows] = await pool.query(
+      `SELECT id, first_name, last_name, email, phone FROM candidates${excludeId ? ' WHERE id != ?' : ''}`,
+      excludeId ? [excludeId] : []
+    );
+
+    const matches = [];
+    for (const r of rows) {
+      const reasons = [];
+      if (email && r.email && r.email.toLowerCase() === email.toLowerCase()) reasons.push('email');
+      const rPhone = normalizePhone(r.phone);
+      if (normalizedPhone && rPhone && rPhone === normalizedPhone) reasons.push('phone');
+      const rName = `${r.first_name || ''} ${r.last_name || ''}`.trim().toLowerCase();
+      if (fullName && rName && levenshtein(fullName, rName) <= 2) reasons.push('name');
+      if (reasons.length > 0) {
+        matches.push({ id: r.id, name: `${r.first_name} ${r.last_name}`, reasons });
+      }
+    }
+    return matches;
+  }
+
+  // firstname.lastname, de-duplicated against existing consultant usernames
+  // by appending a numeric suffix - unlike the admin-typed consultant
+  // creation form (which just rejects a collision), this is a server-
+  // generated value behind a one-click action, so it should always
+  // succeed rather than bounce the admin back with an error to retype.
+  async function generateUniqueUsername(firstName, lastName) {
+    const base = `${slugifyUsername(firstName)}.${slugifyUsername(lastName)}`;
+    let candidate = base;
+    let suffix = 1;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const [[existing]] = await pool.query('SELECT id FROM consultants WHERE username = ?', [candidate]);
+      if (!existing) return candidate;
+      suffix += 1;
+      candidate = `${base}${suffix}`;
+    }
+  }
+
   async function insertChildRows(conn, candidateId, { skills, languages, certifications, formations, experiences }) {
     for (const [i, s] of skills.entries()) {
       await conn.query('INSERT INTO candidate_skills (candidate_id, category, label, sort_order) VALUES (?, ?, ?, ?)', [
@@ -244,8 +321,22 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
         return res.status(400).json({ detail: 'Fichier invalide (PDF ou DOCX, 10 Mo maximum).' });
       }
       try {
-        const { rawText, guessedFields } = await extractCvFields(req.file.buffer, req.file.mimetype);
-        res.json({ rawText, guessedFields });
+        const [sapModules] = await pool.query('SELECT code FROM sap_modules');
+        const [certRows] = await pool.query('SELECT DISTINCT name FROM certifications');
+        const { rawText, guessedFields, lowConfidence, detectedModules, detectedCertifications } =
+          await extractCvFields(req.file.buffer, req.file.mimetype, {
+            sapModules,
+            certificationNames: certRows.map((c) => c.name),
+          });
+
+        const duplicates = await findCandidateDuplicates({
+          email: guessedFields.email,
+          phone: guessedFields.phone,
+          firstName: guessedFields.firstName,
+          lastName: guessedFields.lastName,
+        });
+
+        res.json({ rawText, guessedFields, lowConfidence, detectedModules, detectedCertifications, duplicates });
       } catch (e) {
         if (e.code === 'UNSUPPORTED_MIMETYPE') {
           return res.status(400).json({ detail: 'Format non supporté (PDF ou DOCX uniquement).' });
@@ -265,6 +356,13 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
       if (!firstName || !lastName) {
         return res.status(400).json({ detail: 'Prénom et nom sont requis.' });
       }
+
+      const duplicates = await findCandidateDuplicates({
+        email: req.body.email,
+        phone: req.body.phone,
+        firstName,
+        lastName,
+      });
 
       const conn = await pool.getConnection();
       try {
@@ -324,7 +422,7 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
         });
 
         await conn.commit();
-        res.json({ id: candidateId });
+        res.json({ id: candidateId, duplicates });
       } catch (e) {
         await conn.rollback();
         sendServerError(res, e, 'POST /api/admin/candidates');
@@ -336,7 +434,7 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
 
   router.get('/candidates', requireAdmin, async (req, res) => {
     const [rows] = await pool.query(
-      `SELECT c.*, ps.name AS stage_name FROM candidates c
+      `SELECT c.*, ps.name AS stage_name, ps.is_terminal_success FROM candidates c
        LEFT JOIN pipeline_stages ps ON ps.id = c.current_stage_id
        ORDER BY c.created_at DESC`
     );
@@ -427,6 +525,69 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
     const [result] = await pool.query('DELETE FROM candidates WHERE id = ?', [req.params.id]);
     if (result.affectedRows === 0) return res.status(404).json({ detail: 'Candidat introuvable' });
     res.json({ ok: true });
+  });
+
+  // --- Candidate -> consultant conversion ---
+  // Only the overlapping identity fields (name/email/phone) carry over.
+  // Candidate skills/languages/formations/certifications live in a
+  // structurally different set of tables from their consultant equivalents
+  // (candidate_skills vs consultant_skills, etc. - no shared schema), so
+  // they are deliberately NOT migrated here; the frontend button's tooltip
+  // says so plainly rather than silently dropping data the admin might
+  // expect to have carried over.
+  router.post('/candidates/:id/convert-to-consultant', requireAdmin, async (req, res) => {
+    const id = Number(req.params.id);
+    const [[candidate]] = await pool.query(
+      `SELECT c.*, ps.is_terminal_success FROM candidates c
+       LEFT JOIN pipeline_stages ps ON ps.id = c.current_stage_id
+       WHERE c.id = ?`,
+      [id]
+    );
+    if (!candidate) return res.status(404).json({ detail: 'Candidat introuvable' });
+    if (!candidate.is_terminal_success) {
+      return res
+        .status(400)
+        .json({ detail: "Le candidat doit avoir atteint l'étape finale (recruté) avant conversion." });
+    }
+
+    const fullName = `${candidate.first_name} ${candidate.last_name}`.trim();
+    const username = await generateUniqueUsername(candidate.first_name, candidate.last_name);
+    const tempPassword = crypto.randomBytes(6).toString('hex');
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [result] = await conn.query(
+        `INSERT INTO consultants (name, title, username, password_hash, first_name, last_name, email, phone)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          fullName,
+          '',
+          username,
+          passwordHash,
+          candidate.first_name,
+          candidate.last_name,
+          candidate.email,
+          candidate.phone,
+        ]
+      );
+      const consultantId = result.insertId;
+      await insertCandidateAudit(conn, {
+        candidateId: id,
+        action: 'converted_to_consultant',
+        actorId: req.admin.id,
+        actorLabel: req.admin.username,
+        comment: `Converti en consultant (#${consultantId}, identifiant ${username})`,
+      });
+      await conn.commit();
+      res.json({ consultantId, username, tempPassword });
+    } catch (e) {
+      await conn.rollback();
+      sendServerError(res, e, 'POST /api/admin/candidates/:id/convert-to-consultant');
+    } finally {
+      conn.release();
+    }
   });
 
   // --- Pipeline stage transition ---

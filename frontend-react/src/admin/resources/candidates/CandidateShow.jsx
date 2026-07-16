@@ -18,6 +18,7 @@ import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
 import CandidateStageDialog from './CandidateStageDialog';
+import ConvertToConsultantButton from './ConvertToConsultantButton';
 
 const STATUS_LABELS = { active: 'Actif', rejected: 'Refusé', withdrawn: 'Retiré' };
 const STATUS_COLORS = { active: 'success', rejected: 'error', withdrawn: 'default' };
@@ -147,6 +148,7 @@ function CandidateShowContent() {
             CV
           </Button>
         )}
+        <ConvertToConsultantButton candidateId={record.id} isTerminalSuccess={record.isTerminalSuccess} />
         <IconButton size="small" onClick={() => navigate(`/admin/candidates/${record.id}`)}>
           <EditOutlinedIcon fontSize="small" />
         </IconButton>
