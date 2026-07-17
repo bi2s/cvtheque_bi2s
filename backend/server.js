@@ -1555,7 +1555,20 @@ app.get('/api/admin/activity', requireAdmin, async (req, res) => {
 // fetch-all-then-count-client-side convention (fine for the small consultant/
 // project tables), candidates are expected to grow with real ATS usage, so
 // these are computed via COUNT/GROUP BY rather than pulling every row.
+// period=7|30|90 (days) - only applied to the "flow" metrics below that
+// actually have a created/entered timestamp to filter on (candidates,
+// change_requests, stage-history). consultants/catalog_projects have no
+// created_at column, so their counts stay all-time and carry no trend -
+// adding one now would just backfill every existing row to "now", which
+// would produce a one-time fake spike rather than a real signal, so this
+// deliberately doesn't fabricate a trend for those two.
+function periodDays(raw) {
+  const n = Number(raw);
+  return [7, 30, 90].includes(n) ? n : 30;
+}
+
 app.get('/api/admin/dashboard-stats', requireAdmin, async (req, res) => {
+  const days = periodDays(req.query.period);
   const [[{ subProjectsCount }]] = await pool.query(
     'SELECT COUNT(*) AS subProjectsCount FROM catalog_projects WHERE parent_id IS NOT NULL'
   );
@@ -1571,12 +1584,51 @@ app.get('/api/admin/dashboard-stats', requireAdmin, async (req, res) => {
     'SELECT status, COUNT(*) AS count FROM candidates GROUP BY status'
   );
   const [candidatesByStageRows] = await pool.query(
-    `SELECT ps.id AS stageId, ps.name AS stageName, ps.sort_order AS sortOrder, COUNT(c.id) AS count
+    `SELECT ps.id AS stageId, ps.name AS stageName, ps.sort_order AS sortOrder,
+            ps.is_terminal_success AS isTerminalSuccess, ps.is_terminal_failure AS isTerminalFailure,
+            COUNT(c.id) AS count
      FROM pipeline_stages ps
      LEFT JOIN candidates c ON c.current_stage_id = ps.id
-     GROUP BY ps.id, ps.name, ps.sort_order
+     GROUP BY ps.id, ps.name, ps.sort_order, ps.is_terminal_success, ps.is_terminal_failure
      ORDER BY ps.sort_order`
   );
+
+  const [[{ candidatesThisPeriod }]] = await pool.query(
+    'SELECT COUNT(*) AS candidatesThisPeriod FROM candidates WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)',
+    [days]
+  );
+  const [[{ candidatesPrevPeriod }]] = await pool.query(
+    `SELECT COUNT(*) AS candidatesPrevPeriod FROM candidates
+     WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) AND created_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
+    [days * 2, days]
+  );
+  const [[{ requestsThisPeriod }]] = await pool.query(
+    'SELECT COUNT(*) AS requestsThisPeriod FROM change_requests WHERE submitted_at >= DATE_SUB(NOW(), INTERVAL ? DAY)',
+    [days]
+  );
+  const [[{ requestsPrevPeriod }]] = await pool.query(
+    `SELECT COUNT(*) AS requestsPrevPeriod FROM change_requests
+     WHERE submitted_at >= DATE_SUB(NOW(), INTERVAL ? DAY) AND submitted_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
+    [days * 2, days]
+  );
+  const [[{ recruitmentsThisPeriod }]] = await pool.query(
+    `SELECT COUNT(*) AS recruitmentsThisPeriod
+     FROM candidate_stage_history sh
+     JOIN pipeline_stages ps ON ps.id = sh.stage_id
+     WHERE ps.is_terminal_success = TRUE AND sh.entered_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`,
+    [days]
+  );
+  const [[{ recruitmentsPrevPeriod }]] = await pool.query(
+    `SELECT COUNT(*) AS recruitmentsPrevPeriod
+     FROM candidate_stage_history sh
+     JOIN pipeline_stages ps ON ps.id = sh.stage_id
+     WHERE ps.is_terminal_success = TRUE
+       AND sh.entered_at >= DATE_SUB(NOW(), INTERVAL ? DAY) AND sh.entered_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
+    [days * 2, days]
+  );
+  // Kept for backwards compatibility (existing callers of this endpoint
+  // outside the dashboard may still read this field) - equivalent to the
+  // period-based recruitmentsThisPeriod when period=30.
   const [[{ recruitmentsThisMonth }]] = await pool.query(
     `SELECT COUNT(*) AS recruitmentsThisMonth
      FROM candidate_stage_history sh
@@ -1590,8 +1642,20 @@ app.get('/api/admin/dashboard-stats', requireAdmin, async (req, res) => {
     finalizedProjectsCount,
     totalCandidates,
     candidatesByStatus: candidatesByStatusRows.map((r) => ({ status: r.status, count: r.count })),
-    candidatesByStage: candidatesByStageRows.map((r) => ({ stageId: r.stageId, stageName: r.stageName, count: r.count })),
+    candidatesByStage: candidatesByStageRows.map((r) => ({
+      stageId: r.stageId,
+      stageName: r.stageName,
+      count: r.count,
+      isTerminalSuccess: !!r.isTerminalSuccess,
+      isTerminalFailure: !!r.isTerminalFailure,
+    })),
     recruitmentsThisMonth,
+    period: days,
+    trends: {
+      candidates: { current: candidatesThisPeriod, previous: candidatesPrevPeriod },
+      changeRequests: { current: requestsThisPeriod, previous: requestsPrevPeriod },
+      recruitments: { current: recruitmentsThisPeriod, previous: recruitmentsPrevPeriod },
+    },
   });
 });
 

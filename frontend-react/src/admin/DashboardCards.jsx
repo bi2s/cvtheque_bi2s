@@ -1,6 +1,13 @@
 import { Box, Paper, Typography, Stack } from '@mui/material';
 
-export function StatCard({ icon, label, value, color, onClick }) {
+// trend = {current, previous} (both period-bounded counts) - optional, only
+// passed for metrics with a real created/entered timestamp to compare
+// against (see server.js's dashboard-stats comment on why consultants/
+// catalog_projects don't get one). highlight gives a metric a distinct
+// visual treatment (used for "demandes en attente" when >0 - an action
+// queue depth reads differently from a plain informational count).
+export function StatCard({ icon, label, value, color, onClick, trend, highlight }) {
+  const delta = trend ? trend.current - trend.previous : null;
   return (
     <Paper
       variant="outlined"
@@ -11,7 +18,10 @@ export function StatCard({ icon, label, value, color, onClick }) {
         flex: 1,
         minWidth: 170,
         cursor: onClick ? 'pointer' : 'default',
-        '&:hover': onClick ? { boxShadow: 3, borderColor: 'transparent' } : undefined,
+        ...(highlight
+          ? { borderColor: 'warning.main', borderWidth: 2, bgcolor: 'warning.light' }
+          : {}),
+        '&:hover': onClick ? { boxShadow: 3, borderColor: highlight ? 'warning.main' : 'transparent' } : undefined,
       }}
     >
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
@@ -30,7 +40,14 @@ export function StatCard({ icon, label, value, color, onClick }) {
           {icon}
         </Box>
         <Box>
-          <Typography sx={{ fontSize: 24, fontWeight: 700, lineHeight: 1.1 }}>{value}</Typography>
+          <Stack direction="row" spacing={0.75} sx={{ alignItems: 'baseline' }}>
+            <Typography sx={{ fontSize: 24, fontWeight: 700, lineHeight: 1.1 }}>{value}</Typography>
+            {delta !== null && delta !== 0 && (
+              <Typography sx={{ fontSize: 12, fontWeight: 700, color: delta > 0 ? 'success.main' : 'error.main' }}>
+                {delta > 0 ? `↗ +${delta}` : `↘ ${delta}`}
+              </Typography>
+            )}
+          </Stack>
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{label}</Typography>
         </Box>
       </Stack>
