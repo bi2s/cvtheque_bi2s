@@ -16,6 +16,7 @@ import {
   ListItemIcon,
   Snackbar,
   Alert,
+  LinearProgress,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -25,6 +26,7 @@ import { API_BASE_URL, basicAuthHeader } from './api';
 import AppHeader from './AppHeader';
 import CvPreview from './CvPreview';
 import ChangeSummary from './shared/ChangeSummary';
+import formatRelativeDate from './admin/formatRelativeDate';
 import {
   EXPERIENCE_LEVELS,
   EXPERIENCE_CERTIFICATIONS,
@@ -88,6 +90,66 @@ const STEP = {
   SUBMITTING: 'SUBMITTING',
   DONE: 'DONE',
 };
+
+// Purely a display grouping over the existing STEP enum - doesn't change
+// the state machine at all, just labels which of 6 logical sections a
+// given step belongs to so the progress header can show "Étape N/6 ·
+// {section}". Steps not listed here (LOGIN/RESUME_DRAFT/DASHBOARD/PREVIEW)
+// aren't part of the tracked update flow, so no progress bar shows there.
+const PROGRESS_SECTIONS = [
+  { label: 'Infos', steps: [STEP.REVIEW_PERSONAL_INFO] },
+  { label: 'Titre', steps: [STEP.ASK_TITLE] },
+  {
+    label: 'Expertises',
+    steps: [
+      STEP.ASK_SKILLS_MODULE,
+      STEP.ASK_SKILLS_MODULE_STAR,
+      STEP.ASK_SKILLS_FLOW,
+      STEP.ASK_SKILLS_TECHNOLOGY,
+      STEP.ASK_SKILLS_METHODOLOGY,
+    ],
+  },
+  {
+    label: 'Projets',
+    steps: [
+      STEP.REVIEW_PROJECTS,
+      STEP.ASK_PROJECT_SELECT,
+      STEP.ASK_EXPERIENCE_ROLE,
+      STEP.ASK_EXPERIENCE_LEVEL,
+      STEP.ASK_EXPERIENCE_PHASES,
+      STEP.ASK_EXPERIENCE_CERTIFICATION,
+      STEP.ASK_EXPERIENCE_DESCRIPTION,
+      STEP.ASK_MORE_PROJECTS,
+    ],
+  },
+  {
+    label: 'Langues & formations',
+    steps: [
+      STEP.REVIEW_LANGUAGES,
+      STEP.ASK_LANGUAGE_NAME,
+      STEP.ASK_LANGUAGE_LEVEL,
+      STEP.ASK_MORE_LANGUAGES,
+      STEP.REVIEW_FORMATIONS,
+      STEP.ASK_FORMATION_YEAR,
+      STEP.ASK_FORMATION_DEGREE,
+      STEP.ASK_FORMATION_SCHOOL,
+      STEP.ASK_FORMATION_FIELD,
+      STEP.ASK_MORE_FORMATIONS,
+      STEP.ASK_CERTIFICATIONS,
+      STEP.ASK_CERT_DATE,
+      STEP.ASK_CERT_REFERENCE,
+      STEP.ASK_CERT_VALIDITY,
+      STEP.ASK_CERT_ORGANISM,
+    ],
+  },
+  { label: 'Récapitulatif', steps: [STEP.REVIEW_CHANGES, STEP.SUBMITTING, STEP.DONE] },
+];
+
+function progressForStep(step) {
+  const idx = PROGRESS_SECTIONS.findIndex((s) => s.steps.includes(step));
+  if (idx === -1) return null;
+  return { index: idx + 1, total: PROGRESS_SECTIONS.length, label: PROGRESS_SECTIONS[idx].label };
+}
 
 const SKILL_CATEGORY_BY_STEP = {
   [STEP.ASK_SKILLS_MODULE]: 'module',
@@ -216,6 +278,8 @@ function buildSnapshotFromServerData(data) {
       experienceLevel: p.experienceLevel || null,
       experiencePhases: p.experiencePhases || [],
       experienceCertification: p.experienceCertification || null,
+      periodStart: p.periodStart || null,
+      periodEnd: p.periodEnd || null,
     })),
   };
 }
@@ -242,6 +306,8 @@ export default function ChatCvScreen() {
   const [currentExperiencePhases, setCurrentExperiencePhases] = useState(new Set());
   const [currentExperienceCertification, setCurrentExperienceCertification] = useState(null);
   const [currentExperienceDescription, setCurrentExperienceDescription] = useState('');
+  const [currentPeriodStart, setCurrentPeriodStart] = useState('');
+  const [currentPeriodEnd, setCurrentPeriodEnd] = useState('');
   const [editingDescription, setEditingDescription] = useState(false);
   const [languages, setLanguages] = useState([]);
   const [currentLangName, setCurrentLangName] = useState('');
@@ -362,6 +428,8 @@ export default function ChatCvScreen() {
           experienceLevel: p.experienceLevel || null,
           experiencePhases: p.experiencePhases || [],
           experienceCertification: p.experienceCertification || null,
+          periodStart: p.periodStart || null,
+          periodEnd: p.periodEnd || null,
         };
       }),
     };
@@ -411,11 +479,11 @@ export default function ChatCvScreen() {
   }, [credentials, step, title, selectedSkills, starredModule, projects, languages, formations, selectedCerts, newCertDetails]);
 
   function botSay(text) {
-    setMessages((m) => [...m, { text, fromBot: true }]);
+    setMessages((m) => [...m, { text, fromBot: true, createdAt: Date.now() }]);
   }
 
   function userSay(text) {
-    setMessages((m) => [...m, { text, fromBot: false }]);
+    setMessages((m) => [...m, { text, fromBot: false, createdAt: Date.now() }]);
   }
 
   async function loadCatalogProjects() {
@@ -805,6 +873,8 @@ export default function ChatCvScreen() {
         experienceLevel: currentExperienceLevel,
         experiencePhases: [...currentExperiencePhases],
         experienceCertification: currentExperienceCertification,
+        periodStart: currentPeriodStart || null,
+        periodEnd: currentPeriodEnd || null,
       },
     ]);
     setCurrentProjectId(null);
@@ -813,6 +883,8 @@ export default function ChatCvScreen() {
     setCurrentExperiencePhases(new Set());
     setCurrentExperienceCertification(null);
     setCurrentExperienceDescription('');
+    setCurrentPeriodStart('');
+    setCurrentPeriodEnd('');
     setStep(STEP.ASK_MORE_PROJECTS);
     botSay('Voulez-vous ajouter un autre projet ?');
   }
@@ -1371,9 +1443,13 @@ export default function ChatCvScreen() {
                           <Typography sx={{ fontWeight: 700, fontSize: 13.5 }}>
                             {node ? `${node.breadcrumb} — ${node.modules.join(', ')} (${node.missionType})` : 'Projet'}
                           </Typography>
-                          {(p.roleId || p.experienceLevel) && (
+                          {(p.roleId || p.experienceLevel || p.periodStart) && (
                             <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
-                              {[consultantRolesRef.find((r) => r.id === p.roleId)?.label, p.experienceLevel]
+                              {[
+                                consultantRolesRef.find((r) => r.id === p.roleId)?.label,
+                                p.experienceLevel,
+                                p.periodStart ? `${p.periodStart} → ${p.periodEnd || '...'}` : null,
+                              ]
                                 .filter(Boolean)
                                 .join(' — ')}
                             </Typography>
@@ -1503,12 +1579,37 @@ export default function ChatCvScreen() {
               </Paper>
             )}
             <Stack direction="row" spacing={1.5}>
+              <TextField
+                type="date"
+                label="Période - début (optionnel)"
+                InputLabelProps={{ shrink: true }}
+                value={currentPeriodStart}
+                onChange={(e) => setCurrentPeriodStart(e.target.value)}
+                size="small"
+                fullWidth
+              />
+              <TextField
+                type="date"
+                label="Période - fin (optionnel)"
+                InputLabelProps={{ shrink: true }}
+                value={currentPeriodEnd}
+                onChange={(e) => setCurrentPeriodEnd(e.target.value)}
+                size="small"
+                fullWidth
+                error={!!(currentPeriodStart && currentPeriodEnd && currentPeriodEnd < currentPeriodStart)}
+              />
+            </Stack>
+            <Stack direction="row" spacing={1.5}>
               {!editingDescription && (
                 <Button variant="outlined" onClick={() => setEditingDescription(true)}>
                   Modifier légèrement
                 </Button>
               )}
-              <Button variant="contained" onClick={handleExperienceDescriptionValidated}>
+              <Button
+                variant="contained"
+                onClick={handleExperienceDescriptionValidated}
+                disabled={!!(currentPeriodStart && currentPeriodEnd && currentPeriodEnd < currentPeriodStart)}
+              >
                 Valider cette expérience
               </Button>
             </Stack>
@@ -1786,6 +1887,7 @@ export default function ChatCvScreen() {
   const showWelcomeBubble = step === STEP.LOGIN && messages.length === 0;
   const isDashboard = step === STEP.DASHBOARD;
   const isPreview = step === STEP.PREVIEW;
+  const progress = progressForStep(step);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: 'background.default' }}>
@@ -1794,6 +1896,20 @@ export default function ChatCvScreen() {
         className="no-print"
         actions={<UserMenu name={name} onLogout={resetConversation} />}
       />
+      {progress && (
+        <Box className="no-print" sx={{ px: 2, pt: 1.25, pb: 0.75, borderBottom: '1px solid', borderColor: 'divider' }}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', mb: 0.5 }}>
+            <Typography sx={{ fontSize: 12, color: 'text.secondary', fontWeight: 600 }}>
+              Mise à jour du profil — {progress.index}/{progress.total} · {progress.label}
+            </Typography>
+          </Stack>
+          <LinearProgress
+            variant="determinate"
+            value={(progress.index / progress.total) * 100}
+            sx={{ height: 4, borderRadius: 99 }}
+          />
+        </Box>
+      )}
       {isDashboard ? (
         <ConsultantDashboard
           name={name}
@@ -1844,7 +1960,7 @@ export default function ChatCvScreen() {
                 <Bubble fromBot text="Bienvenue sur BI2S CVthèque. Connectez-vous avec l'identifiant fourni par l'administrateur." />
               )}
               {messages.map((m, i) => (
-                <Bubble key={i} fromBot={m.fromBot} text={m.text} />
+                <Bubble key={i} fromBot={m.fromBot} text={m.text} createdAt={m.createdAt} />
               ))}
               <div ref={messagesEndRef} />
             </Box>
@@ -2042,9 +2158,18 @@ function ConsultantDashboard({
   );
 }
 
-function Bubble({ fromBot, text }) {
+function Bubble({ fromBot, text, createdAt }) {
   return (
-    <Box sx={{ display: 'flex', justifyContent: fromBot ? 'flex-start' : 'flex-end', my: 0.6 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: fromBot ? 'flex-start' : 'flex-end', my: 0.6 }}>
+      {fromBot && (
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', mb: 0.4, ml: 0.5 }}>
+          <Avatar sx={{ width: 18, height: 18, fontSize: 10, bgcolor: 'primary.main' }}>B</Avatar>
+          <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary' }}>Bi2S</Typography>
+          {createdAt && (
+            <Typography sx={{ fontSize: 10.5, color: 'text.disabled' }}>{formatRelativeDate(createdAt)}</Typography>
+          )}
+        </Stack>
+      )}
       <Box
         sx={{
           maxWidth: '75%',
@@ -2055,6 +2180,11 @@ function Bubble({ fromBot, text }) {
           lineHeight: 1.45,
           whiteSpace: 'pre-wrap',
           boxShadow: '0 1px 2px rgba(23,23,31,0.05)',
+          animation: 'chatBubbleIn .18s ease-out',
+          '@keyframes chatBubbleIn': {
+            from: { opacity: 0, transform: 'translateY(4px)' },
+            to: { opacity: 1, transform: 'translateY(0)' },
+          },
           ...(fromBot
             ? {
                 bgcolor: 'background.paper',

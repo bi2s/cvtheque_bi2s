@@ -44,7 +44,9 @@ function projectChanged(prev, next) {
     (prev.roleId ?? null) !== (next.roleId ?? null) ||
     (prev.experienceLevel ?? null) !== (next.experienceLevel ?? null) ||
     JSON.stringify(prev.experiencePhases || []) !== JSON.stringify(next.experiencePhases || []) ||
-    (prev.experienceCertification ?? null) !== (next.experienceCertification ?? null)
+    (prev.experienceCertification ?? null) !== (next.experienceCertification ?? null) ||
+    (prev.periodStart ?? null) !== (next.periodStart ?? null) ||
+    (prev.periodEnd ?? null) !== (next.periodEnd ?? null)
   );
 }
 
@@ -91,6 +93,19 @@ function ProjectsDiff({ previousData, newData }) {
                 {isNew && <Chip label="Ajouté" size="small" color="success" />}
                 {isRemoved && <Chip label="Retiré" size="small" color="error" />}
               </Stack>
+              {(isRemoved ? prev?.periodStart : next?.periodStart) && (
+                <Typography
+                  sx={{
+                    fontSize: 12,
+                    color: isRemoved ? 'text.disabled' : 'text.secondary',
+                    textDecoration: isRemoved ? 'line-through' : 'none',
+                    mb: 0.5,
+                  }}
+                >
+                  Période : {(isRemoved ? prev.periodStart : next.periodStart)} →{' '}
+                  {(isRemoved ? prev.periodEnd : next.periodEnd) || '...'}
+                </Typography>
+              )}
               {isRemoved ? (
                 <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
                   {prevPoints.map((point, i) => (

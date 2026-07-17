@@ -897,6 +897,14 @@ async function initSchema() {
     await ensureColumn(conn, 'consultant_projects', 'experience_level', 'VARCHAR(20) NULL');
     await ensureColumn(conn, 'consultant_projects', 'experience_phases', 'VARCHAR(500) NULL');
     await ensureColumn(conn, 'consultant_projects', 'experience_certification', 'VARCHAR(50) NULL');
+    // Consultant-reported période for this assignment - deliberately
+    // separate from planned_end_date/ended_at below, which are admin/
+    // practice-manager staffing-lifecycle dates on catalog_projects, a
+    // different concept/owner never written by the consultant wizard.
+    // Optional: an older project genuinely may not have precise recalled
+    // dates.
+    await ensureColumn(conn, 'consultant_projects', 'period_start', 'DATE NULL');
+    await ensureColumn(conn, 'consultant_projects', 'period_end', 'DATE NULL');
 
     // --- RFP response generation ---
     await conn.query(`

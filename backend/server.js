@@ -268,6 +268,15 @@ function validateGenerateCvPayload(body) {
     ) {
       return 'Certification/méthodologie invalide.';
     }
+    if (p.periodStart && !toValidDateOrNull(p.periodStart)) {
+      return 'Date de début de période invalide.';
+    }
+    if (p.periodEnd && !toValidDateOrNull(p.periodEnd)) {
+      return 'Date de fin de période invalide.';
+    }
+    if (p.periodStart && p.periodEnd && p.periodEnd < p.periodStart) {
+      return 'La date de fin de période doit être postérieure ou égale à la date de début.';
+    }
   }
   if (certifications !== undefined) {
     if (!Array.isArray(certifications) || certifications.length > 50) {
@@ -392,6 +401,8 @@ async function fetchConsultantDetail(consultantId) {
     experienceLevel: r.experience_level,
     experiencePhases: r.experience_phases ? r.experience_phases.split(',').filter(Boolean) : [],
     experienceCertification: r.experience_certification,
+    periodStart: r.period_start,
+    periodEnd: r.period_end,
   }));
 
   const [certRows] = await pool.query('SELECT * FROM certifications WHERE consultant_id = ?', [consultantId]);
@@ -506,6 +517,8 @@ async function enrichProjectsSnapshot(projects) {
       experienceLevel: p.experienceLevel || null,
       experiencePhases: Array.isArray(p.experiencePhases) ? p.experiencePhases.filter(Boolean) : [],
       experienceCertification: p.experienceCertification || null,
+      periodStart: p.periodStart || null,
+      periodEnd: p.periodEnd || null,
     };
   });
 }
@@ -1894,8 +1907,8 @@ async function approveChangeRequestRow(conn, { id, editedData, adminId, adminUse
     const roleId = p.roleId ?? roleIdByProject.get(p.projectId) ?? null;
     await conn.query(
       `INSERT INTO consultant_projects
-         (consultant_id, project_id, role_points, stage_tags, role_id, experience_level, experience_phases, experience_certification)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (consultant_id, project_id, role_points, stage_tags, role_id, experience_level, experience_phases, experience_certification, period_start, period_end)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.consultant_id,
         p.projectId,
@@ -1905,6 +1918,8 @@ async function approveChangeRequestRow(conn, { id, editedData, adminId, adminUse
         p.experienceLevel || null,
         experiencePhasesText,
         p.experienceCertification || null,
+        toValidDateOrNull(p.periodStart),
+        toValidDateOrNull(p.periodEnd),
       ]
     );
   }
