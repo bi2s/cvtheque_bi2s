@@ -74,9 +74,12 @@ function ConsultantShowContent() {
         <Avatar src={photoUrl || undefined} sx={{ width: 44, height: 44 }}>
           {record.name?.[0]}
         </Avatar>
-        <Typography variant="h6" sx={{ flex: 1 }}>
-          {record.name} — {record.title}
-        </Typography>
+        <Box sx={{ flex: 1 }}>
+          <Typography variant="h6">{record.name} — {record.title}</Typography>
+          {record.username && (
+            <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>Identifiant : {record.username}</Typography>
+          )}
+        </Box>
         <Button variant="outlined" size="small" onClick={() => setPreviewOpen(true)}>
           Aperçu du CV
         </Button>

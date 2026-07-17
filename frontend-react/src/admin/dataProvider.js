@@ -35,7 +35,13 @@ function paginateSortFilter(records, params, { searchFields = [], defaultSortFie
   const { q, ...exactFilters } = params.filter || {};
   const qTrim = (q || '').toLowerCase().trim();
   if (qTrim && searchFields.length > 0) {
-    result = result.filter((r) => searchFields.some((f) => (r[f] || '').toLowerCase().includes(qTrim)));
+    result = result.filter((r) =>
+      searchFields.some((f) => {
+        const v = r[f];
+        if (Array.isArray(v)) return v.some((item) => (item || '').toLowerCase().includes(qTrim));
+        return (v || '').toString().toLowerCase().includes(qTrim);
+      })
+    );
   }
   for (const [field, value] of Object.entries(exactFilters)) {
     if (value === undefined || value === null || value === '') continue;
@@ -61,8 +67,34 @@ function paginateSortFilter(records, params, { searchFields = [], defaultSortFie
 
 const consultantsResource = {
   async getList(params) {
-    const all = await apiFetch('/api/consultants');
-    return paginateSortFilter(all, params, { searchFields: ['name', 'username'], defaultSortField: 'name' });
+    const [all, utilization, assignments] = await Promise.all([
+      apiFetch('/api/consultants'),
+      apiFetch('/api/admin/staffing-utilization').catch(() => []),
+      apiFetch('/api/admin/staffing-assignments').catch(() => []),
+    ]);
+    // Joined in here (not in the ConsultantList component) specifically so
+    // utilizationPct/currentProjectClient become real fields on the record
+    // react-admin's Datagrid sorts against - this dataProvider already does
+    // all sorting/filtering client-side (paginateSortFilter below), so a
+    // field only "sortable" if it exists on the record by the time that
+    // runs.
+    const utilByConsultant = new Map(utilization.map((u) => [u.consultantId, u.utilizationPct]));
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const currentProjectByConsultant = new Map();
+    for (const a of assignments) {
+      if (a.startDate <= todayIso && a.endDate >= todayIso) {
+        currentProjectByConsultant.set(a.consultantId, a.projectClient);
+      }
+    }
+    const enriched = all.map((c) => ({
+      ...c,
+      utilizationPct: utilByConsultant.get(c.id) ?? null,
+      currentProjectClient: currentProjectByConsultant.get(c.id) || null,
+    }));
+    return paginateSortFilter(enriched, params, {
+      searchFields: ['name', 'username', 'title', 'seniorityLevel', 'modules'],
+      defaultSortField: 'name',
+    });
   },
   async getOne(params) {
     const data = await apiFetch(`/api/consultants/${params.id}`);

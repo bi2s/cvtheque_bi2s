@@ -1070,7 +1070,8 @@ app.get('/api/consultants', requireAdmin, async (req, res) => {
   else if (req.query.includeArchived) where = '';
   const [rows] = await pool.query(`
     SELECT c.id, c.name, c.title, c.username, (c.photo_path IS NOT NULL) AS hasPhoto,
-           c.status_id AS statusId, cs.label AS statusLabel, c.archived_at AS archivedAt
+           c.status_id AS statusId, cs.label AS statusLabel, c.archived_at AS archivedAt,
+           c.seniority_level AS seniorityLevel
     FROM consultants c
     LEFT JOIN consultant_statuses cs ON cs.id = c.status_id
     ${where}
