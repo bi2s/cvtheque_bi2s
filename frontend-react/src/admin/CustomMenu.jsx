@@ -241,7 +241,10 @@ export default function CustomMenu() {
       .then((r) => (r.ok ? r.json() : []))
       .then((rows) => setPendingChangeRequests(rows.filter((r) => r.status === 'pending').length))
       .catch(() => setPendingChangeRequests(0));
-  }, [permissions?.role]);
+    // Re-runs on every navigation (not just on mount/role-change) so the badge
+    // reflects approvals/rejections made on the Validations page without a
+    // full reload — there's no global cache-invalidation to hook into instead.
+  }, [permissions?.role, location.pathname]);
 
   if (permissions?.role === 'manager') {
     return (
