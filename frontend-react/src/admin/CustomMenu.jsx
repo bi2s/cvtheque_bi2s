@@ -20,8 +20,6 @@ import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import BusinessCenterOutlinedIcon from '@mui/icons-material/BusinessCenterOutlined';
-import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
-import RequestQuoteOutlinedIcon from '@mui/icons-material/RequestQuoteOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
@@ -61,24 +59,11 @@ const GROUPS = [
   },
   {
     key: 'recruitment',
-    label: 'Recrutement',
+    label: 'Recrutement & Pilotage RH',
     icon: GroupsOutlinedIcon,
     items: [
       { to: '/admin/candidates', label: 'Candidats', icon: BadgeOutlinedIcon },
       { to: '/admin/pipelineStages', label: 'Pipeline', icon: AccountTreeOutlinedIcon },
-    ],
-  },
-  {
-    key: 'projects',
-    label: 'Projets',
-    icon: BusinessCenterOutlinedIcon,
-    items: [{ to: '/admin/catalogProjects', label: 'Catalogue Projets', icon: WorkOutlineIcon }],
-  },
-  {
-    key: 'hr',
-    label: 'Pilotage RH',
-    icon: InsightsOutlinedIcon,
-    items: [
       { to: '/admin/hrDashboard', label: 'Tableau de bord RH', icon: QueryStatsOutlinedIcon },
       { to: '/admin/alerts', label: "Centre d'alertes", icon: NotificationsActiveOutlinedIcon },
       { to: '/admin/staffingSearch', label: 'Recherche de staffing', icon: PersonSearchOutlinedIcon },
@@ -86,17 +71,18 @@ const GROUPS = [
     ],
   },
   {
-    key: 'rfp',
-    label: "Appels d'offres",
-    icon: RequestQuoteOutlinedIcon,
+    key: 'projects',
+    label: 'Projets',
+    icon: BusinessCenterOutlinedIcon,
     items: [
+      { to: '/admin/catalogProjects', label: 'Catalogue Projets', icon: WorkOutlineIcon },
       { to: '/admin/rfp', label: "Appels d'offres", icon: DescriptionOutlinedIcon },
       { to: '/admin/rfpBoilerplate', label: 'Sections types (RFP)', icon: ArticleOutlinedIcon },
     ],
   },
   {
     key: 'admin',
-    label: 'Administration',
+    label: 'Terminologie / Bibliothèque',
     icon: SettingsOutlinedIcon,
     items: [
       { to: '/admin/projectReferentials', label: 'Référentiels', icon: TuneOutlinedIcon },
@@ -196,10 +182,11 @@ export default function CustomMenu() {
   // (backend-enforced via requireAdminOrRh, not just hidden here) - reuses
   // the same GROUPS entries as the full admin menu rather than duplicating
   // the item list, so the two never drift apart. 'pmo' is scoped to the
-  // project surface (backend-enforced via requireAdminOrPmo) the same way.
+  // project + RFP surface (backend-enforced via requireAdminOrPmo) the same
+  // way - both now live in a single merged group each, so one key covers it.
   let visibleGroups = GROUPS;
-  if (permissions?.role === 'rh') visibleGroups = GROUPS.filter((g) => g.key === 'recruitment' || g.key === 'hr');
-  if (permissions?.role === 'pmo') visibleGroups = GROUPS.filter((g) => g.key === 'projects' || g.key === 'rfp');
+  if (permissions?.role === 'rh') visibleGroups = GROUPS.filter((g) => g.key === 'recruitment');
+  if (permissions?.role === 'pmo') visibleGroups = GROUPS.filter((g) => g.key === 'projects');
 
   return (
     <Menu>
