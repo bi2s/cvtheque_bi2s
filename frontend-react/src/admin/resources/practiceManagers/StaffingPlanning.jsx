@@ -21,6 +21,8 @@ import {
   Tooltip,
   Avatar,
   Drawer,
+  ToggleButtonGroup,
+  ToggleButton,
 } from '@mui/material';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
@@ -28,6 +30,10 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ViewTimelineOutlinedIcon from '@mui/icons-material/ViewTimelineOutlined';
+import ViewListOutlinedIcon from '@mui/icons-material/ViewListOutlined';
 import { useNotify, usePermissions } from 'react-admin';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
@@ -112,6 +118,152 @@ function FormSection({ title, children }) {
   );
 }
 
+// One row per consultant, one horizontal bar per assignment positioned by
+// day-fraction within the visible month - hand-built with plain CSS since
+// no Gantt/timeline library exists in this app (recharts is installed but
+// isn't suited to date-positioned range bars). Overlapping assignments in
+// the same row get a diagonal-hatch fill instead of solid, computed
+// client-side from the same assignment list the backend's own conflict
+// check already reasons about (same "tiny n, just compare pairwise"
+// approach used elsewhere in this app).
+function TimelineView({ assignments, utilizationByConsultant, monthOffset, setMonthOffset }) {
+  const now = new Date();
+  const visibleMonth = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+  const monthStart = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1);
+  const monthEnd = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 0);
+  const totalDays = monthEnd.getDate();
+  const monthLabelRaw = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' }).format(visibleMonth);
+  const monthLabel = monthLabelRaw.charAt(0).toUpperCase() + monthLabelRaw.slice(1);
+  const monthStartIso = monthStart.toISOString().slice(0, 10);
+  const monthEndIso = monthEnd.toISOString().slice(0, 10);
+
+  const byConsultant = new Map();
+  for (const a of assignments) {
+    if (a.endDate < monthStartIso || a.startDate > monthEndIso) continue;
+    if (!byConsultant.has(a.consultantId)) byConsultant.set(a.consultantId, { consultantId: a.consultantId, name: a.consultantName, items: [] });
+    byConsultant.get(a.consultantId).items.push(a);
+  }
+  const rows = [...byConsultant.values()].sort((x, y) => x.name.localeCompare(y.name));
+
+  function dayOffset(iso) {
+    return Math.floor((new Date(iso) - monthStart) / 86400000);
+  }
+
+  function barStyle(a) {
+    const startOffset = Math.max(0, dayOffset(a.startDate));
+    const endOffset = Math.min(totalDays - 1, dayOffset(a.endDate));
+    const left = (startOffset / totalDays) * 100;
+    const width = Math.max(((endOffset - startOffset + 1) / totalDays) * 100, 2);
+    return { left: `${left}%`, width: `${width}%` };
+  }
+
+  function hasOverlap(a, items) {
+    return items.some((b) => b.id !== a.id && a.startDate <= b.endDate && a.endDate >= b.startDate);
+  }
+
+  const dayMarks = [1, 5, 10, 15, 20, 25, totalDays].filter((d, i, arr) => d <= totalDays && arr.indexOf(d) === i);
+
+  return (
+    <Box>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2 }}>
+        <IconButton size="small" onClick={() => setMonthOffset((m) => m - 1)} aria-label="Mois précédent">
+          <ChevronLeftIcon fontSize="small" />
+        </IconButton>
+        <Typography sx={{ fontWeight: 700, minWidth: 150, textAlign: 'center' }}>{monthLabel}</Typography>
+        <IconButton size="small" onClick={() => setMonthOffset((m) => m + 1)} aria-label="Mois suivant">
+          <ChevronRightIcon fontSize="small" />
+        </IconButton>
+        {monthOffset !== 0 && (
+          <Button size="small" onClick={() => setMonthOffset(0)}>
+            Aujourd'hui
+          </Button>
+        )}
+      </Stack>
+
+      {rows.length === 0 ? (
+        <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', color: 'text.disabled' }}>
+          <Typography>Aucune affectation pour {monthLabel.toLowerCase()}.</Typography>
+        </Paper>
+      ) : (
+        <Paper variant="outlined" sx={{ p: 2, overflowX: 'auto' }}>
+          <Box sx={{ display: 'flex', mb: 1, minWidth: 640 }}>
+            <Box sx={{ width: 190, flexShrink: 0 }} />
+            <Box sx={{ flex: 1, position: 'relative', height: 20 }}>
+              {dayMarks.map((d) => (
+                <Typography
+                  key={d}
+                  sx={{ position: 'absolute', left: `${((d - 1) / totalDays) * 100}%`, fontSize: 11, color: 'text.disabled' }}
+                >
+                  {d}
+                </Typography>
+              ))}
+            </Box>
+            <Box sx={{ width: 64, flexShrink: 0 }} />
+          </Box>
+
+          <Stack spacing={1.5} sx={{ minWidth: 640 }}>
+            {rows.map((row) => {
+              const util = utilizationByConsultant.get(row.consultantId);
+              const tier = util ? occupationTier(util.utilizationPct) : null;
+              return (
+                <Box key={row.consultantId} sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ width: 190, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Avatar sx={{ width: 24, height: 24, fontSize: 11 }}>{row.name?.[0]}</Avatar>
+                    <Typography sx={{ fontSize: 13, fontWeight: 600 }} noWrap>
+                      {row.name}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ flex: 1, position: 'relative', height: 28, bgcolor: 'action.hover', borderRadius: 1 }}>
+                    {row.items.map((a) => {
+                      const overlap = hasOverlap(a, row.items);
+                      return (
+                        <Tooltip
+                          key={a.id}
+                          title={`${a.projectClient || '—'} · ${formatPeriod(a.startDate, a.endDate)}${
+                            overlap ? ' · Conflit de chevauchement' : ''
+                          }`}
+                        >
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              top: 3,
+                              bottom: 3,
+                              ...barStyle(a),
+                              bgcolor: projectColor(a.projectId),
+                              backgroundImage: overlap
+                                ? 'repeating-linear-gradient(45deg, rgba(0,0,0,.28) 0, rgba(0,0,0,.28) 4px, transparent 4px, transparent 8px)'
+                                : 'none',
+                              border: overlap ? '1px solid #B3261E' : 'none',
+                              borderRadius: 0.75,
+                            }}
+                          />
+                        </Tooltip>
+                      );
+                    })}
+                  </Box>
+                  <Box sx={{ width: 64, flexShrink: 0, textAlign: 'right' }}>
+                    {util ? (
+                      <Tooltip title={`${tier.label} - ${util.assignedDays} j. affectés / ${util.workingDays} j. ouvrés ce mois-ci`}>
+                        <Chip
+                          size="small"
+                          label={`${util.utilizationPct}%`}
+                          sx={{ bgcolor: tier.bg, color: tier.color, fontWeight: 700 }}
+                        />
+                      </Tooltip>
+                    ) : (
+                      <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>—</Typography>
+                    )}
+                  </Box>
+                </Box>
+              );
+            })}
+          </Stack>
+        </Paper>
+      )}
+    </Box>
+  );
+}
+
 // Minimal staffing/planning: a manager schedules a consultant onto a
 // project for a date range ("next week, 2 days on X"); admin/rh get an
 // unscoped overview of every assignment. Same self-contained-page
@@ -132,6 +284,8 @@ export default function StaffingPlanning() {
   const [editingId, setEditingId] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+  const [viewMode, setViewMode] = useState('timeline');
+  const [monthOffset, setMonthOffset] = useState(0);
 
   const [search, setSearch] = useState('');
   const [filterConsultant, setFilterConsultant] = useState('');
@@ -321,11 +475,28 @@ export default function StaffingPlanning() {
               : "Vue d'ensemble de toutes les affectations planifiées."}
           </Typography>
         </Box>
-        {!isMissionRole && (
-          <Button variant="contained" startIcon={<AddIcon />} onClick={openNewForm}>
-            Nouvelle affectation
-          </Button>
-        )}
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={viewMode}
+            onChange={(e, v) => v && setViewMode(v)}
+          >
+            <ToggleButton value="timeline">
+              <ViewTimelineOutlinedIcon fontSize="small" sx={{ mr: 0.75 }} />
+              Timeline
+            </ToggleButton>
+            <ToggleButton value="list">
+              <ViewListOutlinedIcon fontSize="small" sx={{ mr: 0.75 }} />
+              Liste
+            </ToggleButton>
+          </ToggleButtonGroup>
+          {!isMissionRole && (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openNewForm}>
+              Nouvelle affectation
+            </Button>
+          )}
+        </Stack>
       </Stack>
 
       {!isMissionRole && (
@@ -518,6 +689,23 @@ export default function StaffingPlanning() {
         </Drawer>
       )}
 
+      {viewMode === 'timeline' ? (
+        assignments === null ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}>
+            <CircularProgress size={28} />
+          </Box>
+        ) : (
+          <Box sx={{ mt: 2 }}>
+            <TimelineView
+              assignments={assignments}
+              utilizationByConsultant={utilizationByConsultant}
+              monthOffset={monthOffset}
+              setMonthOffset={setMonthOffset}
+            />
+          </Box>
+        )
+      ) : (
+        <>
       {assignments !== null && assignments.length > 0 && (
         <Paper variant="outlined" sx={{ p: 1.5, mt: 2, mb: 2 }}>
           <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', useFlexGap: true, rowGap: 1.5 }}>
@@ -783,6 +971,8 @@ export default function StaffingPlanning() {
             labelDisplayedRows={({ from, to, count }) => `${from}-${to} sur ${count}`}
           />
         </Box>
+      )}
+        </>
       )}
     </Box>
   );
