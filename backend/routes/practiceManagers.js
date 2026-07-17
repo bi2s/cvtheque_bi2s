@@ -680,6 +680,12 @@ module.exports = function buildPracticeManagersRouter({
     if (!consultantId || !projectId || !startDate || !endDate) {
       return res.status(400).json({ detail: 'consultantId, projectId, startDate et endDate requis.' });
     }
+    if (endDate < startDate) {
+      return res.status(400).json({ detail: 'La date de fin doit être postérieure ou égale à la date de début.' });
+    }
+    if (mileage !== undefined && mileage !== null && mileage !== '' && Number(mileage) < 0) {
+      return res.status(400).json({ detail: 'Le kilométrage ne peut pas être négatif.' });
+    }
     if (!(await assertConsultantInScope(req, consultantId))) {
       return res.status(403).json({ detail: 'Ce consultant est hors de votre périmètre.' });
     }
@@ -749,6 +755,12 @@ module.exports = function buildPracticeManagersRouter({
     } = req.body;
     if (!consultantId || !projectId || !startDate || !endDate) {
       return res.status(400).json({ detail: 'consultantId, projectId, startDate et endDate requis.' });
+    }
+    if (endDate < startDate) {
+      return res.status(400).json({ detail: 'La date de fin doit être postérieure ou égale à la date de début.' });
+    }
+    if (mileage !== undefined && mileage !== null && mileage !== '' && Number(mileage) < 0) {
+      return res.status(400).json({ detail: 'Le kilométrage ne peut pas être négatif.' });
     }
     if (!(await assertConsultantInScope(req, consultantId))) {
       return res.status(403).json({ detail: 'Ce consultant est hors de votre périmètre.' });
