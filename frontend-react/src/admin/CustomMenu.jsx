@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Menu, usePermissions } from 'react-admin';
-import { List, Collapse, MenuItem, ListItemIcon, ListItemText, Chip, Divider } from '@mui/material';
+import { Box, List, Collapse, MenuItem, ListItemIcon, ListItemText, Chip, Divider } from '@mui/material';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutlineOutlined';
@@ -60,7 +60,7 @@ const GROUPS = [
     key: 'consultants',
     label: 'Consultants',
     icon: PeopleOutlineIcon,
-    color: '#5B8DEF',
+    color: '#5FA8E0',
     items: [
       { to: '/admin/consultants', label: 'Consultants', icon: PeopleOutlineIcon },
       { to: '/admin/archivedConsultants', label: 'Consultants archivés', icon: Inventory2OutlinedIcon },
@@ -71,7 +71,7 @@ const GROUPS = [
     key: 'recruitment',
     label: 'Recrutement & pilotage RH',
     icon: GroupsOutlinedIcon,
-    color: '#2FA37A',
+    color: '#2EE5C0',
     items: [
       { to: '/admin/candidates', label: 'Candidats', icon: BadgeOutlinedIcon },
       { to: '/admin/pipelineStages', label: 'Pipeline', icon: AccountTreeOutlinedIcon },
@@ -85,7 +85,7 @@ const GROUPS = [
     key: 'projects',
     label: 'Projets',
     icon: BusinessCenterOutlinedIcon,
-    color: '#B8720A',
+    color: '#D9A441',
     items: [
       { to: '/admin/catalogProjects', label: 'Catalogue projets', icon: WorkOutlineIcon },
       { to: '/admin/rfp', label: "Appels d'offres", icon: DescriptionOutlinedIcon },
@@ -110,7 +110,7 @@ const CONFIG_GROUPS = [
     key: 'admin',
     label: 'Terminologie / bibliothèque',
     icon: SettingsOutlinedIcon,
-    color: '#6B7280',
+    color: '#8FA3A8',
     items: [
       { to: '/admin/projectReferentials', label: 'Référentiels', icon: TuneOutlinedIcon },
       { to: '/admin/taskLibrary', label: 'Bibliothèque de tâches', icon: ChecklistOutlinedIcon },
@@ -162,12 +162,16 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
           primaryTypographyProps={{
             fontSize: 13,
             fontWeight: isActive ? 700 : 500,
-            color: isActive ? 'text.primary' : 'text.secondary',
+            color: isActive ? 'rgba(255,255,255,.92)' : 'rgba(255,255,255,.68)',
           }}
         >
           {group.label}
         </ListItemText>
-        {open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+        {open ? (
+          <ExpandLessIcon fontSize="small" sx={{ color: 'rgba(255,255,255,.5)' }} />
+        ) : (
+          <ExpandMoreIcon fontSize="small" sx={{ color: 'rgba(255,255,255,.5)' }} />
+        )}
       </MenuItem>
       <Collapse in={open}>
         <List disablePadding dense>
@@ -197,7 +201,7 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
                 sx={{
                   pl: 4,
                   ...(itemActive && {
-                    bgcolor: 'action.selected',
+                    bgcolor: `${group.color}26`,
                     borderLeft: '3px solid',
                     borderLeftColor: group.color,
                   }),
@@ -208,6 +212,35 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
         </List>
       </Collapse>
     </>
+  );
+}
+
+// Dark petrol sidebar - scoped to this component (not a global MuiDrawer
+// theme override) so other Drawers in the app (e.g. StaffingPlanning's
+// create-assignment side panel) stay light. react-admin's <Menu.Item>/
+// <Menu.DashboardItem> render via MenuItemLink, whose text/icon colors come
+// from stable CSS classes (RaMenuItemLink-root/-icon/-active) rather than
+// inline styles, so overriding them here via descendant selectors reliably
+// wins over the component's own default (text.secondary/text.primary,
+// illegible on a dark background). MenuGroup's own group-toggle row uses
+// inline primaryTypographyProps/sx instead, so those are colored directly
+// at the source (see MenuGroup above) rather than through this wrapper.
+function SidebarShell({ children }) {
+  return (
+    <Box
+      sx={{
+        bgcolor: '#153A4B',
+        minHeight: '100%',
+        py: 1,
+        '& .RaMenuItemLink-root': { color: 'rgba(255,255,255,.78)' },
+        '& .RaMenuItemLink-icon': { color: 'rgba(255,255,255,.7)' },
+        '& .RaMenuItemLink-active': { color: '#ffffff' },
+        '& .MuiMenuItem-root:hover': { bgcolor: 'rgba(255,255,255,.06)' },
+        '& .MuiDivider-root': { borderColor: 'rgba(255,255,255,.12)' },
+      }}
+    >
+      {children}
+    </Box>
   );
 }
 
@@ -248,28 +281,32 @@ export default function CustomMenu() {
 
   if (permissions?.role === 'manager') {
     return (
-      <Menu>
-        <Menu.DashboardItem />
-        <Menu.Item to="/admin/myConsultant" primaryText="Mon profil" leftIcon={<PeopleOutlineIcon fontSize="small" />} />
-        <Menu.Item
-          to="/admin/staffingPlanning"
-          primaryText="Planning"
-          leftIcon={<EventNoteOutlinedIcon fontSize="small" />}
-        />
-      </Menu>
+      <SidebarShell>
+        <Menu>
+          <Menu.DashboardItem />
+          <Menu.Item to="/admin/myConsultant" primaryText="Mon profil" leftIcon={<PeopleOutlineIcon fontSize="small" />} />
+          <Menu.Item
+            to="/admin/staffingPlanning"
+            primaryText="Planning"
+            leftIcon={<EventNoteOutlinedIcon fontSize="small" />}
+          />
+        </Menu>
+      </SidebarShell>
     );
   }
 
   if (['responsable_mission', 'chef_projet'].includes(permissions?.role)) {
     return (
-      <Menu>
-        <Menu.DashboardItem />
-        <Menu.Item
-          to="/admin/staffingPlanning"
-          primaryText="Planning"
-          leftIcon={<EventNoteOutlinedIcon fontSize="small" />}
-        />
-      </Menu>
+      <SidebarShell>
+        <Menu>
+          <Menu.DashboardItem />
+          <Menu.Item
+            to="/admin/staffingPlanning"
+            primaryText="Planning"
+            leftIcon={<EventNoteOutlinedIcon fontSize="small" />}
+          />
+        </Menu>
+      </SidebarShell>
     );
   }
 
@@ -291,39 +328,41 @@ export default function CustomMenu() {
   }
 
   return (
-    <Menu>
-      <Menu.DashboardItem />
-      {visibleGroups.map((group) => {
-        const isActive = group.items.some((item) => location.pathname.startsWith(item.to));
-        return (
-          <MenuGroup
-            key={group.key}
-            group={group}
-            isActive={isActive}
-            forceOpen={isActive}
-            openGroups={openGroups}
-            onToggle={handleToggle}
-            pathname={location.pathname}
-            pendingChangeRequests={pendingChangeRequests}
-          />
-        );
-      })}
-      {visibleConfigGroups.length > 0 && <Divider sx={{ my: 1 }} />}
-      {visibleConfigGroups.map((group) => {
-        const isActive = group.items.some((item) => location.pathname.startsWith(item.to));
-        return (
-          <MenuGroup
-            key={group.key}
-            group={group}
-            isActive={isActive}
-            forceOpen={isActive}
-            openGroups={openGroups}
-            onToggle={handleToggle}
-            pathname={location.pathname}
-            pendingChangeRequests={pendingChangeRequests}
-          />
-        );
-      })}
-    </Menu>
+    <SidebarShell>
+      <Menu>
+        <Menu.DashboardItem />
+        {visibleGroups.map((group) => {
+          const isActive = group.items.some((item) => location.pathname.startsWith(item.to));
+          return (
+            <MenuGroup
+              key={group.key}
+              group={group}
+              isActive={isActive}
+              forceOpen={isActive}
+              openGroups={openGroups}
+              onToggle={handleToggle}
+              pathname={location.pathname}
+              pendingChangeRequests={pendingChangeRequests}
+            />
+          );
+        })}
+        {visibleConfigGroups.length > 0 && <Divider sx={{ my: 1 }} />}
+        {visibleConfigGroups.map((group) => {
+          const isActive = group.items.some((item) => location.pathname.startsWith(item.to));
+          return (
+            <MenuGroup
+              key={group.key}
+              group={group}
+              isActive={isActive}
+              forceOpen={isActive}
+              openGroups={openGroups}
+              onToggle={handleToggle}
+              pathname={location.pathname}
+              pendingChangeRequests={pendingChangeRequests}
+            />
+          );
+        })}
+      </Menu>
+    </SidebarShell>
   );
 }
