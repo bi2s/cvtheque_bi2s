@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Menu, usePermissions } from 'react-admin';
-import { List, Collapse, MenuItem, ListItemIcon, ListItemText } from '@mui/material';
+import { List, Collapse, MenuItem, ListItemIcon, ListItemText, Chip, Divider } from '@mui/material';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutlineOutlined';
@@ -23,6 +23,8 @@ import BusinessCenterOutlinedIcon from '@mui/icons-material/BusinessCenterOutlin
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
+import { API_BASE_URL } from '../api';
+import { getAuthHeader } from './authHeader';
 
 // Domain groupings for the admin/RH sidebar - every item here is one of the
 // 14 resources already registered in AdminApp.jsx's fullResources(); this
@@ -46,21 +48,30 @@ import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
 // testing (not just inspecting rendered href attributes, which look
 // correct either way but don't prove real navigation). Do not remove this
 // prefix again without re-testing an actual click, not just the href.
+//
+// Labels are sentence case throughout (only the first word + genuine
+// abbreviations/proper nouns capitalized) - a prior version mixed sentence
+// case with Title Case across groups/items, which read as inconsistent.
+// Each group also carries a distinct accent `color` for its icon, since
+// every group icon rendering in the same default grey made them hard to
+// tell apart at a glance even though the icon shapes themselves differ.
 const GROUPS = [
   {
     key: 'consultants',
     label: 'Consultants',
     icon: PeopleOutlineIcon,
+    color: '#5B8DEF',
     items: [
       { to: '/admin/consultants', label: 'Consultants', icon: PeopleOutlineIcon },
       { to: '/admin/archivedConsultants', label: 'Consultants archivés', icon: Inventory2OutlinedIcon },
-      { to: '/admin/changeRequests', label: 'Validations', icon: PendingActionsOutlinedIcon },
+      { to: '/admin/changeRequests', label: 'Validations', icon: PendingActionsOutlinedIcon, badge: 'pendingChangeRequests' },
     ],
   },
   {
     key: 'recruitment',
-    label: 'Recrutement & Pilotage RH',
+    label: 'Recrutement & pilotage RH',
     icon: GroupsOutlinedIcon,
+    color: '#2FA37A',
     items: [
       { to: '/admin/candidates', label: 'Candidats', icon: BadgeOutlinedIcon },
       { to: '/admin/pipelineStages', label: 'Pipeline', icon: AccountTreeOutlinedIcon },
@@ -74,66 +85,126 @@ const GROUPS = [
     key: 'projects',
     label: 'Projets',
     icon: BusinessCenterOutlinedIcon,
+    color: '#B8720A',
     items: [
-      { to: '/admin/catalogProjects', label: 'Catalogue Projets', icon: WorkOutlineIcon },
+      { to: '/admin/catalogProjects', label: 'Catalogue projets', icon: WorkOutlineIcon },
       { to: '/admin/rfp', label: "Appels d'offres", icon: DescriptionOutlinedIcon },
       { to: '/admin/rfpBoilerplate', label: 'Sections types (RFP)', icon: ArticleOutlinedIcon },
     ],
   },
   {
+    key: 'adminTracking',
+    label: 'Suivi administratif',
+    icon: AssignmentOutlinedIcon,
+    color: '#8B7CF6',
+    items: [{ to: '/admin/administrativeTracking', label: 'Suivi administratif', icon: AssignmentOutlinedIcon }],
+  },
+];
+
+// Kept as its own trailing array (rendered after a Divider) rather than
+// folded into GROUPS - configuration/terminology is looked at rarely
+// compared to the day-to-day groups above, so it gets a visual break
+// instead of blending into the same list.
+const CONFIG_GROUPS = [
+  {
     key: 'admin',
-    label: 'Terminologie / Bibliothèque',
+    label: 'Terminologie / bibliothèque',
     icon: SettingsOutlinedIcon,
+    color: '#6B7280',
     items: [
       { to: '/admin/projectReferentials', label: 'Référentiels', icon: TuneOutlinedIcon },
       { to: '/admin/taskLibrary', label: 'Bibliothèque de tâches', icon: ChecklistOutlinedIcon },
       { to: '/admin/scopeAdmin', label: 'Rôles & périmètres', icon: AdminPanelSettingsOutlinedIcon },
     ],
   },
-  {
-    key: 'adminTracking',
-    label: 'Suivi Administratif',
-    icon: AssignmentOutlinedIcon,
-    items: [{ to: '/admin/administrativeTracking', label: 'Suivi Administratif', icon: AssignmentOutlinedIcon }],
-  },
 ];
+
+const OPEN_GROUPS_STORAGE_KEY = 'cvtheque:sidebarOpenGroups';
+
+function loadOpenGroups() {
+  try {
+    return JSON.parse(localStorage.getItem(OPEN_GROUPS_STORAGE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveOpenGroups(state) {
+  try {
+    localStorage.setItem(OPEN_GROUPS_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // localStorage can throw in private-browsing/quota-exceeded contexts -
+    // the accordion still works in-session, it just won't persist.
+  }
+}
 
 // Mirrors react-admin's own documented "nested menu" pattern exactly
 // (ra-ui-materialui's Menu.stories.tsx): the toggle MenuItem and its
 // Collapse are direct children of <Menu>, not wrapped in an extra <List> -
 // wrapping them broke click handling, since <Menu> renders a MUI
 // <MenuList> that expects to manage its direct children itself.
-function MenuGroup({ group, isActive, forceOpen }) {
-  const [open, setOpen] = useState(forceOpen);
+function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname, pendingChangeRequests }) {
+  // Once a user has explicitly opened/closed a group, that choice persists
+  // (via openGroups, backed by localStorage) across navigation and future
+  // visits - only falls back to forceOpen (auto-open the group matching
+  // the current page) the first time this group is ever encountered, so a
+  // fresh session doesn't require two clicks to reach anything nested.
+  const open = openGroups[group.key] ?? forceOpen;
   const GroupIcon = group.icon;
-
-  // useState's initial value only applies on mount - without this, a group
-  // that becomes active via client-side navigation (not a full page reload)
-  // would never auto-expand, since `open` was already initialized (usually
-  // to false) by the time forceOpen flips true. Re-syncing whenever a group
-  // newly becomes active still lets a manual collapse stick while it stays
-  // the active group (forceOpen doesn't change again, so the effect doesn't
-  // re-fire and stomp on that choice).
-  useEffect(() => {
-    if (forceOpen) setOpen(true);
-  }, [forceOpen]);
 
   return (
     <>
-      <MenuItem onClick={() => setOpen((o) => !o)}>
+      <MenuItem onClick={() => onToggle(group.key, !open)}>
         <ListItemIcon>
-          <GroupIcon fontSize="small" />
+          <GroupIcon fontSize="small" sx={{ color: isActive ? group.color : `${group.color}99` }} />
         </ListItemIcon>
-        <ListItemText primaryTypographyProps={{ fontSize: 13, fontWeight: isActive ? 700 : 500 }}>
+        <ListItemText
+          primaryTypographyProps={{
+            fontSize: 13,
+            fontWeight: isActive ? 700 : 500,
+            color: isActive ? 'text.primary' : 'text.secondary',
+          }}
+        >
           {group.label}
         </ListItemText>
         {open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
       </MenuItem>
       <Collapse in={open}>
         <List disablePadding dense>
-          {group.items.map((item) => (
-            <Menu.Item key={item.to} to={item.to} primaryText={item.label} leftIcon={<item.icon fontSize="small" />} sx={{ pl: 4 }} />
-          ))}
+          {group.items.map((item) => {
+            const itemActive = pathname.startsWith(item.to);
+            const badgeCount = item.badge === 'pendingChangeRequests' ? pendingChangeRequests : null;
+            return (
+              <Menu.Item
+                key={item.to}
+                to={item.to}
+                primaryText={
+                  badgeCount > 0 ? (
+                    <>
+                      {item.label}
+                      <Chip
+                        label={badgeCount}
+                        size="small"
+                        color="error"
+                        sx={{ ml: 1, height: 18, fontSize: 11, '& .MuiChip-label': { px: 0.8 } }}
+                      />
+                    </>
+                  ) : (
+                    item.label
+                  )
+                }
+                leftIcon={<item.icon fontSize="small" />}
+                sx={{
+                  pl: 4,
+                  ...(itemActive && {
+                    bgcolor: 'action.selected',
+                    borderLeft: '3px solid',
+                    borderLeftColor: group.color,
+                  }),
+                }}
+              />
+            );
+          })}
         </List>
       </Collapse>
     </>
@@ -150,6 +221,27 @@ function MenuGroup({ group, isActive, forceOpen }) {
 export default function CustomMenu() {
   const location = useLocation();
   const { permissions } = usePermissions();
+  const [openGroups, setOpenGroups] = useState(loadOpenGroups);
+  const [pendingChangeRequests, setPendingChangeRequests] = useState(0);
+
+  function handleToggle(key, isOpen) {
+    setOpenGroups((prev) => {
+      const next = { ...prev, [key]: isOpen };
+      saveOpenGroups(next);
+      return next;
+    });
+  }
+
+  // Only admin ever sees the "Validations" item (RH/PMO's filtered views
+  // below don't include the 'consultants' group), so this only needs to
+  // fetch for the default (unfiltered) render path.
+  useEffect(() => {
+    if (permissions?.role !== 'admin') return;
+    fetch(`${API_BASE_URL}/api/admin/change-requests`, { headers: { Authorization: getAuthHeader() } })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => setPendingChangeRequests(rows.filter((r) => r.status === 'pending').length))
+      .catch(() => setPendingChangeRequests(0));
+  }, [permissions?.role]);
 
   if (permissions?.role === 'manager') {
     return (
@@ -185,15 +277,49 @@ export default function CustomMenu() {
   // project + RFP surface (backend-enforced via requireAdminOrPmo) the same
   // way - both now live in a single merged group each, so one key covers it.
   let visibleGroups = GROUPS;
-  if (permissions?.role === 'rh') visibleGroups = GROUPS.filter((g) => g.key === 'recruitment');
-  if (permissions?.role === 'pmo') visibleGroups = GROUPS.filter((g) => g.key === 'projects');
+  let visibleConfigGroups = CONFIG_GROUPS;
+  if (permissions?.role === 'rh') {
+    visibleGroups = GROUPS.filter((g) => g.key === 'recruitment');
+    visibleConfigGroups = [];
+  }
+  if (permissions?.role === 'pmo') {
+    visibleGroups = GROUPS.filter((g) => g.key === 'projects');
+    visibleConfigGroups = [];
+  }
 
   return (
     <Menu>
       <Menu.DashboardItem />
       {visibleGroups.map((group) => {
         const isActive = group.items.some((item) => location.pathname.startsWith(item.to));
-        return <MenuGroup key={group.key} group={group} isActive={isActive} forceOpen={isActive} />;
+        return (
+          <MenuGroup
+            key={group.key}
+            group={group}
+            isActive={isActive}
+            forceOpen={isActive}
+            openGroups={openGroups}
+            onToggle={handleToggle}
+            pathname={location.pathname}
+            pendingChangeRequests={pendingChangeRequests}
+          />
+        );
+      })}
+      {visibleConfigGroups.length > 0 && <Divider sx={{ my: 1 }} />}
+      {visibleConfigGroups.map((group) => {
+        const isActive = group.items.some((item) => location.pathname.startsWith(item.to));
+        return (
+          <MenuGroup
+            key={group.key}
+            group={group}
+            isActive={isActive}
+            forceOpen={isActive}
+            openGroups={openGroups}
+            onToggle={handleToggle}
+            pathname={location.pathname}
+            pendingChangeRequests={pendingChangeRequests}
+          />
+        );
       })}
     </Menu>
   );
