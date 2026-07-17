@@ -14,16 +14,20 @@ import {
   TableBody,
   TableRow,
   TableCell,
+  TableSortLabel,
+  TablePagination,
   IconButton,
   Collapse,
   Tooltip,
   Avatar,
+  Drawer,
 } from '@mui/material';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import AddIcon from '@mui/icons-material/Add';
+import CloseIcon from '@mui/icons-material/Close';
 import { useNotify, usePermissions } from 'react-admin';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
@@ -44,13 +48,6 @@ function countBusinessDays(startDate, endDate) {
     cur.setDate(cur.getDate() + 1);
   }
   return count;
-}
-
-function formatFrenchDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
 }
 
 // "16 → 30 juil. 2026" when the range stays within one month, otherwise
@@ -100,6 +97,21 @@ const EMPTY_FORM = {
   comment: '',
 };
 
+const ROWS_PER_PAGE = 25;
+
+function FormSection({ title, children }) {
+  return (
+    <Box sx={{ mb: 2.5 }}>
+      <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700, display: 'block', mb: 1 }}>
+        {title}
+      </Typography>
+      <Stack spacing={1.5}>
+        {children}
+      </Stack>
+    </Box>
+  );
+}
+
 // Minimal staffing/planning: a manager schedules a consultant onto a
 // project for a date range ("next week, 2 days on X"); admin/rh get an
 // unscoped overview of every assignment. Same self-contained-page
@@ -120,6 +132,17 @@ export default function StaffingPlanning() {
   const [editingId, setEditingId] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+
+  const [search, setSearch] = useState('');
+  const [filterConsultant, setFilterConsultant] = useState('');
+  const [filterProject, setFilterProject] = useState('');
+  const [filterRegion, setFilterRegion] = useState('');
+  const [filterFrom, setFilterFrom] = useState('');
+  const [filterTo, setFilterTo] = useState('');
+  const [sortField, setSortField] = useState('startDate');
+  const [sortDir, setSortDir] = useState('desc');
+  const [page, setPage] = useState(0);
+
   const computedDays = countBusinessDays(form.startDate, form.endDate);
 
   function load() {
@@ -145,6 +168,10 @@ export default function StaffingPlanning() {
       .then(setAdmins)
       .catch(() => setAdmins([]));
   }, []);
+
+  useEffect(() => {
+    setPage(0);
+  }, [search, filterConsultant, filterProject, filterRegion, filterFrom, filterTo]);
 
   // Inline mirror of the server-side checks (practiceManagers.js) - the
   // server is still the source of truth, this just gives the consultant a
@@ -216,7 +243,7 @@ export default function StaffingPlanning() {
     setFormOpen(true);
   }
 
-  function cancelEdit() {
+  function closeDrawer() {
     setEditingId(null);
     setForm(EMPTY_FORM);
     setFormOpen(false);
@@ -227,7 +254,7 @@ export default function StaffingPlanning() {
       method: 'DELETE',
       headers: { Authorization: getAuthHeader() },
     });
-    if (editingId === id) cancelEdit();
+    if (editingId === id) closeDrawer();
     load();
   }
 
@@ -235,8 +262,52 @@ export default function StaffingPlanning() {
   const isMissionRole = ['responsable_mission', 'chef_projet'].includes(permissions?.role);
   const utilizationByConsultant = new Map(utilization.map((u) => [u.consultantId, u]));
 
+  function toggleSort(field) {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  }
+
+  const regions = [...new Set((assignments || []).map((a) => a.region).filter(Boolean))];
+
+  const filtered = (assignments || [])
+    .filter((a) => !filterConsultant || String(a.consultantId) === filterConsultant)
+    .filter((a) => !filterProject || String(a.projectId) === filterProject)
+    .filter((a) => !filterRegion || a.region === filterRegion)
+    .filter((a) => !filterFrom || a.endDate >= filterFrom)
+    .filter((a) => !filterTo || a.startDate <= filterTo)
+    .filter((a) => {
+      if (!search.trim()) return true;
+      const q = search.trim().toLowerCase();
+      return (
+        (a.consultantName || '').toLowerCase().includes(q) ||
+        (a.projectClient || '').toLowerCase().includes(q) ||
+        (a.comment || '').toLowerCase().includes(q)
+      );
+    });
+
+  const sorted = [...filtered].sort((x, y) => {
+    let cmp = 0;
+    if (sortField === 'consultant') cmp = (x.consultantName || '').localeCompare(y.consultantName || '');
+    else if (sortField === 'project') cmp = (x.projectClient || '').localeCompare(y.projectClient || '');
+    else if (sortField === 'startDate') cmp = (x.startDate || '').localeCompare(y.startDate || '');
+    else if (sortField === 'daysCount') cmp = (x.daysCount || 0) - (y.daysCount || 0);
+    else if (sortField === 'utilization') {
+      const ux = utilizationByConsultant.get(x.consultantId)?.utilizationPct ?? -1;
+      const uy = utilizationByConsultant.get(y.consultantId)?.utilizationPct ?? -1;
+      cmp = ux - uy;
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
+  const paged = sorted.slice(page * ROWS_PER_PAGE, page * ROWS_PER_PAGE + ROWS_PER_PAGE);
+  const hasActiveFilters = search || filterConsultant || filterProject || filterRegion || filterFrom || filterTo;
+
   return (
-    <Box sx={{ p: 3, maxWidth: 1300 }}>
+    <Box sx={{ p: 3 }}>
       <Stack direction="row" sx={{ alignItems: 'flex-start', justifyContent: 'space-between', mb: 0.5 }}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>
@@ -258,44 +329,51 @@ export default function StaffingPlanning() {
       </Stack>
 
       {!isMissionRole && (
-        <Collapse in={formOpen} sx={{ mt: 2 }}>
-          <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
-            <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700, display: 'block', mb: 1 }}>
-              {editingId ? "Modifier l'affectation" : 'Nouvelle affectation'}
-            </Typography>
-            <Stack spacing={1.5}>
-              <Stack direction="row" spacing={1.5}>
-                <TextField
-                  select
-                  label="Consultant"
-                  value={form.consultantId}
-                  onChange={(e) => setForm({ ...form, consultantId: e.target.value })}
-                  fullWidth
-                  size="small"
-                >
-                  <MenuItem value="">—</MenuItem>
-                  {consultants.map((c) => (
-                    <MenuItem key={c.id} value={c.id}>
-                      {c.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  select
-                  label="Projet"
-                  value={form.projectId}
-                  onChange={(e) => setForm({ ...form, projectId: e.target.value })}
-                  fullWidth
-                  size="small"
-                >
-                  <MenuItem value="">—</MenuItem>
-                  {projects.map((p) => (
-                    <MenuItem key={p.id} value={p.id}>
-                      {p.client}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Stack>
+        <Drawer anchor="right" open={formOpen} onClose={closeDrawer}>
+          <Box sx={{ width: 420, p: 3 }}>
+            <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                {editingId ? "Modifier l'affectation" : 'Nouvelle affectation'}
+              </Typography>
+              <IconButton size="small" onClick={closeDrawer}>
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Stack>
+
+            <FormSection title="① Qui & quoi">
+              <TextField
+                select
+                label="Consultant"
+                value={form.consultantId}
+                onChange={(e) => setForm({ ...form, consultantId: e.target.value })}
+                fullWidth
+                size="small"
+              >
+                <MenuItem value="">—</MenuItem>
+                {consultants.map((c) => (
+                  <MenuItem key={c.id} value={c.id}>
+                    {c.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                label="Projet"
+                value={form.projectId}
+                onChange={(e) => setForm({ ...form, projectId: e.target.value })}
+                fullWidth
+                size="small"
+              >
+                <MenuItem value="">—</MenuItem>
+                {projects.map((p) => (
+                  <MenuItem key={p.id} value={p.id}>
+                    {p.client}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </FormSection>
+
+            <FormSection title="② Quand">
               <Stack direction="row" spacing={1.5}>
                 <TextField
                   type="date"
@@ -316,40 +394,43 @@ export default function StaffingPlanning() {
                   fullWidth
                   error={!!(form.startDate && form.endDate && form.endDate < form.startDate)}
                 />
-                <TextField
-                  label="Jours"
-                  value={computedDays !== null ? `${computedDays} j.` : '—'}
-                  size="small"
-                  sx={{ width: 160 }}
-                  InputProps={{ readOnly: true }}
-                  disabled
-                />
               </Stack>
+              <TextField
+                label="Jours (calculé)"
+                value={computedDays !== null ? `${computedDays} j.` : '—'}
+                size="small"
+                InputProps={{ readOnly: true }}
+                disabled
+                fullWidth
+              />
+            </FormSection>
+
+            <FormSection title="③ Où">
+              <TextField
+                select
+                label="Emplacement"
+                value={form.location}
+                onChange={(e) => setForm({ ...form, location: e.target.value })}
+                size="small"
+                fullWidth
+              >
+                <MenuItem value="">—</MenuItem>
+                <MenuItem value="sur_site">Sur site</MenuItem>
+                <MenuItem value="a_distance">À distance</MenuItem>
+              </TextField>
+              <TextField
+                select
+                label="Région"
+                value={form.region}
+                onChange={(e) => setForm({ ...form, region: e.target.value })}
+                size="small"
+                fullWidth
+              >
+                <MenuItem value="">—</MenuItem>
+                <MenuItem value="Nord">Nord</MenuItem>
+                <MenuItem value="Sud">Sud</MenuItem>
+              </TextField>
               <Stack direction="row" spacing={1.5}>
-                <TextField
-                  select
-                  label="Emplacement"
-                  value={form.location}
-                  onChange={(e) => setForm({ ...form, location: e.target.value })}
-                  size="small"
-                  fullWidth
-                >
-                  <MenuItem value="">—</MenuItem>
-                  <MenuItem value="sur_site">Sur site</MenuItem>
-                  <MenuItem value="a_distance">À distance</MenuItem>
-                </TextField>
-                <TextField
-                  select
-                  label="Région"
-                  value={form.region}
-                  onChange={(e) => setForm({ ...form, region: e.target.value })}
-                  size="small"
-                  fullWidth
-                >
-                  <MenuItem value="">—</MenuItem>
-                  <MenuItem value="Nord">Nord</MenuItem>
-                  <MenuItem value="Sud">Sud</MenuItem>
-                </TextField>
                 <TextField
                   select
                   label="Moyen de déplacement"
@@ -368,65 +449,163 @@ export default function StaffingPlanning() {
                   value={form.mileage}
                   onChange={(e) => setForm({ ...form, mileage: e.target.value })}
                   size="small"
-                  sx={{ width: 160 }}
+                  fullWidth
                   error={form.mileage !== '' && Number(form.mileage) < 0}
                   inputProps={{ min: 0 }}
                 />
               </Stack>
-              <Stack direction="row" spacing={1.5}>
-                <TextField
-                  select
-                  label="Responsable de la mission"
-                  value={form.missionResponsibleAdminId}
-                  onChange={(e) => setForm({ ...form, missionResponsibleAdminId: e.target.value })}
-                  size="small"
-                  fullWidth
-                >
-                  <MenuItem value="">—</MenuItem>
-                  {admins.map((a) => (
-                    <MenuItem key={a.id} value={a.id}>
-                      {a.username}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  select
-                  label="Chef de projet"
-                  value={form.projectManagerAdminId}
-                  onChange={(e) => setForm({ ...form, projectManagerAdminId: e.target.value })}
-                  size="small"
-                  fullWidth
-                >
-                  <MenuItem value="">—</MenuItem>
-                  {admins.map((a) => (
-                    <MenuItem key={a.id} value={a.id}>
-                      {a.username}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Stack>
+            </FormSection>
+
+            <FormSection title="④ Encadrement">
               <TextField
-                label="Commentaire (optionnel)"
+                select
+                label="Responsable de la mission"
+                value={form.missionResponsibleAdminId}
+                onChange={(e) => setForm({ ...form, missionResponsibleAdminId: e.target.value })}
+                size="small"
+                fullWidth
+              >
+                <MenuItem value="">—</MenuItem>
+                {admins.map((a) => (
+                  <MenuItem key={a.id} value={a.id}>
+                    {a.username}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                label="Chef de projet"
+                value={form.projectManagerAdminId}
+                onChange={(e) => setForm({ ...form, projectManagerAdminId: e.target.value })}
+                size="small"
+                fullWidth
+              >
+                <MenuItem value="">—</MenuItem>
+                {admins.map((a) => (
+                  <MenuItem key={a.id} value={a.id}>
+                    {a.username}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </FormSection>
+
+            <FormSection title="⑤ Commentaire">
+              <TextField
                 placeholder="ex: Mardi, Mercredi, Jeudi"
                 value={form.comment}
                 onChange={(e) => setForm({ ...form, comment: e.target.value })}
                 size="small"
                 fullWidth
+                multiline
+                minRows={2}
               />
-              <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                <Button variant="contained" onClick={saveAssignment} disabled={saving || !!missingReason}>
-                  {saving ? 'Enregistrement...' : editingId ? 'Modifier' : 'Affecter'}
-                </Button>
-                <Button variant="text" color="inherit" onClick={cancelEdit}>
-                  Annuler
-                </Button>
-                {missingReason && (
-                  <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>{missingReason}</Typography>
-                )}
-              </Stack>
+            </FormSection>
+
+            <Stack spacing={1} sx={{ mt: 1 }}>
+              <Button variant="contained" onClick={saveAssignment} disabled={saving || !!missingReason} fullWidth>
+                {saving ? 'Enregistrement...' : editingId ? 'Modifier' : 'Affecter'}
+              </Button>
+              <Button variant="text" color="inherit" onClick={closeDrawer} fullWidth>
+                Annuler
+              </Button>
+              {missingReason && (
+                <Typography sx={{ fontSize: 12.5, color: 'text.secondary', textAlign: 'center' }}>
+                  {missingReason}
+                </Typography>
+              )}
             </Stack>
-          </Paper>
-        </Collapse>
+          </Box>
+        </Drawer>
+      )}
+
+      {assignments !== null && assignments.length > 0 && (
+        <Paper variant="outlined" sx={{ p: 1.5, mt: 2, mb: 2 }}>
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', useFlexGap: true, rowGap: 1.5 }}>
+            <TextField
+              placeholder="Rechercher (consultant, projet, commentaire)"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              size="small"
+              sx={{ minWidth: 260 }}
+            />
+            <TextField
+              select
+              label="Consultant"
+              value={filterConsultant}
+              onChange={(e) => setFilterConsultant(e.target.value)}
+              size="small"
+              sx={{ minWidth: 160 }}
+            >
+              <MenuItem value="">Tous</MenuItem>
+              {consultants.map((c) => (
+                <MenuItem key={c.id} value={String(c.id)}>
+                  {c.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Projet"
+              value={filterProject}
+              onChange={(e) => setFilterProject(e.target.value)}
+              size="small"
+              sx={{ minWidth: 160 }}
+            >
+              <MenuItem value="">Tous</MenuItem>
+              {projects.map((p) => (
+                <MenuItem key={p.id} value={String(p.id)}>
+                  {p.client}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Région"
+              value={filterRegion}
+              onChange={(e) => setFilterRegion(e.target.value)}
+              size="small"
+              sx={{ minWidth: 130 }}
+            >
+              <MenuItem value="">Toutes</MenuItem>
+              {regions.map((r) => (
+                <MenuItem key={r} value={r}>
+                  {r}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              type="date"
+              label="Période - du"
+              InputLabelProps={{ shrink: true }}
+              value={filterFrom}
+              onChange={(e) => setFilterFrom(e.target.value)}
+              size="small"
+            />
+            <TextField
+              type="date"
+              label="Période - au"
+              InputLabelProps={{ shrink: true }}
+              value={filterTo}
+              onChange={(e) => setFilterTo(e.target.value)}
+              size="small"
+            />
+            {hasActiveFilters && (
+              <Button
+                size="small"
+                onClick={() => {
+                  setSearch('');
+                  setFilterConsultant('');
+                  setFilterProject('');
+                  setFilterRegion('');
+                  setFilterFrom('');
+                  setFilterTo('');
+                }}
+              >
+                Réinitialiser
+              </Button>
+            )}
+          </Stack>
+        </Paper>
       )}
 
       {assignments === null ? (
@@ -442,23 +621,60 @@ export default function StaffingPlanning() {
             </Button>
           )}
         </Paper>
+      ) : sorted.length === 0 ? (
+        <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', color: 'text.disabled' }}>
+          <Typography sx={{ mb: 1.5 }}>Aucune affectation ne correspond à ces filtres.</Typography>
+          <Button
+            size="small"
+            onClick={() => {
+              setSearch('');
+              setFilterConsultant('');
+              setFilterProject('');
+              setFilterRegion('');
+              setFilterFrom('');
+              setFilterTo('');
+            }}
+          >
+            Réinitialiser les filtres
+          </Button>
+        </Paper>
       ) : (
         <Box sx={{ overflowX: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 36 }} />
-                <TableCell>Consultant</TableCell>
-                <TableCell>Projet</TableCell>
-                <TableCell>Période</TableCell>
-                <TableCell>Jours</TableCell>
-                <TableCell>Occupation</TableCell>
+                <TableCell sortDirection={sortField === 'consultant' ? sortDir : false}>
+                  <TableSortLabel active={sortField === 'consultant'} direction={sortField === 'consultant' ? sortDir : 'asc'} onClick={() => toggleSort('consultant')}>
+                    Consultant
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sortDirection={sortField === 'project' ? sortDir : false}>
+                  <TableSortLabel active={sortField === 'project'} direction={sortField === 'project' ? sortDir : 'asc'} onClick={() => toggleSort('project')}>
+                    Projet
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sortDirection={sortField === 'startDate' ? sortDir : false}>
+                  <TableSortLabel active={sortField === 'startDate'} direction={sortField === 'startDate' ? sortDir : 'asc'} onClick={() => toggleSort('startDate')}>
+                    Période
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sortDirection={sortField === 'daysCount' ? sortDir : false}>
+                  <TableSortLabel active={sortField === 'daysCount'} direction={sortField === 'daysCount' ? sortDir : 'asc'} onClick={() => toggleSort('daysCount')}>
+                    Jours
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sortDirection={sortField === 'utilization' ? sortDir : false}>
+                  <TableSortLabel active={sortField === 'utilization'} direction={sortField === 'utilization' ? sortDir : 'asc'} onClick={() => toggleSort('utilization')}>
+                    Occupation
+                  </TableSortLabel>
+                </TableCell>
                 <TableCell>Emplacement</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {assignments.map((a) => {
+              {paged.map((a) => {
                 const util = utilizationByConsultant.get(a.consultantId);
                 const tier = util ? occupationTier(util.utilizationPct) : null;
                 const expanded = expandedId === a.id;
@@ -557,6 +773,15 @@ export default function StaffingPlanning() {
               })}
             </TableBody>
           </Table>
+          <TablePagination
+            component="div"
+            count={sorted.length}
+            page={page}
+            onPageChange={(e, newPage) => setPage(newPage)}
+            rowsPerPage={ROWS_PER_PAGE}
+            rowsPerPageOptions={[ROWS_PER_PAGE]}
+            labelDisplayedRows={({ from, to, count }) => `${from}-${to} sur ${count}`}
+          />
         </Box>
       )}
     </Box>
