@@ -10,9 +10,17 @@ import {
   Typography,
   Tooltip,
   Paper,
+  Avatar,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
-import SettingsIcon from '@mui/icons-material/Settings';
+import LogoutIcon from '@mui/icons-material/Logout';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { API_BASE_URL, basicAuthHeader } from './api';
 import AppHeader from './AppHeader';
 import CvPreview from './CvPreview';
@@ -614,6 +622,23 @@ export default function ChatCvScreen() {
 
   function handlePersonalInfoContinue() {
     userSay('Toujours à jour');
+    setStep(STEP.ASK_TITLE);
+    botSay('Quelle est votre expertise principale actuelle ?');
+    setTextInput(title);
+  }
+
+  // Prénom/nom/e-mail/téléphone/adresse/nationalité are admin-managed
+  // fields (backend-enforced too - the wizard never submits them), so
+  // there's no in-chat edit path to send the consultant to here. "Corriger"
+  // still needs to do something meaningful rather than just repeat the
+  // static disclaimer, so it surfaces the same guidance as an explicit bot
+  // response before letting the rest of the update continue - not a dead
+  // end, just an honest one given who actually owns this data.
+  function handlePersonalInfoCorrect() {
+    userSay('Une correction est nécessaire');
+    botSay(
+      "Ces informations sont gérées par un administrateur - contactez-le pour les corriger. Continuons la mise à jour du reste de votre profil."
+    );
     setStep(STEP.ASK_TITLE);
     botSay('Quelle est votre expertise principale actuelle ?');
     setTextInput(title);
@@ -1248,6 +1273,9 @@ export default function ChatCvScreen() {
         return (
           <Stack spacing={1.5} sx={{ maxWidth: 720, mx: 'auto' }}>
             <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+              <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700, display: 'block', mb: 1 }}>
+                Vos informations
+              </Typography>
               <Stack spacing={1}>
                 {[
                   ['Prénom', personalInfo.firstName],
@@ -1265,11 +1293,25 @@ export default function ChatCvScreen() {
               </Stack>
             </Paper>
             <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>
-              Ces informations sont gérées par un administrateur. Contactez-le si une correction est nécessaire.
+              Ces informations sont gérées par un administrateur.
             </Typography>
-            <Button variant="contained" onClick={handlePersonalInfoContinue} sx={{ alignSelf: 'flex-start' }}>
-              Continuer
-            </Button>
+            <Stack direction="row" spacing={1.5}>
+              <Button
+                variant="contained"
+                startIcon={<CheckCircleOutlineIcon fontSize="small" />}
+                onClick={handlePersonalInfoContinue}
+              >
+                C'est à jour
+              </Button>
+              <Button
+                variant="outlined"
+                color="inherit"
+                startIcon={<EditOutlinedIcon fontSize="small" />}
+                onClick={handlePersonalInfoCorrect}
+              >
+                Corriger
+              </Button>
+            </Stack>
           </Stack>
         );
       case STEP.ASK_TITLE:
@@ -1750,20 +1792,7 @@ export default function ChatCvScreen() {
       <AppHeader
         title="CVthèque"
         className="no-print"
-        actions={
-          <Tooltip title="Espace Admin">
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<SettingsIcon fontSize="small" />}
-              onClick={() => {
-                window.location.href = '/admin';
-              }}
-            >
-              Admin
-            </Button>
-          </Tooltip>
-        }
+        actions={<UserMenu name={name} onLogout={resetConversation} />}
       />
       {isDashboard ? (
         <ConsultantDashboard
@@ -1777,10 +1806,10 @@ export default function ChatCvScreen() {
           lastRejection={lastRejection}
           downloading={downloading}
           downloadError={downloadError}
+          onDismissDownloadError={() => setDownloadError(null)}
           onStartUpdate={handleStartUpdate}
           onDownloadCv={handleDownloadCv}
           onShowPreview={handleShowPreview}
-          onLogout={resetConversation}
         />
       ) : isPreview ? (
         <Box sx={{ flex: 1, overflowY: 'auto' }}>
@@ -1829,6 +1858,35 @@ export default function ChatCvScreen() {
   );
 }
 
+// Logout moved out of the button row and into this avatar menu, persistent
+// across every step (not just the dashboard) - a small header-level action
+// reads better there than sitting alongside the primary/secondary content
+// buttons. Only rendered once logged in (App passes null name pre-login).
+function UserMenu({ name, onLogout }) {
+  const [anchorEl, setAnchorEl] = useState(null);
+  if (!name) return null;
+  return (
+    <>
+      <IconButton size="small" onClick={(e) => setAnchorEl(e.currentTarget)} aria-label="Menu utilisateur">
+        <Avatar sx={{ width: 32, height: 32, fontSize: 14 }}>{name[0]}</Avatar>
+      </IconButton>
+      <Menu anchorEl={anchorEl} open={!!anchorEl} onClose={() => setAnchorEl(null)}>
+        <MenuItem
+          onClick={() => {
+            setAnchorEl(null);
+            onLogout();
+          }}
+        >
+          <ListItemIcon>
+            <LogoutIcon fontSize="small" />
+          </ListItemIcon>
+          Se déconnecter
+        </MenuItem>
+      </Menu>
+    </>
+  );
+}
+
 // Opt-in only (no permission prompt on load) - lets a consultant get pushed
 // their own approve/reject decision without email being set up. Silently
 // hides itself if the browser doesn't support push at all.
@@ -1874,10 +1932,10 @@ function ConsultantDashboard({
   lastRejection,
   downloading,
   downloadError,
+  onDismissDownloadError,
   onStartUpdate,
   onDownloadCv,
   onShowPreview,
-  onLogout,
 }) {
   return (
     <Box sx={{ flex: 1, overflowY: 'auto', p: 3 }}>
@@ -1920,13 +1978,12 @@ function ConsultantDashboard({
             {downloading ? 'Téléchargement...' : 'Télécharger mon CV'}
           </Button>
           <ConsultantPushButton credentials={credentials} />
-          <Button variant="text" color="inherit" onClick={onLogout}>
-            Se déconnecter
-          </Button>
         </Stack>
-        {downloadError && (
-          <Typography sx={{ color: 'error.main', fontSize: 13, mb: 2 }}>{downloadError}</Typography>
-        )}
+        <Snackbar open={!!downloadError} autoHideDuration={6000} onClose={onDismissDownloadError}>
+          <Alert severity="error" onClose={onDismissDownloadError} variant="filled">
+            {downloadError}
+          </Alert>
+        </Snackbar>
 
         <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, mb: 3, mt: 2 }}>
           <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
@@ -2034,7 +2091,7 @@ function TextRow({ placeholder, value, onChange, onSubmit, multiline, maxLength 
         rows={multiline ? 3 : 1}
         size="small"
         fullWidth
-        inputProps={maxLength ? { maxLength } : undefined}
+        inputProps={{ 'aria-label': placeholder || 'Votre réponse', ...(maxLength ? { maxLength } : {}) }}
         helperText={nearLimit ? `${value.length} / ${maxLength}` : undefined}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !multiline) {
