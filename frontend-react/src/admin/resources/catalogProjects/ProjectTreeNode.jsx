@@ -62,7 +62,7 @@ export default function ProjectTreeNode({ node, depth, tree, expanded, onToggleE
               <Chip
                 size="small"
                 label={`${node.startDate || '?'} → ${node.endDate || '?'}`}
-                sx={{ bgcolor: '#e0f2f1', color: '#00796b' }}
+                sx={{ bgcolor: 'secondary.light', color: 'secondary.dark' }}
               />
             )}
           </Stack>

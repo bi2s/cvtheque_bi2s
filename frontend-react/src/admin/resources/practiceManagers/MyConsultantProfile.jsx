@@ -303,7 +303,7 @@ export default function MyConsultantProfile() {
               {p.modules.map((m) => (
                 <Chip key={m} label={m} size="small" color="primary" variant="outlined" />
               ))}
-              <Chip label={p.missionType} size="small" sx={{ bgcolor: '#e0f2f1', color: '#00796b' }} />
+              <Chip label={p.missionType} size="small" sx={{ bgcolor: 'secondary.light', color: 'secondary.dark' }} />
             </Stack>
             {p.description && (
               <Typography sx={{ fontStyle: 'italic', color: 'text.secondary', fontSize: 13.5, mb: 0.5 }}>{p.description}</Typography>

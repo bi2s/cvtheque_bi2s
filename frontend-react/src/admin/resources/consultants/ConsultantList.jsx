@@ -27,7 +27,7 @@ const defaultSort = { field: 'name', order: 'ASC' };
 // Deterministic per-person color so two consultants with the same initial
 // (e.g. two "M"s) don't render as visually identical grey circles - same
 // hash-to-palette approach as StaffingPlanning's projectColor.
-const AVATAR_PALETTE = ['#5B8DEF', '#2FA37A', '#B8720A', '#8B7CF6', '#E8618C', '#4FC1C6', '#F2784B', '#6B7280'];
+const AVATAR_PALETTE = ['#1C4B5F', '#1FB5A3', '#D9A441', '#E17F94', '#8B7CF6', '#2E7284', '#2ACCB4', '#5E7278'];
 function avatarColor(name) {
   if (!name) return AVATAR_PALETTE[0];
   let hash = 0;

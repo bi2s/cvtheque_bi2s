@@ -37,6 +37,7 @@ import ViewListOutlinedIcon from '@mui/icons-material/ViewListOutlined';
 import { useNotify, usePermissions } from 'react-admin';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
+import { STATUS_OK, STATUS_WARN, STATUS_DANGER } from '../../../theme';
 
 // Jours worked is derived from the Du/Au range (business days, Mon-Fri) -
 // not typed in, since it's fully determined by the two dates already on
@@ -74,19 +75,22 @@ function formatPeriod(startIso, endIso) {
 
 // Projects have no color of their own anywhere in this app - a small
 // deterministic hash keeps the same project the same color across
-// renders/sessions without needing a new "color" column.
-const PROJECT_PALETTE = ['#2FEA99', '#5B8DEF', '#F2B84B', '#E8618C', '#8B7CF6', '#4FC1C6', '#F2784B', '#8CC152'];
+// renders/sessions without needing a new "color" column. Petrol/teal family
+// plus two complementary accents (amber, lavender) for enough categorical
+// distinction between simultaneously-visible project bars.
+const PROJECT_PALETTE = ['#256070', '#1FB5A3', '#2EE5C0', '#2E7284', '#188E93', '#6FE6D0', '#D9A441', '#8B7CF6'];
 export function projectColor(projectId) {
-  if (!projectId) return '#B0B7B5';
+  if (!projectId) return '#9AAAAE';
   return PROJECT_PALETTE[Number(projectId) % PROJECT_PALETTE.length];
 }
 
-// Green/orange/red thresholds per spec (<70 / 70-100 / >100) - colors
-// chosen to hold WCAG AA contrast against white text where used as a fill.
+// Green/orange/red thresholds per spec (<70 / 70-100 / >100) - colors come
+// from theme.js's shared semantic tokens (STATUS_OK/WARN/DANGER), the same
+// ones the theme-driven success/warning/error chips elsewhere already use.
 export function occupationTier(pct) {
-  if (pct > 100) return { color: '#B3261E', bg: '#FBE7E6', label: 'Suraffecté' };
-  if (pct >= 70) return { color: '#8A5A00', bg: '#FCEFDC', label: 'Charge élevée' };
-  return { color: '#1B7A4E', bg: '#E4F7EC', label: 'Charge normale' };
+  if (pct > 100) return { color: STATUS_DANGER.main, bg: STATUS_DANGER.bg, label: 'Suraffecté' };
+  if (pct >= 70) return { color: STATUS_WARN.main, bg: STATUS_WARN.bg, label: 'Charge élevée' };
+  return { color: STATUS_OK.main, bg: STATUS_OK.bg, label: 'Charge normale' };
 }
 
 const EMPTY_FORM = {
@@ -233,7 +237,7 @@ function TimelineView({ assignments, utilizationByConsultant, monthOffset, setMo
                               backgroundImage: overlap
                                 ? 'repeating-linear-gradient(45deg, rgba(0,0,0,.28) 0, rgba(0,0,0,.28) 4px, transparent 4px, transparent 8px)'
                                 : 'none',
-                              border: overlap ? '1px solid #B3261E' : 'none',
+                              border: overlap ? `1px solid ${STATUS_DANGER.main}` : 'none',
                               borderRadius: 0.75,
                             }}
                           />
@@ -887,7 +891,7 @@ export default function StaffingPlanning() {
                           <Chip
                             size="small"
                             label={a.projectClient}
-                            sx={{ bgcolor: projectColor(a.projectId), color: '#1B1D1E', fontWeight: 600 }}
+                            sx={{ bgcolor: projectColor(a.projectId), color: '#fff', fontWeight: 600 }}
                           />
                         ) : (
                           '—'
