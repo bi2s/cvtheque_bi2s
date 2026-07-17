@@ -4,6 +4,7 @@ import BulkDownloadCvButton from './BulkDownloadCvButton';
 import RowActionsMenu from './RowActionsMenu';
 import useAdminPhotoUrl from './useAdminPhotoUrl';
 import { occupationTier } from '../practiceManagers/StaffingPlanning';
+import { SENIORITY_LEVELS, seniorityLabel } from '../../seniorityLabels';
 
 // Same hardcoded module list the CV wizard offers consultants
 // (SKILL_CATALOG.module in ChatCvScreen.jsx) - kept as a separate, deliberate
@@ -14,11 +15,7 @@ const MODULE_CHOICES = ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM
   name: m,
 }));
 
-// Same list StaffingSearch.jsx already uses for seniority filtering - one
-// definition would be better, but that file lives in a different resource
-// folder with no shared "referentials" module to put this in without
-// inventing one for a single 4-item array.
-const SENIORITY_CHOICES = ['Junior', 'Mid-Level', 'Senior', 'Expert'].map((s) => ({ id: s, name: s }));
+const SENIORITY_CHOICES = SENIORITY_LEVELS.map((s) => ({ id: s, name: seniorityLabel(s) }));
 
 const filters = [
   <SearchInput source="q" alwaysOn key="q" placeholder="Rechercher (nom, modules, expertise)..." />,
@@ -56,7 +53,7 @@ function ConsultantField() {
       <Box>
         <Typography sx={{ fontWeight: 600, fontSize: 14, lineHeight: 1.3 }}>{record.name}</Typography>
         {record.seniorityLevel && (
-          <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>{record.seniorityLevel}</Typography>
+          <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>{seniorityLabel(record.seniorityLevel)}</Typography>
         )}
       </Box>
     </Stack>

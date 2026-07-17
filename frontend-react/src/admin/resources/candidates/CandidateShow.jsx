@@ -31,6 +31,19 @@ const AUDIT_ACTION_LABELS = {
   document_added: 'Document ajouté',
 };
 
+const AUDIT_FIELD_LABELS = {
+  firstName: 'Prénom',
+  lastName: 'Nom',
+  email: 'Email',
+  phone: 'Téléphone',
+  location: 'Localisation',
+  desiredPosition: 'Poste recherché',
+  domain: 'Domaine',
+  availability: 'Disponibilité',
+  desiredSalary: 'Salaire souhaité',
+  stage: 'Étape',
+};
+
 function formatDate(d) {
   return d ? new Date(d).toLocaleDateString('fr-FR') : '—';
 }
@@ -61,6 +74,16 @@ function CandidateShowContent() {
         <CircularProgress size={28} />
       </Box>
     );
+  }
+
+  // Stage-change audit entries store raw stage ids as old/new values -
+  // resolve them to names via the stage history the candidate actually
+  // went through, rather than showing a bare number.
+  const stageNameById = new Map(record.stageHistory.map((h) => [String(h.stageId), h.stageName]));
+  function auditFieldValue(a, raw) {
+    if (raw == null || raw === '') return '—';
+    if (a.field === 'stage') return stageNameById.get(String(raw)) || raw;
+    return raw;
   }
 
   async function submitComment() {
@@ -336,7 +359,7 @@ function CandidateShowContent() {
               </Stack>
               {a.field && (
                 <Typography sx={{ fontSize: 12.5, mt: 0.5 }}>
-                  {a.field} : « {a.oldValue || '—'} » → « {a.newValue || '—'} »
+                  {AUDIT_FIELD_LABELS[a.field] || a.field} : « {auditFieldValue(a, a.oldValue)} » → « {auditFieldValue(a, a.newValue)} »
                 </Typography>
               )}
               {a.comment && !a.field && (

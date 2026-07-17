@@ -12,6 +12,7 @@ import {
   CircularProgress,
   FormControlLabel,
   Checkbox,
+  Tooltip,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import { API_BASE_URL } from '../../../api';
@@ -19,11 +20,11 @@ import { getAuthHeader } from '../../authHeader';
 import useAdminPhotoUrl from '../consultants/useAdminPhotoUrl';
 import ScoreBreakdown from './ScoreBreakdown';
 import { parseGuidedSearch } from './guidedSearch';
+import { SENIORITY_LEVELS as SENIORITY_CHOICES, seniorityLabel } from '../../seniorityLabels';
 
 const MODULE_CHOICES = ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'];
 const TECHNOLOGY_CHOICES = ['SAP Fiori UX & Launchpad', 'Clean Core', 'SAP BTP', 'RISE with SAP'];
 const LANGUAGE_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-const SENIORITY_CHOICES = ['Junior', 'Mid-Level', 'Senior', 'Expert'];
 
 function ResultCard({ consultant }) {
   const photoUrl = useAdminPhotoUrl(consultant.id, consultant.hasPhoto);
@@ -37,7 +38,9 @@ function ResultCard({ consultant }) {
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <Typography sx={{ fontWeight: 700 }}>{consultant.name}</Typography>
             {consultant.score !== null && (
-              <Chip label={`${consultant.score}%`} size="small" color={consultant.score >= 70 ? 'success' : 'warning'} />
+              <Tooltip title="Score de correspondance calculé par règles métier (modules, langues, disponibilité...), pas par un modèle d'IA.">
+                <Chip label={`${consultant.score}%`} size="small" color={consultant.score >= 70 ? 'success' : 'warning'} />
+              </Tooltip>
             )}
             {consultant.rareModules.length > 0 && (
               <Chip label={`Rare : ${consultant.rareModules.join(', ')}`} size="small" variant="outlined" color="secondary" />
@@ -50,7 +53,7 @@ function ResultCard({ consultant }) {
             />
           </Stack>
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-            {consultant.title} {consultant.seniorityLevel ? `— ${consultant.seniorityLevel}` : ''}
+            {consultant.title} {consultant.seniorityLevel ? `— ${seniorityLabel(consultant.seniorityLevel)}` : ''}
             {consultant.statusLabel ? ` — ${consultant.statusLabel}` : ''}
           </Typography>
           <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.75 }}>
@@ -104,7 +107,7 @@ export default function StaffingSearch() {
         Recherche de staffing
       </Typography>
       <Typography sx={{ color: 'text.secondary', fontSize: 13.5, mb: 2 }}>
-        Filtres structurés + score de correspondance calculé par règles (pas d'IA).
+        Filtres structurés et score de correspondance calculé par règles métier.
       </Typography>
 
       <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 3 }}>
@@ -188,7 +191,7 @@ export default function StaffingSearch() {
           <MenuItem value="">—</MenuItem>
           {SENIORITY_CHOICES.map((s) => (
             <MenuItem key={s} value={s}>
-              {s}
+              {seniorityLabel(s)}
             </MenuItem>
           ))}
         </TextField>

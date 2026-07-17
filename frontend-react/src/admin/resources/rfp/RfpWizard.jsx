@@ -26,9 +26,9 @@ import { useNotify } from 'react-admin';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
 import ScoreBreakdown from '../staffing/ScoreBreakdown';
+import { SENIORITY_LEVELS as SENIORITY_CHOICES, seniorityLabel } from '../../seniorityLabels';
 
 const MODULE_CHOICES = ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'];
-const SENIORITY_CHOICES = ['Junior', 'Mid-Level', 'Senior', 'Expert'];
 const COMPLIANCE_LABELS = { satisfied: 'Satisfait', missing: 'Manquant' };
 const COMPLIANCE_COLORS = { satisfied: 'success', missing: 'error' };
 
@@ -260,7 +260,7 @@ function ConsultantsTab({ proposalId, proposal, selected, onChanged }) {
           <MenuItem value="">—</MenuItem>
           {SENIORITY_CHOICES.map((s) => (
             <MenuItem key={s} value={s}>
-              {s}
+              {seniorityLabel(s)}
             </MenuItem>
           ))}
         </TextField>

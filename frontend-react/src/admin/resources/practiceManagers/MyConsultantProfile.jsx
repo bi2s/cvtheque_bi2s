@@ -30,8 +30,8 @@ import { useNotify } from 'react-admin';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
 import CvPreview from '../../../CvPreview';
+import { SENIORITY_LEVELS, seniorityLabel } from '../../seniorityLabels';
 
-const SENIORITY_LEVELS = ['Junior', 'Mid-Level', 'Senior', 'Expert'];
 const GENDERS = [
   { id: 'F', name: 'Femme' },
   { id: 'M', name: 'Homme' },
@@ -222,7 +222,7 @@ export default function MyConsultantProfile() {
               <MenuItem value="">—</MenuItem>
               {SENIORITY_LEVELS.map((l) => (
                 <MenuItem key={l} value={l}>
-                  {l}
+                  {seniorityLabel(l)}
                 </MenuItem>
               ))}
             </TextField>

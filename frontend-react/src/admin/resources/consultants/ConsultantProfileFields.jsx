@@ -3,8 +3,9 @@ import { TextInput, SelectInput, CheckboxGroupInput } from 'react-admin';
 import { Typography } from '@mui/material';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
+import { SENIORITY_LEVELS as SENIORITY_VALUES, seniorityLabel } from '../../seniorityLabels';
 
-const SENIORITY_LEVELS = ['Junior', 'Mid-Level', 'Senior', 'Expert'].map((l) => ({ id: l, name: l }));
+const SENIORITY_LEVELS = SENIORITY_VALUES.map((l) => ({ id: l, name: seniorityLabel(l) }));
 const GENDERS = [
   { id: 'F', name: 'Femme' },
   { id: 'M', name: 'Homme' },
