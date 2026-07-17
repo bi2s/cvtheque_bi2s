@@ -413,7 +413,9 @@ export default function StaffingPlanning() {
   }
 
   const isManager = permissions?.role === 'manager';
-  const isMissionRole = ['responsable_mission', 'chef_projet'].includes(permissions?.role);
+  // chef_projet also manages the planning (create/edit/delete), same as a
+  // manager - only responsable_mission stays read-only ("consulter").
+  const isMissionRole = permissions?.role === 'responsable_mission';
   const utilizationByConsultant = new Map(utilization.map((u) => [u.consultantId, u]));
 
   function toggleSort(field) {

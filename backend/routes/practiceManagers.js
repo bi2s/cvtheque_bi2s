@@ -653,11 +653,15 @@ module.exports = function buildPracticeManagersRouter({
   // wizard-submission pipeline) - this is a planning/scheduling record, not
   // part of a consultant's CV. No KPIs/heatmap/Gantt yet, per the "minimal
   // version first" scope agreed for this feature.
-  // 'responsable_mission'/'chef_projet' are read-only here ("consulter
-  // leurs missions/affectations") - creation/deletion stay admin/rh/manager
-  // territory, matching how those two roles were scoped when the user
-  // confirmed the request.
-  const MISSION_ROLES = ['responsable_mission', 'chef_projet'];
+  // 'responsable_mission' is read-only here ("consulter leurs
+  // missions/affectations") - creation/deletion stay admin/rh/manager/
+  // chef_projet territory. 'chef_projet' was originally scoped read-only
+  // alongside responsable_mission too, but the user later asked for it to
+  // also manage the planning (create/edit/delete), same as a manager -
+  // unlike manager it isn't module-scoped (assertConsultantInScope only
+  // restricts the 'manager' role), so chef_projet gets unscoped write
+  // access across every consultant's assignments.
+  const MISSION_ROLES = ['responsable_mission'];
 
   router.post('/staffing-assignments', requireAdminOrManager, async (req, res) => {
     if (MISSION_ROLES.includes(req.admin.role)) {
