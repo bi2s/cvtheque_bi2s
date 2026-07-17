@@ -12,13 +12,22 @@ function readStoredAuth() {
   }
 }
 
+// Exported so LoginForm.jsx's shared submit handler (used both here and at
+// the app root for the unified login) can persist an already-completed
+// admin probe without re-fetching /api/admin/me a second time - the two
+// call sites must agree byte-for-byte on this shape, so it's one function,
+// not two copies that could drift.
+export function storeAdminAuth({ username, password, role, moduleIds, consultantId }) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ username, password, role, moduleIds, consultantId }));
+}
+
 const authProvider = {
   async login({ username, password }) {
     const authHeader = basicAuthHeader(username, password);
     const res = await fetch(`${API_BASE_URL}/api/admin/me`, { headers: { Authorization: authHeader } });
     if (!res.ok) throw new Error('Identifiants invalides');
     const { role, moduleIds, consultantId } = await res.json();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ username, password, role, moduleIds, consultantId }));
+    storeAdminAuth({ username, password, role, moduleIds, consultantId });
   },
 
   async logout() {

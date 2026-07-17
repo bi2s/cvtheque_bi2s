@@ -26,6 +26,8 @@ import { API_BASE_URL, basicAuthHeader } from './api';
 import AppHeader from './AppHeader';
 import CvPreview from './CvPreview';
 import ChangeSummary from './shared/ChangeSummary';
+import LoginForm from './LoginForm';
+import { storeAdminAuth } from './admin/authProvider';
 import formatRelativeDate from './admin/formatRelativeDate';
 import {
   EXPERIENCE_LEVELS,
@@ -290,10 +292,6 @@ export default function ChatCvScreen() {
   const [step, setStep] = useState(STEP.LOGIN);
   const [catalogProjects, setCatalogProjects] = useState([]);
   const [credentials, setCredentials] = useState(null);
-  const [loginUsername, setLoginUsername] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  const [loginError, setLoginError] = useState(null);
-  const [loggingIn, setLoggingIn] = useState(false);
   const [name, setName] = useState('');
   const [title, setTitle] = useState('');
   const [gender, setGender] = useState(null);
@@ -547,37 +545,33 @@ export default function ChatCvScreen() {
     setPreviousData(buildSnapshotFromServerData(data));
   }
 
-  async function handleLogin() {
-    setLoggingIn(true);
-    setLoginError(null);
-    const authHeader = basicAuthHeader(loginUsername, loginPassword);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/consultant/me`, {
-        headers: { Authorization: authHeader },
-      });
-      if (!res.ok) {
-        setLoginError('Identifiants invalides');
-        return;
-      }
-      const data = await res.json();
-      setCredentials({ username: loginUsername, password: loginPassword });
-      applyMeData(data);
-      const draft = loadDraft(loginUsername);
-      if (draft) {
-        setPendingDraft(draft);
-        setStep(STEP.RESUME_DRAFT);
-        botSay(
-          `Vous avez une mise à jour non terminée (sauvegardée le ${new Date(draft.savedAt).toLocaleString('fr-FR')}). Voulez-vous reprendre où vous en étiez ?`
-        );
-      } else {
-        setStep(STEP.DASHBOARD);
-      }
-      loadTaskLibraryReferentials(authHeader);
-    } catch (e) {
-      setLoginError(`Erreur de connexion : ${e}`);
-    } finally {
-      setLoggingIn(false);
+  // Consultant match from the shared LoginForm (tries admin, then
+  // consultant) - same handoff handleLogin always did, just fed data the
+  // form already fetched instead of re-probing here.
+  async function handleConsultantLoginSuccess({ username, password, data }) {
+    const authHeader = basicAuthHeader(username, password);
+    setCredentials({ username, password });
+    applyMeData(data);
+    const draft = loadDraft(username);
+    if (draft) {
+      setPendingDraft(draft);
+      setStep(STEP.RESUME_DRAFT);
+      botSay(
+        `Vous avez une mise à jour non terminée (sauvegardée le ${new Date(draft.savedAt).toLocaleString('fr-FR')}). Voulez-vous reprendre où vous en étiez ?`
+      );
+    } else {
+      setStep(STEP.DASHBOARD);
     }
+    loadTaskLibraryReferentials(authHeader);
+  }
+
+  // An admin/rh/manager/pmo/mission credential typed at the app root (the
+  // consultant entry point) - persists the same localStorage shape
+  // authProvider.js's own login() writes, so react-admin sees an
+  // already-authenticated session and skips its own login screen too.
+  function handleAdminLoginSuccess({ username, password, data }) {
+    storeAdminAuth({ username, password, role: data.role, moduleIds: data.moduleIds, consultantId: data.consultantId });
+    window.location.href = '/admin';
   }
 
   function handleResumeDraft() {
@@ -1376,41 +1370,9 @@ export default function ChatCvScreen() {
     switch (step) {
       case STEP.LOGIN:
         return (
-          <Stack spacing={1.5} sx={{ maxWidth: 720, mx: 'auto' }}>
-            <TextField
-              placeholder="Identifiant"
-              value={loginUsername}
-              onChange={(e) => setLoginUsername(e.target.value)}
-              size="small"
-              fullWidth
-            />
-            <Stack direction="row" spacing={1}>
-              <TextField
-                placeholder="Mot de passe"
-                type="password"
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                size="small"
-                fullWidth
-              />
-              <IconButton
-                aria-label="Se connecter"
-                color="primary"
-                onClick={handleLogin}
-                disabled={loggingIn}
-                sx={{ bgcolor: 'primary.main', color: 'white', '&:hover': { bgcolor: 'primary.dark' } }}
-              >
-                <SendIcon fontSize="small" />
-              </IconButton>
-            </Stack>
-            {loginError && <Typography sx={{ color: 'error.main', fontSize: 13 }}>{loginError}</Typography>}
-            {loggingIn && (
-              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                <CircularProgress size={22} />
-              </Box>
-            )}
-          </Stack>
+          <Box sx={{ maxWidth: 340, mx: 'auto' }}>
+            <LoginForm onAdminSuccess={handleAdminLoginSuccess} onConsultantSuccess={handleConsultantLoginSuccess} />
+          </Box>
         );
       case STEP.REVIEW_PERSONAL_INFO:
         return (

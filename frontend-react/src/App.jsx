@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import ChatCvScreen from './ChatCvScreen';
 import AdminApp from './admin/AdminApp';
+import ForgotPasswordPage from './ForgotPasswordPage';
+import ResetPasswordPage from './ResetPasswordPage';
 
 // <Admin basename="/admin"> must be nested inside a real BrowserRouter, per
 // react-admin's own documented usage (ra-core's CoreAdminContext.tsx docs
@@ -20,6 +22,8 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<ChatCvScreen />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/admin/*" element={<AdminApp />} />
       </Routes>
     </BrowserRouter>

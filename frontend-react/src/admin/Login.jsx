@@ -1,21 +1,26 @@
-import { useState } from 'react';
-import { useLogin } from 'react-admin';
-import { Box, Paper, TextField, Button, Typography, Alert, CircularProgress, Stack } from '@mui/material';
+import { useLogin, useNotify } from 'react-admin';
+import { Box, Paper, Typography } from '@mui/material';
+import LoginForm from '../LoginForm';
 
+// Same shared LoginForm the app root (ChatCvScreen) uses - the heading is
+// deliberately just "Connexion" (was "Connexion Admin"), since which role
+// this account has is determined after authenticating, not announced on
+// an unauthenticated screen. A consultant credential typed here is a
+// normal, expected mistake (bookmarked the wrong URL) - handled by
+// redirecting to the app root rather than showing an error, so they don't
+// need to retype anything wrong to get where they meant to go, just
+// re-enter their password once more on the correct screen.
 export default function Login() {
   const login = useLogin();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const notify = useNotify();
 
-  function submit() {
-    setLoading(true);
-    setError(null);
-    login({ username, password }).catch(() => {
-      setError('Identifiants invalides');
-      setLoading(false);
-    });
+  async function handleAdminSuccess({ username, password }) {
+    await login({ username, password });
+  }
+
+  async function handleConsultantSuccess() {
+    notify('Ceci est un compte consultant - redirection vers votre espace.', { type: 'info' });
+    window.location.href = '/';
   }
 
   return (
@@ -26,37 +31,8 @@ export default function Login() {
       </Box>
       <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Paper elevation={0} sx={{ p: 4, width: 340, border: '1px solid', borderColor: 'divider', borderRadius: 4 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: 18, mb: 2.5 }}>Connexion Admin</Typography>
-          <Stack spacing={2.5}>
-            <TextField
-              label="Nom d'utilisateur"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && submit()}
-              fullWidth
-              size="small"
-              autoFocus
-            />
-            <TextField
-              label="Mot de passe"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && submit()}
-              fullWidth
-              size="small"
-            />
-            {error && <Alert severity="error">{error}</Alert>}
-            {loading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                <CircularProgress size={28} />
-              </Box>
-            ) : (
-              <Button variant="contained" onClick={submit} size="large">
-                Se connecter
-              </Button>
-            )}
-          </Stack>
+          <Typography sx={{ fontWeight: 700, fontSize: 18, mb: 2.5 }}>Connexion</Typography>
+          <LoginForm onAdminSuccess={handleAdminSuccess} onConsultantSuccess={handleConsultantSuccess} />
         </Paper>
       </Box>
     </Box>
