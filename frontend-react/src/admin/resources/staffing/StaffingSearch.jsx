@@ -21,7 +21,7 @@ import ScoreBreakdown from './ScoreBreakdown';
 import { parseGuidedSearch } from './guidedSearch';
 
 const MODULE_CHOICES = ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'];
-const TECHNOLOGY_CHOICES = ['SAP Fiori UX & Launchpad', 'Migration Cockpit (LTMC)', 'Clean Core', 'SAP BTP', 'RISE with SAP'];
+const TECHNOLOGY_CHOICES = ['SAP Fiori UX & Launchpad', 'Clean Core', 'SAP BTP', 'RISE with SAP'];
 const LANGUAGE_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 const SENIORITY_CHOICES = ['Junior', 'Mid-Level', 'Senior', 'Expert'];
 

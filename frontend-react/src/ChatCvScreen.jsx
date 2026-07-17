@@ -35,7 +35,7 @@ const SAP_CERTIFICATIONS = [
 const SKILL_CATALOG = {
   module: ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'],
   flow: ['Order-to-Cash', 'Procure-to-Pay', 'Record-to-Report', 'Settlement Mgmt (RRR)', 'Business Partners (BP)'],
-  technology: ['SAP Fiori UX & Launchpad', 'Migration Cockpit (LTMC)', 'Clean Core', 'SAP BTP', 'RISE with SAP'],
+  technology: ['SAP Fiori UX & Launchpad', 'Clean Core', 'SAP BTP', 'RISE with SAP'],
   methodology: ['SAP Activate', 'Fit-to-Standard', 'Agile / Jira', 'MS Project', 'SharePoint', 'Waterfall'],
 };
 const SKILL_STEP_ORDER = ['module', 'flow', 'technology', 'methodology'];
