@@ -81,6 +81,7 @@ function CreateAdminDialog({ open, onClose, onCreated, consultants }) {
             value={form.password}
             onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
             fullWidth
+            autoComplete="new-password"
           />
           <TextField
             select
@@ -169,6 +170,7 @@ function ResetAdminPasswordDialog({ admin, onClose, onSaved }) {
           onChange={(e) => setPassword(e.target.value)}
           fullWidth
           sx={{ mt: 1 }}
+          autoComplete="new-password"
         />
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.5 }}>

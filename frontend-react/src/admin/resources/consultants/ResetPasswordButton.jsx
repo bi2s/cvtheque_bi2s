@@ -56,11 +56,13 @@ export default function ResetPasswordButton() {
           </Typography>
           <TextField
             label="Nouveau mot de passe"
+            type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             size="small"
             fullWidth
             autoFocus
+            autoComplete="new-password"
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
