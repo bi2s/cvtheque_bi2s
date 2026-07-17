@@ -33,6 +33,7 @@ const {
   notifyAdmins,
   notifyModuleManagers,
   notifyConsultantDecision,
+  notifyCredentialLink,
 } = require('./notifications');
 const { sendServerError, isPositiveInt, parseJsonColumn } = require('./utils');
 const buildCandidatesRouter = require('./routes/candidates');
@@ -430,6 +431,7 @@ async function fetchConsultantDetail(consultantId) {
     username: consultant.username,
     profileSummary: consultant.profile_summary || '',
     hasPhoto: !!consultant.photo_path,
+    hasPassword: !!consultant.password_hash,
     seniorityLevel: consultant.seniority_level,
     statusId: consultant.status_id,
     statusLabel: consultant.status_label,
@@ -1071,7 +1073,7 @@ app.get('/api/consultants', requireAdmin, async (req, res) => {
   const [rows] = await pool.query(`
     SELECT c.id, c.name, c.title, c.username, (c.photo_path IS NOT NULL) AS hasPhoto,
            c.status_id AS statusId, cs.label AS statusLabel, c.archived_at AS archivedAt,
-           c.seniority_level AS seniorityLevel
+           c.seniority_level AS seniorityLevel, (c.password_hash IS NOT NULL) AS hasPassword
     FROM consultants c
     LEFT JOIN consultant_statuses cs ON cs.id = c.status_id
     ${where}
@@ -1084,7 +1086,14 @@ app.get('/api/consultants', requireAdmin, async (req, res) => {
     if (!modulesByConsultant.has(r.consultant_id)) modulesByConsultant.set(r.consultant_id, []);
     modulesByConsultant.get(r.consultant_id).push(r.label);
   }
-  res.json(rows.map((r) => ({ ...r, hasPhoto: !!r.hasPhoto, modules: modulesByConsultant.get(r.id) || [] })));
+  res.json(
+    rows.map((r) => ({
+      ...r,
+      hasPhoto: !!r.hasPhoto,
+      hasPassword: !!r.hasPassword,
+      modules: modulesByConsultant.get(r.id) || [],
+    }))
+  );
 });
 
 async function replaceConsultantMissionTypes(conn, consultantId, missionTypeIds) {
@@ -1099,8 +1108,8 @@ async function replaceConsultantMissionTypes(conn, consultantId, missionTypeIds)
 
 app.post('/api/admin/consultants', requireAdmin, async (req, res) => {
   const { name, title, username, password, missionTypeIds = [] } = req.body;
-  if (!name || !username || !password) {
-    return res.status(400).json({ detail: 'Nom, identifiant et mot de passe requis' });
+  if (!name || !username) {
+    return res.status(400).json({ detail: 'Nom et identifiant requis' });
   }
 
   const [[existing]] = await pool.query('SELECT id FROM consultants WHERE username = ?', [username]);
@@ -1108,7 +1117,13 @@ app.post('/api/admin/consultants', requireAdmin, async (req, res) => {
     return res.status(409).json({ detail: 'Cet identifiant est deja utilise' });
   }
 
-  const passwordHash = await bcrypt.hash(password, 10);
+  // Password is now optional at creation time - "créer la fiche" and
+  // "créer l'accès" are separate steps (POST .../invite sends the
+  // password-set link once the profile has an email on file). A
+  // NULL password_hash here is a supported, already-handled state -
+  // auth.js's requireConsultant already treats "no password set yet"
+  // the same as "wrong password" (generic error, no crash).
+  const passwordHash = password ? await bcrypt.hash(password, 10) : null;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -1210,6 +1225,83 @@ app.put('/api/admin/consultants/:id/password', requireAdmin, async (req, res) =>
 app.delete('/api/admin/consultants/:id', requireAdmin, async (req, res) => {
   const [result] = await pool.query('DELETE FROM consultants WHERE id = ?', [req.params.id]);
   if (result.affectedRows === 0) return res.status(404).json({ detail: 'Consultant introuvable' });
+  res.json({ ok: true });
+});
+
+// Shared by both the invite flow (a brand new, passwordless consultant
+// account) and "mot de passe oublié" (any existing account) - single-use,
+// 24h-expiring link. The raw token is only ever held in memory here and in
+// the email body; the DB only ever sees its SHA-256 digest, same principle
+// as password_hash never storing a plain password.
+async function createCredentialToken(accountType, accountId, purpose) {
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  await pool.query(
+    'INSERT INTO credential_tokens (account_type, account_id, token_hash, purpose, expires_at) VALUES (?, ?, ?, ?, ?)',
+    [accountType, accountId, tokenHash, purpose, expiresAt]
+  );
+  return rawToken;
+}
+
+// Admin-triggered - generates an invite link for a consultant created
+// without a password (POST /api/admin/consultants now accepts no password)
+// and emails it. No-ops loudly (400) if the consultant has no email on
+// file, since silently doing nothing would look like success from the
+// admin's side.
+app.post('/api/admin/consultants/:id/invite', requireAdmin, async (req, res) => {
+  const [[consultant]] = await pool.query('SELECT id, name, email FROM consultants WHERE id = ?', [
+    req.params.id,
+  ]);
+  if (!consultant) return res.status(404).json({ detail: 'Consultant introuvable' });
+  if (!consultant.email) {
+    return res.status(400).json({ detail: "Ce consultant n'a pas d'adresse e-mail renseignée." });
+  }
+  const token = await createCredentialToken('consultant', consultant.id, 'invite');
+  notifyCredentialLink(consultant.email, consultant.name, { purpose: 'invite', token }).catch(() => {});
+  res.json({ ok: true });
+});
+
+// Public by design (no Basic Auth - this is how you get in when you can't
+// authenticate yet). Always returns the same generic response regardless
+// of whether the username matched an account or that account has an email
+// on file, so this can't be used to enumerate valid usernames - same
+// principle as auth.js's DUMMY_HASH constant-time comparison.
+app.post('/api/auth/request-password-link', async (req, res) => {
+  const username = (req.body.username || '').trim();
+  if (username) {
+    const [[admin]] = await pool.query('SELECT id, username, email FROM admins WHERE username = ?', [username]);
+    const [[consultant]] = await pool.query('SELECT id, name, email FROM consultants WHERE username = ?', [
+      username,
+    ]);
+    if (admin?.email) {
+      const token = await createCredentialToken('admin', admin.id, 'reset');
+      notifyCredentialLink(admin.email, admin.username, { purpose: 'reset', token }).catch(() => {});
+    } else if (consultant?.email) {
+      const token = await createCredentialToken('consultant', consultant.id, 'reset');
+      notifyCredentialLink(consultant.email, consultant.name, { purpose: 'reset', token }).catch(() => {});
+    }
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/auth/consume-password-link', async (req, res) => {
+  const { token, newPassword } = req.body;
+  if (!token || !newPassword) {
+    return res.status(400).json({ detail: 'Lien invalide.' });
+  }
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  const [[row]] = await pool.query(
+    'SELECT * FROM credential_tokens WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW()',
+    [tokenHash]
+  );
+  if (!row) {
+    return res.status(400).json({ detail: 'Ce lien est invalide ou a expiré. Demandez-en un nouveau.' });
+  }
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  const table = row.account_type === 'admin' ? 'admins' : 'consultants';
+  await pool.query(`UPDATE ${table} SET password_hash = ? WHERE id = ?`, [passwordHash, row.account_id]);
+  await pool.query('UPDATE credential_tokens SET used_at = NOW() WHERE id = ?', [row.id]);
   res.json({ ok: true });
 });
 

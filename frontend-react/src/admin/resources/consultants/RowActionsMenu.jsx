@@ -20,6 +20,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import LockResetIcon from '@mui/icons-material/LockReset';
+import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import { API_BASE_URL } from '../../../api';
@@ -94,6 +95,21 @@ export default function RowActionsMenu() {
     }
   }
 
+  async function handleInvite(e) {
+    closeMenu(e);
+    const res = await fetch(`${API_BASE_URL}/api/admin/consultants/${record.id}/invite`, {
+      method: 'POST',
+      headers: { Authorization: getAuthHeader() },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      notify('custom.server_error', { type: 'error', messageArgs: { detail: body.detail || 'Échec' } });
+      return;
+    }
+    notify('custom.invite_sent', { type: 'success', messageArgs: { name: record.name } });
+    refresh();
+  }
+
   // "Archiver" reuses the existing departure-declaration workflow on the
   // profile page (DepartureSection.jsx) rather than a separate one-click
   // shortcut straight to archived_at - that flow already collects a
@@ -149,17 +165,26 @@ export default function RowActionsMenu() {
           </ListItemIcon>
           <ListItemText>Télécharger le CV</ListItemText>
         </MenuItem>
-        <MenuItem
-          onClick={(e) => {
-            closeMenu(e);
-            setResetOpen(true);
-          }}
-        >
-          <ListItemIcon>
-            <LockResetIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Réinitialiser le mot de passe</ListItemText>
-        </MenuItem>
+        {record.hasPassword === false ? (
+          <MenuItem onClick={handleInvite}>
+            <ListItemIcon>
+              <MailOutlineIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Inviter (e-mail)</ListItemText>
+          </MenuItem>
+        ) : (
+          <MenuItem
+            onClick={(e) => {
+              closeMenu(e);
+              setResetOpen(true);
+            }}
+          >
+            <ListItemIcon>
+              <LockResetIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Réinitialiser le mot de passe</ListItemText>
+          </MenuItem>
+        )}
         <Divider />
         <MenuItem onClick={handleArchive}>
           <ListItemIcon>
@@ -191,11 +216,13 @@ export default function RowActionsMenu() {
           </Typography>
           <TextField
             label="Nouveau mot de passe"
+            type="password"
             value={resetPassword}
             onChange={(e) => setResetPassword(e.target.value)}
             size="small"
             fullWidth
             autoFocus
+            autoComplete="new-password"
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>

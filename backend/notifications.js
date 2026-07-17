@@ -152,11 +152,27 @@ function notifyConsultantDecision(email, consultantName, { approved, reason }) {
   return notifyAdminEmail(email, { subject, summary, link: '/' });
 }
 
+// Backs both the consultant-invite flow and "mot de passe oublié" - same
+// email shape either way (a link with a single-use token), just different
+// subject/copy depending on purpose. Reuses notifyAdminEmail's targeted
+// per-recipient primitive, same dormant-until-SMTP-configured behavior as
+// every other notification here - no new failure mode.
+function notifyCredentialLink(email, name, { purpose, token }) {
+  const subject =
+    purpose === 'invite' ? 'CVthèque : activez votre compte' : 'CVthèque : réinitialisation de votre mot de passe';
+  const summary =
+    purpose === 'invite'
+      ? `Bonjour ${name}, un accès à la CVthèque BI2S a été créé pour vous. Cliquez sur le lien ci-dessous pour définir votre mot de passe (valable 24h).`
+      : `Bonjour ${name}, vous avez demandé la réinitialisation de votre mot de passe. Cliquez sur le lien ci-dessous pour en définir un nouveau (valable 24h).`;
+  return notifyAdminEmail(email, { subject, summary, link: `/reset-password?token=${token}` });
+}
+
 module.exports = {
   notifyAdmins,
   notifyNewChangeRequest,
   notifyDeparture,
   notifyConsultantDecision,
+  notifyCredentialLink,
   notifyAdminEmail,
   notifyModuleManagers,
   buildTeamsPayload,

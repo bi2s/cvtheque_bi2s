@@ -35,6 +35,7 @@ const customFrenchMessages = {
     password_updated: 'Mot de passe de %{name} mis à jour.',
     cv_downloaded: 'CV téléchargé.',
     consultant_deleted: 'Profil de %{name} supprimé.',
+    invite_sent: 'Invitation envoyée à %{name}.',
     cv_download_failed: 'Échec du téléchargement (%{status})',
     password_update_failed: 'Échec (%{status})',
     change_request_approved: 'Demande approuvée et appliquée au profil du consultant.',

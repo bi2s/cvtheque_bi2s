@@ -24,6 +24,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
 import CheckIcon from '@mui/icons-material/Check';
 import ResetPasswordButton from './ResetPasswordButton';
+import InviteButton from './InviteButton';
 import DownloadCvButton from './DownloadCvButton';
 import PhotoUploadButton from './PhotoUploadButton';
 import useAdminPhotoUrl from './useAdminPhotoUrl';
@@ -85,7 +86,7 @@ function ConsultantShowContent() {
         </Button>
         <PhotoUploadButton />
         <DownloadCvButton />
-        <ResetPasswordButton />
+        {record.hasPassword === false ? <InviteButton /> : <ResetPasswordButton />}
       </Stack>
 
       <Dialog open={previewOpen} onClose={() => setPreviewOpen(false)} fullScreen>

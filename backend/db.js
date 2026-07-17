@@ -228,6 +228,25 @@ async function initSchema() {
         password_hash VARCHAR(255) NOT NULL
       )
     `);
+    // Backs both the consultant-invite flow (purpose='invite', a brand new
+    // account with no password_hash yet) and "mot de passe oublié"
+    // (purpose='reset', an existing account). Same mechanism either way: a
+    // single-use, time-limited link. token_hash stores a SHA-256 digest of
+    // the raw token, never the token itself - a DB read alone can't be used
+    // to log in, same principle as password_hash never storing a plain
+    // password.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS credential_tokens (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        account_type VARCHAR(20) NOT NULL,
+        account_id INT NOT NULL,
+        token_hash VARCHAR(64) NOT NULL UNIQUE,
+        purpose VARCHAR(20) NOT NULL,
+        expires_at DATETIME NOT NULL,
+        used_at DATETIME NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
     await conn.query(`
       CREATE TABLE IF NOT EXISTS change_requests (
         id INT AUTO_INCREMENT PRIMARY KEY,
