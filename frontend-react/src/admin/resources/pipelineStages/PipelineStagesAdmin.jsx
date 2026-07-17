@@ -11,6 +11,11 @@ import {
   Checkbox,
   FormControlLabel,
   CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
@@ -24,10 +29,12 @@ export default function PipelineStagesAdmin() {
   const [stages, setStages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState('');
+  const [stageToDelete, setStageToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   function load() {
     fetch(`${API_BASE_URL}/api/admin/pipeline-stages`, { headers: { Authorization: getAuthHeader() } })
-      .then((res) => res.json())
+      .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
         setStages(data);
         setLoading(false);
@@ -65,16 +72,22 @@ export default function PipelineStagesAdmin() {
   }
 
   async function deleteStage(stage) {
-    const res = await fetch(`${API_BASE_URL}/api/admin/pipeline-stages/${stage.id}`, {
-      method: 'DELETE',
-      headers: { Authorization: getAuthHeader() },
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      notify('custom.server_error', { type: 'error', messageArgs: { detail: body.detail || 'Échec de la suppression' } });
-      return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/pipeline-stages/${stage.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: getAuthHeader() },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        notify('custom.server_error', { type: 'error', messageArgs: { detail: body.detail || 'Échec de la suppression' } });
+        return;
+      }
+      setStageToDelete(null);
+      load();
+    } finally {
+      setDeleting(false);
     }
-    load();
   }
 
   async function move(index, direction) {
@@ -155,7 +168,7 @@ export default function PipelineStagesAdmin() {
                 label="Échec"
                 sx={{ whiteSpace: 'nowrap' }}
               />
-              <IconButton size="small" onClick={() => deleteStage(stage)}>
+              <IconButton size="small" onClick={() => setStageToDelete(stage)}>
                 <DeleteOutlineIcon fontSize="small" />
               </IconButton>
             </Stack>
@@ -176,6 +189,34 @@ export default function PipelineStagesAdmin() {
           Ajouter
         </Button>
       </Stack>
+
+      <Dialog open={!!stageToDelete} onClose={() => setStageToDelete(null)}>
+        <DialogTitle>Supprimer l'étape "{stageToDelete?.name}" ?</DialogTitle>
+        <DialogContent>
+          {stageToDelete?.candidateCount > 0 ? (
+            <DialogContentText sx={{ color: 'error.main' }}>
+              {stageToDelete.candidateCount} candidat(s) sont actuellement sur cette étape. Déplacez-les vers une autre
+              étape avant de pouvoir la supprimer.
+            </DialogContentText>
+          ) : (
+            <DialogContentText>
+              Les candidats ayant déjà été sur cette étape par le passé perdront cette entrée dans leur historique.
+              Cette action est irréversible.
+            </DialogContentText>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setStageToDelete(null)}>Annuler</Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={deleting || stageToDelete?.candidateCount > 0}
+            onClick={() => deleteStage(stageToDelete)}
+          >
+            Supprimer
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

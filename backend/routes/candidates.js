@@ -751,7 +751,10 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
 
   // --- Pipeline stages (admin-configurable, no code changes needed) ---
   router.get('/pipeline-stages', requireAdmin, async (req, res) => {
-    const [rows] = await pool.query('SELECT * FROM pipeline_stages ORDER BY sort_order');
+    const [rows] = await pool.query(
+      `SELECT ps.*, (SELECT COUNT(*) FROM candidates c WHERE c.current_stage_id = ps.id) AS candidate_count
+       FROM pipeline_stages ps ORDER BY ps.sort_order`
+    );
     res.json(
       rows.map((r) => ({
         id: r.id,
@@ -759,6 +762,7 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
         sortOrder: r.sort_order,
         isTerminalSuccess: !!r.is_terminal_success,
         isTerminalFailure: !!r.is_terminal_failure,
+        candidateCount: r.candidate_count,
       }))
     );
   });
