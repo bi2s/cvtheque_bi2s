@@ -1150,17 +1150,10 @@ export default function ChatCvScreen() {
 
   function handleCertDateSubmitted(text) {
     const trimmed = text.trim();
-    // Free-form field (no format is enforced - "mars 2023" is as valid as
-    // "2023-03-15"), so only reject the one thing that's unambiguously
-    // wrong in ANY format: a recognized year or ISO date that's in the
-    // future - you can't have obtained a certification you don't have yet.
-    const currentYear = new Date().getFullYear();
-    if (/^\d{4}$/.test(trimmed) && Number(trimmed) > currentYear) {
-      botSay(`La date d'obtention ne peut pas être dans le futur (année ≤ ${currentYear}).`);
-      setTextInput(trimmed);
-      return;
-    }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed) && new Date(trimmed) > new Date()) {
+    // The date picker only ever produces an empty string or a full ISO
+    // date, so the only thing left to reject is a future date - you can't
+    // have obtained a certification you don't have yet.
+    if (trimmed && new Date(trimmed) > new Date()) {
       botSay("La date d'obtention ne peut pas être dans le futur.");
       setTextInput(trimmed);
       return;
@@ -1853,9 +1846,7 @@ export default function ChatCvScreen() {
         );
       }
       case STEP.ASK_CERT_DATE:
-        return (
-          <TextRow placeholder="Date d'obtention (optionnel)..." value={textInput} onChange={setTextInput} onSubmit={handleCertDateSubmitted} />
-        );
+        return <DateRow value={textInput} onChange={setTextInput} onSubmit={handleCertDateSubmitted} />;
       case STEP.ASK_CERT_REFERENCE:
         return (
           <TextRow
@@ -2621,6 +2612,33 @@ function TextRow({ placeholder, value, onChange, onSubmit, multiline, maxLength 
             onSubmit(value);
           }
         }}
+      />
+      <IconButton
+        aria-label="Envoyer"
+        onClick={() => onSubmit(value)}
+        sx={{ bgcolor: 'primary.main', color: 'white', '&:hover': { bgcolor: 'primary.dark' } }}
+      >
+        <SendIcon fontSize="small" />
+      </IconButton>
+    </Stack>
+  );
+}
+
+// Real date picker rather than a free-text chat bubble - the chatbot
+// shouldn't hand the user a blank text box for a date (accepted "mars 2023"
+// as readily as "2023-03-15" before this), only for genuinely free-form
+// fields like links.
+function DateRow({ value, onChange, onSubmit }) {
+  return (
+    <Stack direction="row" spacing={1} sx={{ maxWidth: 720, mx: 'auto', alignItems: 'flex-end' }}>
+      <TextField
+        type="date"
+        label="Date d'obtention (optionnel)"
+        InputLabelProps={{ shrink: true }}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        size="small"
+        fullWidth
       />
       <IconButton
         aria-label="Envoyer"
