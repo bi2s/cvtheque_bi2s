@@ -434,6 +434,7 @@ async function fetchConsultantDetail(consultantId) {
     statusId: consultant.status_id,
     statusLabel: consultant.status_label,
     archivedAt: consultant.archived_at,
+    profileUpdatedAt: consultant.profile_updated_at,
     missionTypeIds: missionTypeRows.map((r) => r.mission_type_id),
     // Personal info - admin-managed (Smart-wizard plan), the wizard only
     // ever displays these read-only.

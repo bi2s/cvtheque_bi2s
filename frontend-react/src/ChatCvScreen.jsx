@@ -56,6 +56,7 @@ const STEP = {
   RESUME_DRAFT: 'RESUME_DRAFT',
   DASHBOARD: 'DASHBOARD',
   PREVIEW: 'PREVIEW',
+  PROFILE: 'PROFILE',
   REVIEW_PERSONAL_INFO: 'REVIEW_PERSONAL_INFO',
   ASK_TITLE: 'ASK_TITLE',
   ASK_SKILLS_MODULE: 'ASK_SKILLS_MODULE',
@@ -342,6 +343,7 @@ export default function ChatCvScreen() {
   });
   const [hasPhoto, setHasPhoto] = useState(false);
   const [photoUrl, setPhotoUrl] = useState(null);
+  const [profileUpdatedAt, setProfileUpdatedAt] = useState(null);
   const [pendingRequest, setPendingRequest] = useState(null);
   const [lastRejection, setLastRejection] = useState(null);
   const [downloading, setDownloading] = useState(false);
@@ -511,6 +513,8 @@ export default function ChatCvScreen() {
         experienceLevel: p.experienceLevel || null,
         experiencePhases: p.experiencePhases || [],
         experienceCertification: p.experienceCertification || null,
+        periodStart: p.periodStart || null,
+        periodEnd: p.periodEnd || null,
       }))
     );
     setSelectedCerts(new Set(data.certifications));
@@ -519,6 +523,7 @@ export default function ChatCvScreen() {
     setFormations(data.formations || []);
     setServerFormationDetails(data.formationDetails || []);
     setHasPhoto(!!data.hasPhoto);
+    setProfileUpdatedAt(data.profileUpdatedAt || null);
     setPersonalInfo({
       firstName: data.firstName || '',
       lastName: data.lastName || '',
@@ -1261,6 +1266,72 @@ export default function ChatCvScreen() {
     }
   }
 
+  // Punctual single-section correction from the profile view (P2) - reuses
+  // the exact same endpoint/payload shape as a full wizard run
+  // (validateGenerateCvPayload doesn't distinguish "how much changed"), so
+  // a one-field fix still goes through the normal admin approval queue
+  // rather than writing straight to the consultants table. `overrides`
+  // wins over current in-memory state for whichever field(s) were just
+  // edited - everything else is submitted unchanged.
+  async function submitPartialUpdate(overrides) {
+    const skills = [];
+    for (const category of SKILL_STEP_ORDER) {
+      for (const label of selectedSkills[category]) {
+        skills.push({ category, label, starred: category === 'module' && label === starredModule });
+      }
+    }
+    const payload = {
+      title,
+      projects,
+      certifications: [...selectedCerts],
+      certificationDetails: Object.values(newCertDetails),
+      profileSummary,
+      languages,
+      formations,
+      skills,
+      ...overrides,
+    };
+    const res = await fetch(`${API_BASE_URL}/api/generate-cv`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: basicAuthHeader(credentials.username, credentials.password),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `Échec (${res.status})`);
+    }
+  }
+
+  async function handleQuickEditTitle(newTitle) {
+    await submitPartialUpdate({ title: newTitle });
+    setTitle(newTitle);
+  }
+
+  async function handleQuickEditSkills(newSelectedSkills, newStarredModule) {
+    const skills = [];
+    for (const category of SKILL_STEP_ORDER) {
+      for (const label of newSelectedSkills[category]) {
+        skills.push({ category, label, starred: category === 'module' && label === newStarredModule });
+      }
+    }
+    await submitPartialUpdate({ skills });
+    setSelectedSkills(newSelectedSkills);
+    setStarredModule(newStarredModule);
+  }
+
+  async function handleQuickEditLanguages(newLanguages) {
+    await submitPartialUpdate({ languages: newLanguages });
+    setLanguages(newLanguages);
+  }
+
+  async function handleQuickEditFormations(newFormations) {
+    await submitPartialUpdate({ formations: newFormations });
+    setFormations(newFormations);
+  }
+
   function resetConversation() {
     setMessages([]);
     setStep(STEP.LOGIN);
@@ -1887,6 +1958,7 @@ export default function ChatCvScreen() {
   const showWelcomeBubble = step === STEP.LOGIN && messages.length === 0;
   const isDashboard = step === STEP.DASHBOARD;
   const isPreview = step === STEP.PREVIEW;
+  const isProfile = step === STEP.PROFILE;
   const progress = progressForStep(step);
 
   return (
@@ -1926,6 +1998,23 @@ export default function ChatCvScreen() {
           onStartUpdate={handleStartUpdate}
           onDownloadCv={handleDownloadCv}
           onShowPreview={handleShowPreview}
+          onShowProfile={() => setStep(STEP.PROFILE)}
+        />
+      ) : isProfile ? (
+        <ProfileView
+          title={title}
+          selectedSkills={selectedSkills}
+          starredModule={starredModule}
+          projects={projects}
+          languages={languages}
+          formations={formations}
+          profileUpdatedAt={profileUpdatedAt}
+          onBack={() => setStep(STEP.DASHBOARD)}
+          onStartUpdate={handleStartUpdate}
+          onSaveTitle={handleQuickEditTitle}
+          onSaveSkills={handleQuickEditSkills}
+          onSaveLanguages={handleQuickEditLanguages}
+          onSaveFormations={handleQuickEditFormations}
         />
       ) : isPreview ? (
         <Box sx={{ flex: 1, overflowY: 'auto' }}>
@@ -2052,14 +2141,22 @@ function ConsultantDashboard({
   onStartUpdate,
   onDownloadCv,
   onShowPreview,
+  onShowProfile,
 }) {
   return (
     <Box sx={{ flex: 1, overflowY: 'auto', p: 3 }}>
       <Box sx={{ maxWidth: 720, mx: 'auto' }}>
-        <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em', mb: 0.5 }}>
-          Bonjour {name}
-        </Typography>
-        <Typography sx={{ color: 'text.secondary', fontSize: 14.5, mb: 3 }}>{title}</Typography>
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Box>
+            <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em', mb: 0.5 }}>
+              Bonjour {name}
+            </Typography>
+            <Typography sx={{ color: 'text.secondary', fontSize: 14.5, mb: 3 }}>{title}</Typography>
+          </Box>
+          <Button size="small" onClick={onShowProfile}>
+            Voir mon profil
+          </Button>
+        </Stack>
 
         {pendingRequest && (
           <Paper
@@ -2154,6 +2251,340 @@ function ConsultantDashboard({
           </Stack>
         </Paper>
       </Box>
+    </Box>
+  );
+}
+
+const SKILL_CATEGORY_LABELS = { module: 'Modules SAP', flow: 'Flux', technology: 'Technologies', methodology: 'Méthodologies' };
+
+// A single read section with an ✏️ affordance that swaps to a compact,
+// section-scoped edit form in place - "corrections ponctuelles" per the
+// spec, not a re-run of the full multi-step wizard. Generic wrapper so
+// each of the 4 sections below only needs to supply its own read view +
+// edit form, not repeat the edit/cancel/save chrome 4 times.
+function EditableSection({ title, editing, onEdit, onCancel, onSave, saving, children, editForm }) {
+  return (
+    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, mb: 2 }}>
+      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
+          {title}
+        </Typography>
+        {!editing && (
+          <IconButton size="small" onClick={onEdit} aria-label={`Corriger ${title}`}>
+            <EditOutlinedIcon fontSize="small" />
+          </IconButton>
+        )}
+      </Stack>
+      {editing ? (
+        <Stack spacing={1.5}>
+          {editForm}
+          <Stack direction="row" spacing={1.5}>
+            <Button size="small" variant="contained" onClick={onSave} disabled={saving}>
+              {saving ? 'Enregistrement...' : 'Enregistrer'}
+            </Button>
+            <Button size="small" variant="text" color="inherit" onClick={onCancel} disabled={saving}>
+              Annuler
+            </Button>
+          </Stack>
+        </Stack>
+      ) : (
+        children
+      )}
+    </Paper>
+  );
+}
+
+function ProfileView({
+  title,
+  selectedSkills,
+  starredModule,
+  projects,
+  languages,
+  formations,
+  profileUpdatedAt,
+  onBack,
+  onStartUpdate,
+  onSaveTitle,
+  onSaveSkills,
+  onSaveLanguages,
+  onSaveFormations,
+}) {
+  const [editing, setEditing] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [snackbar, setSnackbar] = useState(null);
+  const [draftTitle, setDraftTitle] = useState(title);
+  const [draftSkills, setDraftSkills] = useState(selectedSkills);
+  const [draftStarred, setDraftStarred] = useState(starredModule);
+  const [draftLanguages, setDraftLanguages] = useState(languages);
+  const [draftFormations, setDraftFormations] = useState(formations);
+
+  const hasSkills = Object.values(selectedSkills).some((s) => s.size > 0);
+  const signals = [!!title, hasSkills, projects.length > 0, languages.length > 0, formations.length > 0];
+  const completenessPct = Math.round((signals.filter(Boolean).length / signals.length) * 100);
+  const missingLabels = [
+    !title && 'votre titre',
+    !hasSkills && 'vos compétences',
+    projects.length === 0 && 'vos projets',
+    languages.length === 0 && 'vos langues',
+    formations.length === 0 && 'vos formations',
+  ].filter(Boolean);
+
+  function startEdit(section) {
+    setDraftTitle(title);
+    setDraftSkills(selectedSkills);
+    setDraftStarred(starredModule);
+    setDraftLanguages(languages);
+    setDraftFormations(formations);
+    setEditing(section);
+  }
+
+  async function save(section, action) {
+    setSaving(true);
+    try {
+      await action();
+      setEditing(null);
+      setSnackbar({ severity: 'success', text: 'Modification envoyée pour validation.' });
+    } catch (e) {
+      setSnackbar({ severity: 'error', text: e.message || 'Échec de l’enregistrement.' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function toggleDraftSkill(category, label) {
+    setDraftSkills((prev) => {
+      const next = { ...prev, [category]: new Set(prev[category]) };
+      if (next[category].has(label)) next[category].delete(label);
+      else next[category].add(label);
+      return next;
+    });
+  }
+
+  return (
+    <Box sx={{ flex: 1, overflowY: 'auto', p: 3 }}>
+      <Box sx={{ maxWidth: 720, mx: 'auto' }}>
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+          <Box>
+            <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em', mb: 0.5 }}>
+              Mon profil
+            </Typography>
+            <Typography sx={{ color: 'text.secondary', fontSize: 13 }}>
+              {profileUpdatedAt
+                ? `Dernière mise à jour : ${formatRelativeDate(profileUpdatedAt)}`
+                : 'Aucune mise à jour enregistrée'}
+            </Typography>
+          </Box>
+          <Button variant="outlined" size="small" onClick={onBack}>
+            Retour
+          </Button>
+        </Stack>
+
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 3 }}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', mb: 0.75 }}>
+            <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Profil complété à {completenessPct} %</Typography>
+          </Stack>
+          <LinearProgress variant="determinate" value={completenessPct} sx={{ height: 6, borderRadius: 99, mb: missingLabels.length ? 0.75 : 0 }} />
+          {missingLabels.length > 0 && (
+            <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>
+              Il manque : {missingLabels.join(', ')}.
+            </Typography>
+          )}
+        </Paper>
+
+        <Button variant="contained" onClick={onStartUpdate} sx={{ mb: 3 }}>
+          Mettre à jour mon profil
+        </Button>
+
+        <EditableSection
+          title="Titre"
+          editing={editing === 'title'}
+          onEdit={() => startEdit('title')}
+          onCancel={() => setEditing(null)}
+          onSave={() => save('title', () => onSaveTitle(draftTitle))}
+          saving={saving}
+          editForm={
+            <TextField value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)} size="small" fullWidth inputProps={{ maxLength: 255 }} />
+          }
+        >
+          <Typography sx={{ fontSize: 14 }}>{title || 'Non renseigné'}</Typography>
+        </EditableSection>
+
+        <EditableSection
+          title="Compétences"
+          editing={editing === 'skills'}
+          onEdit={() => startEdit('skills')}
+          onCancel={() => setEditing(null)}
+          onSave={() => save('skills', () => onSaveSkills(draftSkills, draftStarred))}
+          saving={saving}
+          editForm={
+            <Stack spacing={1.5}>
+              {SKILL_STEP_ORDER.map((category) => (
+                <Box key={category}>
+                  <Typography sx={{ fontSize: 12, color: 'text.secondary', fontWeight: 600, mb: 0.5 }}>
+                    {SKILL_CATEGORY_LABELS[category]}
+                  </Typography>
+                  <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                    {SKILL_CATALOG[category].map((label) => {
+                      const selected = draftSkills[category]?.has(label);
+                      const starred = category === 'module' && label === draftStarred;
+                      return (
+                        <Chip
+                          key={label}
+                          label={starred ? `★ ${label}` : label}
+                          clickable
+                          size="small"
+                          color={selected ? 'primary' : 'default'}
+                          variant={selected ? 'filled' : 'outlined'}
+                          onClick={() => toggleDraftSkill(category, label)}
+                          onDoubleClick={() => category === 'module' && setDraftStarred(label)}
+                        />
+                      );
+                    })}
+                  </Stack>
+                </Box>
+              ))}
+              <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
+                Double-cliquez un module pour le marquer comme expertise principale (★).
+              </Typography>
+            </Stack>
+          }
+        >
+          {hasSkills ? (
+            <Stack spacing={1}>
+              {SKILL_STEP_ORDER.map((category) => {
+                const labels = [...(selectedSkills[category] || [])];
+                if (labels.length === 0) return null;
+                return (
+                  <Stack key={category} direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                    {labels.map((label) => (
+                      <Chip key={label} size="small" variant="outlined" label={label === starredModule ? `★ ${label}` : label} />
+                    ))}
+                  </Stack>
+                );
+              })}
+            </Stack>
+          ) : (
+            <Typography sx={{ fontSize: 13.5, color: 'text.disabled' }}>Aucune compétence renseignée</Typography>
+          )}
+        </EditableSection>
+
+        <EditableSection
+          title="Langues"
+          editing={editing === 'languages'}
+          onEdit={() => startEdit('languages')}
+          onCancel={() => setEditing(null)}
+          onSave={() => save('languages', () => onSaveLanguages(draftLanguages))}
+          saving={saving}
+          editForm={
+            <Stack spacing={1}>
+              {draftLanguages.map((l, i) => (
+                <Stack key={i} direction="row" spacing={1}>
+                  <TextField
+                    size="small"
+                    placeholder="Langue"
+                    value={l.name}
+                    onChange={(e) => setDraftLanguages((p) => p.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                    fullWidth
+                  />
+                  <TextField
+                    size="small"
+                    placeholder="Niveau"
+                    value={l.level}
+                    onChange={(e) => setDraftLanguages((p) => p.map((x, j) => (j === i ? { ...x, level: e.target.value } : x)))}
+                    sx={{ width: 140 }}
+                  />
+                  <IconButton size="small" onClick={() => setDraftLanguages((p) => p.filter((_, j) => j !== i))}>
+                    <DeleteOutlineIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+              ))}
+              <Button size="small" onClick={() => setDraftLanguages((p) => [...p, { name: '', level: '' }])} sx={{ alignSelf: 'flex-start' }}>
+                + Ajouter une langue
+              </Button>
+            </Stack>
+          }
+        >
+          {languages.length > 0 ? (
+            <Stack spacing={0.5}>
+              {languages.map((l) => (
+                <Typography key={l.name} sx={{ fontSize: 13.5 }}>
+                  {l.name} — {l.level}
+                </Typography>
+              ))}
+            </Stack>
+          ) : (
+            <Typography sx={{ fontSize: 13.5, color: 'text.disabled' }}>Aucune langue renseignée</Typography>
+          )}
+        </EditableSection>
+
+        <EditableSection
+          title="Formations"
+          editing={editing === 'formations'}
+          onEdit={() => startEdit('formations')}
+          onCancel={() => setEditing(null)}
+          onSave={() => save('formations', () => onSaveFormations(draftFormations))}
+          saving={saving}
+          editForm={
+            <Stack spacing={1}>
+              {draftFormations.map((f, i) => (
+                <Stack key={i} direction="row" spacing={1}>
+                  <TextField
+                    size="small"
+                    placeholder="Année"
+                    value={f.year}
+                    onChange={(e) => setDraftFormations((p) => p.map((x, j) => (j === i ? { ...x, year: e.target.value } : x)))}
+                    sx={{ width: 90 }}
+                  />
+                  <TextField
+                    size="small"
+                    placeholder="Diplôme"
+                    value={f.degree}
+                    onChange={(e) => setDraftFormations((p) => p.map((x, j) => (j === i ? { ...x, degree: e.target.value } : x)))}
+                    fullWidth
+                  />
+                  <TextField
+                    size="small"
+                    placeholder="École"
+                    value={f.school}
+                    onChange={(e) => setDraftFormations((p) => p.map((x, j) => (j === i ? { ...x, school: e.target.value } : x)))}
+                    fullWidth
+                  />
+                  <IconButton size="small" onClick={() => setDraftFormations((p) => p.filter((_, j) => j !== i))}>
+                    <DeleteOutlineIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+              ))}
+              <Button
+                size="small"
+                onClick={() => setDraftFormations((p) => [...p, { year: '', degree: '', school: '', fieldOfStudy: '' }])}
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                + Ajouter une formation
+              </Button>
+            </Stack>
+          }
+        >
+          {formations.length > 0 ? (
+            <Stack spacing={0.5}>
+              {formations.map((f, i) => (
+                <Typography key={i} sx={{ fontSize: 13.5 }}>
+                  {f.year} — {f.degree}, {f.school}
+                </Typography>
+              ))}
+            </Stack>
+          ) : (
+            <Typography sx={{ fontSize: 13.5, color: 'text.disabled' }}>Aucune formation renseignée</Typography>
+          )}
+        </EditableSection>
+      </Box>
+
+      <Snackbar open={!!snackbar} autoHideDuration={5000} onClose={() => setSnackbar(null)}>
+        {snackbar && (
+          <Alert severity={snackbar.severity} onClose={() => setSnackbar(null)} variant="filled">
+            {snackbar.text}
+          </Alert>
+        )}
+      </Snackbar>
     </Box>
   );
 }
