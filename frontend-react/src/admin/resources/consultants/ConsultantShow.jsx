@@ -102,8 +102,6 @@ function ConsultantShowContent() {
         </Box>
       </Dialog>
 
-      <DepartureSection consultant={record} />
-
       <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
         Projets
       </Typography>
@@ -232,6 +230,10 @@ function ConsultantShowContent() {
           </TableBody>
         </Table>
       )}
+
+      <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+        <DepartureSection consultant={record} />
+      </Box>
     </Box>
   );
 }
