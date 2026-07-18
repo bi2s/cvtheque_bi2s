@@ -86,7 +86,13 @@ export default function MyConsultantProfile() {
 
   useEffect(load, []);
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/admin/mission-types`, { headers: { Authorization: getAuthHeader() } })
+    // /api/admin/mission-types is requireAdmin-only (401s for this page's
+    // 'manager' viewer) - the 401's WWW-Authenticate header was triggering
+    // the browser's own native Basic-Auth prompt on top of the app.
+    // /api/consultant/mission-types serves the identical read-only list via
+    // requireConsultantOrOwnAdmin, which a manager acting as their own
+    // linked consultant profile already passes.
+    fetch(`${API_BASE_URL}/api/consultant/mission-types`, { headers: { Authorization: getAuthHeader() } })
       .then((r) => r.json())
       .then((data) => setMissionTypeChoices(data.map((m) => ({ id: m.id, name: m.label }))))
       .catch(() => {});
