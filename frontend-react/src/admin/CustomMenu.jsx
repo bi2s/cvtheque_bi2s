@@ -159,10 +159,12 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
           <GroupIcon fontSize="small" sx={{ color: isActive ? group.color : `${group.color}99` }} />
         </ListItemIcon>
         <ListItemText
+          sx={{ minWidth: 0 }}
           primaryTypographyProps={{
             fontSize: 13,
             fontWeight: isActive ? 700 : 500,
             color: isActive ? 'rgba(255,255,255,.92)' : 'rgba(255,255,255,.68)',
+            noWrap: true,
           }}
         >
           {group.label}
@@ -219,12 +221,15 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
 // theme override) so other Drawers in the app (e.g. StaffingPlanning's
 // create-assignment side panel) stay light. react-admin's <Menu.Item>/
 // <Menu.DashboardItem> render via MenuItemLink, whose text/icon colors come
-// from stable CSS classes (RaMenuItemLink-root/-icon/-active) rather than
-// inline styles, so overriding them here via descendant selectors reliably
-// wins over the component's own default (text.secondary/text.primary,
-// illegible on a dark background). MenuGroup's own group-toggle row uses
-// inline primaryTypographyProps/sx instead, so those are colored directly
-// at the source (see MenuGroup above) rather than through this wrapper.
+// from stable CSS classes (RaMenuItemLink-root/-icon/-active). Descendant
+// selectors alone don't reliably win here - MenuItemLink's own styled()
+// definition can land later in the emotion cache than this Box's sx, so
+// e.g. the active item rendered with text.primary (#132226, near-black)
+// straight over the dark background, effectively invisible. `!important`
+// makes the win deterministic instead of depending on style-injection
+// order. MenuGroup's own group-toggle row uses inline
+// primaryTypographyProps/sx instead, so those are colored directly at the
+// source (see MenuGroup above) rather than through this wrapper.
 function SidebarShell({ children }) {
   return (
     <Box
@@ -232,9 +237,9 @@ function SidebarShell({ children }) {
         bgcolor: '#153A4B',
         minHeight: '100%',
         py: 1,
-        '& .RaMenuItemLink-root': { color: 'rgba(255,255,255,.78)' },
-        '& .RaMenuItemLink-icon': { color: 'rgba(255,255,255,.7)' },
-        '& .RaMenuItemLink-active': { color: '#ffffff' },
+        '& .RaMenuItemLink-root': { color: 'rgba(255,255,255,.78) !important' },
+        '& .RaMenuItemLink-icon': { color: 'rgba(255,255,255,.7) !important' },
+        '& .RaMenuItemLink-active': { color: '#ffffff !important' },
         '& .MuiMenuItem-root:hover': { bgcolor: 'rgba(255,255,255,.06)' },
         '& .MuiDivider-root': { borderColor: 'rgba(255,255,255,.12)' },
       }}
