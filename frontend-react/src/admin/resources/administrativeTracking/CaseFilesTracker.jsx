@@ -178,7 +178,7 @@ export default function CaseFilesTracker() {
       ) : filtered.length === 0 ? (
         <Typography sx={{ color: 'text.disabled' }}>Aucun dossier.</Typography>
       ) : (
-        <Paper variant="outlined">
+        <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>

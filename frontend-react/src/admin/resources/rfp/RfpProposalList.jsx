@@ -109,44 +109,46 @@ export default function RfpProposalList() {
       {proposals.length === 0 ? (
         <Typography sx={{ color: 'text.disabled' }}>Aucune proposition</Typography>
       ) : (
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Titre</TableCell>
-              <TableCell>Statut</TableCell>
-              <TableCell>Issue</TableCell>
-              <TableCell>Mise à jour</TableCell>
-              <TableCell />
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {proposals.map((p) => (
-              <TableRow key={p.id} hover sx={{ cursor: 'pointer' }} onClick={() => navigate(`/admin/rfp/${p.id}`)}>
-                <TableCell sx={{ fontWeight: 600 }}>{p.title}</TableCell>
-                <TableCell>
-                  <Chip label={STATUS_LABELS[p.status] || p.status} size="small" color={STATUS_COLORS[p.status] || 'default'} />
-                </TableCell>
-                <TableCell onClick={(e) => e.stopPropagation()}>
-                  <TextField
-                    select
-                    size="small"
-                    value={p.outcome || ''}
-                    onChange={(e) => setOutcome(p.id, e.target.value)}
-                    sx={{ width: 130 }}
-                  >
-                    <MenuItem value="">En attente</MenuItem>
-                    <MenuItem value="won">Gagnée</MenuItem>
-                    <MenuItem value="lost">Perdue</MenuItem>
-                  </TextField>
-                </TableCell>
-                <TableCell>{new Date(p.updatedAt).toLocaleString('fr-FR')}</TableCell>
-                <TableCell align="right">
-                  <Button size="small">Ouvrir</Button>
-                </TableCell>
+        <Box sx={{ overflowX: 'auto' }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Titre</TableCell>
+                <TableCell>Statut</TableCell>
+                <TableCell>Issue</TableCell>
+                <TableCell>Mise à jour</TableCell>
+                <TableCell />
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {proposals.map((p) => (
+                <TableRow key={p.id} hover sx={{ cursor: 'pointer' }} onClick={() => navigate(`/admin/rfp/${p.id}`)}>
+                  <TableCell sx={{ fontWeight: 600 }}>{p.title}</TableCell>
+                  <TableCell>
+                    <Chip label={STATUS_LABELS[p.status] || p.status} size="small" color={STATUS_COLORS[p.status] || 'default'} />
+                  </TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <TextField
+                      select
+                      size="small"
+                      value={p.outcome || ''}
+                      onChange={(e) => setOutcome(p.id, e.target.value)}
+                      sx={{ width: 130 }}
+                    >
+                      <MenuItem value="">En attente</MenuItem>
+                      <MenuItem value="won">Gagnée</MenuItem>
+                      <MenuItem value="lost">Perdue</MenuItem>
+                    </TextField>
+                  </TableCell>
+                  <TableCell>{new Date(p.updatedAt).toLocaleString('fr-FR')}</TableCell>
+                  <TableCell align="right">
+                    <Button size="small">Ouvrir</Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Box>
       )}
     </Box>
   );

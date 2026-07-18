@@ -332,26 +332,28 @@ export default function MyConsultantProfile() {
         <Typography sx={{ color: 'text.disabled', mt: 1, mb: 3 }}>Aucune</Typography>
       )}
       {(record.formationDetails || []).length > 0 && (
-        <Table size="small" sx={{ mb: 3, mt: 1 }}>
-          <TableHead>
-            <TableRow>
-              <TableCell>Date</TableCell>
-              <TableCell>Diplôme(s) obtenu(s)</TableCell>
-              <TableCell>Établissement / Institut</TableCell>
-              <TableCell>Spécialité</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {record.formationDetails.map((f) => (
-              <TableRow key={f.id}>
-                <TableCell>{f.obtainedDate || f.year}</TableCell>
-                <TableCell>{f.degree}</TableCell>
-                <TableCell>{f.school}</TableCell>
-                <TableCell>{f.fieldOfStudy || '—'}</TableCell>
+        <Box sx={{ overflowX: 'auto', mb: 3, mt: 1 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Date</TableCell>
+                <TableCell>Diplôme(s) obtenu(s)</TableCell>
+                <TableCell>Établissement / Institut</TableCell>
+                <TableCell>Spécialité</TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {record.formationDetails.map((f) => (
+                <TableRow key={f.id}>
+                  <TableCell>{f.obtainedDate || f.year}</TableCell>
+                  <TableCell>{f.degree}</TableCell>
+                  <TableCell>{f.school}</TableCell>
+                  <TableCell>{f.fieldOfStudy || '—'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Box>
       )}
 
       <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
@@ -359,43 +361,45 @@ export default function MyConsultantProfile() {
       </Typography>
       {(record.certificationDetails || []).length === 0 && <Typography sx={{ color: 'text.disabled', mt: 1 }}>Aucune</Typography>}
       {(record.certificationDetails || []).length > 0 && (
-        <Table size="small" sx={{ mt: 1 }}>
-          <TableHead>
-            <TableRow>
-              <TableCell>Date</TableCell>
-              <TableCell>Certification</TableCell>
-              <TableCell>N° Référence</TableCell>
-              <TableCell>Validité (Années)</TableCell>
-              <TableCell>Organisme</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {record.certificationDetails.map((c) => {
-              const reference = c.certificateNumber || c.credlyUrl || c.verificationUrl;
-              return (
-                <TableRow key={c.id}>
-                  <TableCell>{c.obtainedDate || '—'}</TableCell>
-                  <TableCell>{c.name}</TableCell>
-                  <TableCell>
-                    {reference ? (
-                      /^https?:\/\//i.test(reference) ? (
-                        <Link href={reference} target="_blank" rel="noreferrer">
-                          Voir le certificat
-                        </Link>
+        <Box sx={{ overflowX: 'auto', mt: 1 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Date</TableCell>
+                <TableCell>Certification</TableCell>
+                <TableCell>N° Référence</TableCell>
+                <TableCell>Validité (Années)</TableCell>
+                <TableCell>Organisme</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {record.certificationDetails.map((c) => {
+                const reference = c.certificateNumber || c.credlyUrl || c.verificationUrl;
+                return (
+                  <TableRow key={c.id}>
+                    <TableCell>{c.obtainedDate || '—'}</TableCell>
+                    <TableCell>{c.name}</TableCell>
+                    <TableCell>
+                      {reference ? (
+                        /^https?:\/\//i.test(reference) ? (
+                          <Link href={reference} target="_blank" rel="noreferrer">
+                            Voir le certificat
+                          </Link>
+                        ) : (
+                          reference
+                        )
                       ) : (
-                        reference
-                      )
-                    ) : (
-                      '—'
-                    )}
-                  </TableCell>
-                  <TableCell>{c.validityYears ? `${c.validityYears} an${c.validityYears > 1 ? 's' : ''}` : '—'}</TableCell>
-                  <TableCell>{c.issuingBody || '—'}</TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+                        '—'
+                      )}
+                    </TableCell>
+                    <TableCell>{c.validityYears ? `${c.validityYears} an${c.validityYears > 1 ? 's' : ''}` : '—'}</TableCell>
+                    <TableCell>{c.issuingBody || '—'}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </Box>
       )}
     </Box>
   );

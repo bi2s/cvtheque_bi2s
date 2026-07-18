@@ -320,26 +320,28 @@ function ComplianceTab({ proposalId }) {
   }
 
   return (
-    <Table size="small" sx={{ maxWidth: 700 }}>
-      <TableHead>
-        <TableRow>
-          <TableCell>Exigence</TableCell>
-          <TableCell>Statut</TableCell>
-          <TableCell>Associé à</TableCell>
-        </TableRow>
-      </TableHead>
-      <TableBody>
-        {rows.map((r, i) => (
-          <TableRow key={i}>
-            <TableCell>{r.requirement}</TableCell>
-            <TableCell>
-              <Chip label={COMPLIANCE_LABELS[r.status] || r.status} size="small" color={COMPLIANCE_COLORS[r.status] || 'default'} />
-            </TableCell>
-            <TableCell>{r.linkedTo || '—'}</TableCell>
+    <Box sx={{ overflowX: 'auto' }}>
+      <Table size="small" sx={{ maxWidth: 700 }}>
+        <TableHead>
+          <TableRow>
+            <TableCell>Exigence</TableCell>
+            <TableCell>Statut</TableCell>
+            <TableCell>Associé à</TableCell>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHead>
+        <TableBody>
+          {rows.map((r, i) => (
+            <TableRow key={i}>
+              <TableCell>{r.requirement}</TableCell>
+              <TableCell>
+                <Chip label={COMPLIANCE_LABELS[r.status] || r.status} size="small" color={COMPLIANCE_COLORS[r.status] || 'default'} />
+              </TableCell>
+              <TableCell>{r.linkedTo || '—'}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Box>
   );
 }
 

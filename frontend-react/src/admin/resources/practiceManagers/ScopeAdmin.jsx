@@ -283,6 +283,7 @@ export default function ScopeAdmin() {
         </Button>
       </Stack>
 
+      <Box sx={{ overflowX: 'auto' }}>
       <Table size="small">
         <TableHead>
           <TableRow>
@@ -374,6 +375,7 @@ export default function ScopeAdmin() {
           })}
         </TableBody>
       </Table>
+      </Box>
 
       <CreateAdminDialog open={creating} onClose={() => setCreating(false)} onCreated={load} consultants={consultants} />
       <ResetAdminPasswordDialog admin={resettingAdmin} onClose={() => setResettingAdmin(null)} onSaved={load} />

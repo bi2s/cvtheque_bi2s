@@ -60,43 +60,45 @@ export default function ArchivedConsultantsList() {
       {items.length === 0 ? (
         <Typography sx={{ color: 'text.disabled', mt: 2 }}>Aucun consultant archivé</Typography>
       ) : (
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell />
-              <TableCell>Nom</TableCell>
-              <TableCell>Titre</TableCell>
-              <TableCell>Statut</TableCell>
-              <TableCell>Archivé le</TableCell>
-              <TableCell />
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {items.map((c) => (
-              <TableRow key={c.id} hover>
-                <TableCell sx={{ width: 44 }}>
-                  <PhotoCell consultant={c} />
-                </TableCell>
-                <TableCell
-                  sx={{ cursor: 'pointer', fontWeight: 600 }}
-                  onClick={() => navigate(`/consultants/${c.id}/show`)}
-                >
-                  {c.name}
-                </TableCell>
-                <TableCell>{c.title}</TableCell>
-                <TableCell>
-                  {c.statusLabel && <Chip label={c.statusLabel} size="small" />}
-                </TableCell>
-                <TableCell>{c.archivedAt ? new Date(c.archivedAt).toLocaleDateString('fr-FR') : '—'}</TableCell>
-                <TableCell align="right">
-                  <Button size="small" variant="outlined" onClick={() => setReinstateTarget(c)}>
-                    Réintégrer
-                  </Button>
-                </TableCell>
+        <Box sx={{ overflowX: 'auto' }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell />
+                <TableCell>Nom</TableCell>
+                <TableCell>Titre</TableCell>
+                <TableCell>Statut</TableCell>
+                <TableCell>Archivé le</TableCell>
+                <TableCell />
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {items.map((c) => (
+                <TableRow key={c.id} hover>
+                  <TableCell sx={{ width: 44 }}>
+                    <PhotoCell consultant={c} />
+                  </TableCell>
+                  <TableCell
+                    sx={{ cursor: 'pointer', fontWeight: 600 }}
+                    onClick={() => navigate(`/consultants/${c.id}/show`)}
+                  >
+                    {c.name}
+                  </TableCell>
+                  <TableCell>{c.title}</TableCell>
+                  <TableCell>
+                    {c.statusLabel && <Chip label={c.statusLabel} size="small" />}
+                  </TableCell>
+                  <TableCell>{c.archivedAt ? new Date(c.archivedAt).toLocaleDateString('fr-FR') : '—'}</TableCell>
+                  <TableCell align="right">
+                    <Button size="small" variant="outlined" onClick={() => setReinstateTarget(c)}>
+                      Réintégrer
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Box>
       )}
 
       <ReinstateDialog
