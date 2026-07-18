@@ -18,6 +18,28 @@ function countBusinessDays(start, end) {
   return count;
 }
 
+// A consultant legitimately runs an ongoing Support mission in parallel with
+// other work (a few tickets a week alongside a delivery project) - Support
+// is a project like any other (catalog_projects.mission_type), but it
+// shouldn't count toward the overlapping-assignment warning the way two
+// concurrent delivery assignments would. If the assignment being
+// created/edited is itself Support, none of its overlaps are ever
+// conflicts; otherwise any existing Support assignment is dropped from the
+// conflict list before it's returned.
+async function findRelevantConflicts(pool, { consultantId, projectId, startDate, endDate, excludeId }) {
+  const [[newProject]] = await pool.query('SELECT mission_type FROM catalog_projects WHERE id = ?', [projectId]);
+  if (newProject?.mission_type === 'Support') return [];
+
+  const [conflicts] = await pool.query(
+    `SELECT sa.id, sa.start_date, sa.end_date, p.client AS project_client, p.mission_type
+     FROM staffing_assignments sa
+     LEFT JOIN catalog_projects p ON p.id = sa.project_id
+     WHERE sa.consultant_id = ? AND sa.start_date <= ? AND sa.end_date >= ?${excludeId ? ' AND sa.id != ?' : ''}`,
+    excludeId ? [consultantId, endDate, startDate, excludeId] : [consultantId, endDate, startDate]
+  );
+  return conflicts.filter((c) => c.mission_type !== 'Support');
+}
+
 async function insertPmAudit(
   pool,
   { consultantId, adminId, adminRole, sapModuleId, field, oldValue, newValue, reason }
@@ -77,6 +99,7 @@ function mapStaffingAssignmentRow(r) {
     consultantName: r.consultant_name,
     projectId: r.project_id,
     projectClient: r.project_client,
+    projectMissionType: r.project_mission_type,
     startDate: r.start_date,
     endDate: r.end_date,
     daysCount: r.days_count,
@@ -698,14 +721,9 @@ module.exports = function buildPracticeManagersRouter({
     // (e.g. a one-day client visit during another mission), so this warns
     // rather than rejects - same "surface it, don't gate on it" precedent as
     // the confirmed bulk-approve/recurring-deposit judgment calls elsewhere
-    // in this plan.
-    const [conflicts] = await pool.query(
-      `SELECT sa.id, sa.start_date, sa.end_date, p.client AS project_client
-       FROM staffing_assignments sa
-       LEFT JOIN catalog_projects p ON p.id = sa.project_id
-       WHERE sa.consultant_id = ? AND sa.start_date <= ? AND sa.end_date >= ?`,
-      [consultantId, endDate, startDate]
-    );
+    // in this plan. Support-type overlaps are excluded entirely (see
+    // findRelevantConflicts).
+    const conflicts = await findRelevantConflicts(pool, { consultantId, projectId, startDate, endDate });
 
     const [result] = await pool.query(
       `INSERT INTO staffing_assignments
@@ -770,16 +788,16 @@ module.exports = function buildPracticeManagersRouter({
       return res.status(403).json({ detail: 'Ce consultant est hors de votre périmètre.' });
     }
 
-    // Same non-blocking overlap warning as create - excludes this row
-    // itself, otherwise every edit would "conflict" with its own
-    // pre-edit date range.
-    const [conflicts] = await pool.query(
-      `SELECT sa.id, sa.start_date, sa.end_date, p.client AS project_client
-       FROM staffing_assignments sa
-       LEFT JOIN catalog_projects p ON p.id = sa.project_id
-       WHERE sa.consultant_id = ? AND sa.id != ? AND sa.start_date <= ? AND sa.end_date >= ?`,
-      [consultantId, req.params.id, endDate, startDate]
-    );
+    // Same non-blocking overlap warning as create (Support-excluded, see
+    // findRelevantConflicts) - excludes this row itself, otherwise every
+    // edit would "conflict" with its own pre-edit date range.
+    const conflicts = await findRelevantConflicts(pool, {
+      consultantId,
+      projectId,
+      startDate,
+      endDate,
+      excludeId: req.params.id,
+    });
 
     const [result] = await pool.query(
       `UPDATE staffing_assignments SET
@@ -817,7 +835,8 @@ module.exports = function buildPracticeManagersRouter({
 
   router.get('/staffing-assignments', requireAdminOrManager, async (req, res) => {
     const [rows] = await pool.query(
-      `SELECT sa.*, c.name AS consultant_name, p.client AS project_client, a.username AS created_by_username,
+      `SELECT sa.*, c.name AS consultant_name, p.client AS project_client, p.mission_type AS project_mission_type,
+              a.username AS created_by_username,
               mr.username AS mission_responsible_username, pm.username AS project_manager_username
        FROM staffing_assignments sa
        JOIN consultants c ON c.id = sa.consultant_id

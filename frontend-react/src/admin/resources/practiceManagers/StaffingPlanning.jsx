@@ -161,8 +161,20 @@ function TimelineView({ assignments, utilizationByConsultant, monthOffset, setMo
     return { left: `${left}%`, width: `${width}%` };
   }
 
+  // Support is a project like any other (catalog_projects.mission_type),
+  // but a consultant legitimately runs it in parallel with other work (a few
+  // tickets a week alongside a delivery project) - it's excluded from the
+  // overlap warning on either side, matching the backend's own
+  // findRelevantConflicts.
   function hasOverlap(a, items) {
-    return items.some((b) => b.id !== a.id && a.startDate <= b.endDate && a.endDate >= b.startDate);
+    if (a.projectMissionType === 'Support') return false;
+    return items.some(
+      (b) =>
+        b.id !== a.id &&
+        b.projectMissionType !== 'Support' &&
+        a.startDate <= b.endDate &&
+        a.endDate >= b.startDate
+    );
   }
 
   const dayMarks = [1, 5, 10, 15, 20, 25, totalDays].filter((d, i, arr) => d <= totalDays && arr.indexOf(d) === i);
