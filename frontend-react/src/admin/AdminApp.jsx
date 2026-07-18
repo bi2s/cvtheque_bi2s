@@ -93,6 +93,13 @@ function managerResources() {
 function missionRoleResources() {
   return [
     <Resource
+      key="myConsultant"
+      name="myConsultant"
+      list={MyConsultantProfile}
+      icon={PeopleOutlineIcon}
+      options={{ label: 'Mon profil' }}
+    />,
+    <Resource
       key="staffingPlanning"
       name="staffingPlanning"
       list={StaffingPlanning}
@@ -172,6 +179,19 @@ function pmoResources() {
 
 function fullResources(role) {
   return [
+    // An admin (like a manager) can also be a practicing consultant with
+    // their own linked profile (admins.consultant_id, set via ScopeAdmin) -
+    // backend already serves this to any of admin/rh/manager/
+    // responsable_mission/chef_projet (requireAdminOrManager, despite the
+    // name), so exposing it here is a frontend-only gap fix: no more
+    // needing to log out and back in as the consultant to see/edit it.
+    <Resource
+      key="myConsultant"
+      name="myConsultant"
+      list={MyConsultantProfile}
+      icon={PeopleOutlineIcon}
+      options={{ label: 'Mon profil' }}
+    />,
     <Resource
       key="consultants"
       name="consultants"

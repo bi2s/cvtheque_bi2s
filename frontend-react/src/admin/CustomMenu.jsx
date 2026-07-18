@@ -305,6 +305,7 @@ export default function CustomMenu() {
       <SidebarShell>
         <Menu>
           <Menu.DashboardItem />
+          <Menu.Item to="/admin/myConsultant" primaryText="Mon profil" leftIcon={<PeopleOutlineIcon fontSize="small" />} />
           <Menu.Item
             to="/admin/staffingPlanning"
             primaryText="Planning"
@@ -336,6 +337,9 @@ export default function CustomMenu() {
     <SidebarShell>
       <Menu>
         <Menu.DashboardItem />
+        {permissions?.role === 'admin' && (
+          <Menu.Item to="/admin/myConsultant" primaryText="Mon profil" leftIcon={<PeopleOutlineIcon fontSize="small" />} />
+        )}
         {visibleGroups.map((group) => {
           const isActive = group.items.some((item) => location.pathname.startsWith(item.to));
           return (
