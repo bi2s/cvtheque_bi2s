@@ -353,12 +353,53 @@ export default function ChatCvScreen() {
   const [taskSuggestions, setTaskSuggestions] = useState([]);
   const messagesEndRef = useRef(null);
   const hasInitialized = useRef(false);
+  // If this tab was opened from "Compléter via le chatbot" (an admin's own
+  // linked-consultant profile), the admin app already stored this same
+  // account's credentials + consultantId in localStorage (same origin,
+  // see authProvider.js's storeAdminAuth) - reuse them to sign straight
+  // into the consultant view instead of showing the login form again.
+  // A plain consultant login never writes to this key, so this can't
+  // accidentally auto-login someone who isn't the linked admin.
+  const [autoLoginState, setAutoLoginState] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('auth') || 'null');
+      return stored?.username && stored?.password && stored?.consultantId ? 'checking' : 'idle';
+    } catch {
+      return 'idle';
+    }
+  });
 
   useEffect(() => {
     if (hasInitialized.current) return;
     hasInitialized.current = true;
     loadCatalogProjects();
   }, []);
+
+  useEffect(() => {
+    if (autoLoginState !== 'checking') return;
+    let stored;
+    try {
+      stored = JSON.parse(localStorage.getItem('auth') || 'null');
+    } catch {
+      stored = null;
+    }
+    if (!stored?.username || !stored?.password || !stored?.consultantId) {
+      setAutoLoginState('idle');
+      return;
+    }
+    const authHeader = basicAuthHeader(stored.username, stored.password);
+    fetch(`${API_BASE_URL}/api/consultant/me`, { headers: { Authorization: authHeader } })
+      .then(async (res) => {
+        if (!res.ok) {
+          setAutoLoginState('idle');
+          return;
+        }
+        const data = await res.json();
+        await handleConsultantLoginSuccess({ username: stored.username, password: stored.password, data });
+        setAutoLoginState('done');
+      })
+      .catch(() => setAutoLoginState('idle'));
+  }, [autoLoginState]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1362,6 +1403,13 @@ export default function ChatCvScreen() {
   function renderInputArea() {
     switch (step) {
       case STEP.LOGIN:
+        if (autoLoginState === 'checking') {
+          return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+              <CircularProgress size={28} />
+            </Box>
+          );
+        }
         return (
           <Box sx={{ maxWidth: 340, mx: 'auto' }}>
             <LoginForm onAdminSuccess={handleAdminLoginSuccess} onConsultantSuccess={handleConsultantLoginSuccess} />
@@ -1908,7 +1956,7 @@ export default function ChatCvScreen() {
     }
   }
 
-  const showWelcomeBubble = step === STEP.LOGIN && messages.length === 0;
+  const showWelcomeBubble = step === STEP.LOGIN && messages.length === 0 && autoLoginState !== 'checking';
   const isDashboard = step === STEP.DASHBOARD;
   const isPreview = step === STEP.PREVIEW;
   const isProfile = step === STEP.PROFILE;

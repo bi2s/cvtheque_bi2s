@@ -189,8 +189,7 @@ export default function MyConsultantProfile() {
         </Button>
       </Stack>
       <Typography sx={{ color: 'text.secondary', fontSize: 12.5, mb: 2, mt: -1.5 }}>
-        Le chatbot s&rsquo;ouvre dans un nouvel onglet — connectez-vous avec vos identifiants habituels (les mêmes
-        que ceux de ce panneau admin).
+        Le chatbot s&rsquo;ouvre dans un nouvel onglet, déjà connecté à votre profil.
       </Typography>
 
       <Dialog open={previewOpen} onClose={() => setPreviewOpen(false)} fullScreen>
