@@ -4,25 +4,28 @@ import {
   useGetList,
   useNotify,
   useRefresh,
+  useInput,
   SimpleForm,
+  SaveButton,
   TextInput,
   SelectInput,
-  CheckboxGroupInput,
   AutocompleteInput,
   DateInput,
   required,
 } from 'react-admin';
-import { Box, Typography, Stack, Chip, Button, CircularProgress } from '@mui/material';
+import { useFormContext, useFormState, useWatch } from 'react-hook-form';
+import { Box, Typography, Stack, Chip, Button, CircularProgress, Paper, Collapse, Menu, MenuItem } from '@mui/material';
 import UploadFileIcon from '@mui/icons-material/UploadFileOutlined';
+import AddIcon from '@mui/icons-material/Add';
+import CheckIcon from '@mui/icons-material/Check';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import CalculateIcon from '@mui/icons-material/Calculate';
 import { isDescendant } from './useProjectTree';
 import ProjectTaskChecklist from './ProjectTaskChecklist';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
 
-const SAP_MODULES = ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'].map((m) => ({
-  id: m,
-  name: m,
-}));
 const MISSION_TYPES = ['Intégration', 'AMOA', 'Support'].map((m) => ({ id: m, name: m }));
 
 const PROJECT_TYPES = [
@@ -55,6 +58,50 @@ const EXPERIENCE_TYPES = [
 
 const ALL_PROJECTS_QUERY = { pagination: { page: 1, perPage: 1000 }, sort: { field: 'client', order: 'ASC' } };
 
+const STEPS = ["L'essentiel", 'Contexte', 'Dates & équipe'];
+
+function StepPills({ activeStep, onChange }) {
+  return (
+    <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mb: 1.5 }}>
+      {STEPS.map((label, i) => {
+        const isActive = i === activeStep;
+        const isDone = i < activeStep;
+        return (
+          <Chip
+            key={label}
+            size="small"
+            onClick={() => onChange(i)}
+            icon={isDone ? <CheckIcon fontSize="small" /> : undefined}
+            label={isDone ? `${i + 1}` : `${i + 1} · ${label}`}
+            sx={{
+              cursor: 'pointer',
+              fontWeight: isActive ? 600 : 400,
+              bgcolor: isActive ? 'secondary.light' : 'grey.100',
+              color: isActive ? 'secondary.dark' : 'text.secondary',
+            }}
+          />
+        );
+      })}
+    </Stack>
+  );
+}
+
+function CollapsibleSection({ title, defaultOpen, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 1.5, mt: 1.5 }}>
+      <Box onClick={() => setOpen((o) => !o)} sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer' }}>
+        {open ? <ExpandMoreIcon fontSize="small" color="action" /> : <ChevronRightIcon fontSize="small" color="action" />}
+        <Typography sx={{ fontSize: 14, color: 'text.secondary' }}>{title}</Typography>
+        <Typography sx={{ fontSize: 12, color: 'text.disabled', ml: 'auto' }}>optionnel</Typography>
+      </Box>
+      <Collapse in={open}>
+        <Box sx={{ pt: 1.5 }}>{children}</Box>
+      </Collapse>
+    </Box>
+  );
+}
+
 function ParentIdInput() {
   const record = useRecordContext();
   const { data: allProjects } = useGetList('catalogProjects', ALL_PROJECTS_QUERY);
@@ -76,33 +123,157 @@ function TaskSection() {
   return <ProjectTaskChecklist projectId={record.id} />;
 }
 
-// "Modules SAP (référentiel)" - deliberately separate from the legacy free-text
-// "Modules SAP" field above (CheckboxGroupInput source="modules"): the legacy
-// field stays untouched (still used by the consultant CV wizard's project
-// picker), this one is the new admin-manageable sap_modules referential,
-// stored via catalog_project_modules. Choices are fetched with a plain fetch
-// (not useGetList) to match the established pattern for referential data
-// (see FlatReferentialEditor.jsx) rather than registering a new dataProvider
-// resource for a single read-only choices list.
-function ReferentialModulesInput() {
-  const [choices, setChoices] = useState([]);
-  useEffect(() => {
-    fetch(`${API_BASE_URL}/api/admin/sap-modules`, { headers: { Authorization: getAuthHeader() } })
-      .then((res) => res.json())
-      .then((data) => setChoices(data.map((m) => ({ id: m.id, name: m.label }))));
-  }, []);
+// Removable-chip picker for the admin-managed sap_modules referential
+// (catalog_project_modules), backed by useInput so it plugs into the same
+// SimpleForm/react-hook-form registration as any built-in react-admin
+// input. The legacy free-text "modules" field (still read by the
+// consultant chatbot's project cards, ChatCvScreen.jsx) has no UI of its
+// own anymore - LegacyModulesSync below keeps it in sync automatically.
+function ReferentialChipInput({ choices }) {
+  const [anchorEl, setAnchorEl] = useState(null);
+  const { field } = useInput({ source: 'referentialModuleIds' });
+  const selectedIds = field.value || [];
+
+  const selected = choices.filter((c) => selectedIds.includes(c.id));
+  const available = choices.filter((c) => !selectedIds.includes(c.id));
+
+  function remove(id) {
+    field.onChange(selectedIds.filter((i) => i !== id));
+  }
+  function add(id) {
+    field.onChange([...selectedIds, id]);
+    setAnchorEl(null);
+  }
+
   return (
-    <CheckboxGroupInput
-      source="referentialModuleIds"
-      label="Modules SAP (référentiel)"
-      choices={choices}
-      helperText="Distinct du champ « Modules SAP » ci-dessus, géré depuis Référentiels"
-    />
+    <Box sx={{ mb: 1.25 }}>
+      <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 0.75 }}>Modules SAP concernés</Typography>
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+        {selected.map((c) => (
+          <Chip
+            key={c.id}
+            label={c.name}
+            size="small"
+            onDelete={() => remove(c.id)}
+            sx={{ bgcolor: 'secondary.light', color: 'secondary.dark', fontWeight: 600 }}
+          />
+        ))}
+        <Chip
+          label="Ajouter"
+          size="small"
+          icon={<AddIcon fontSize="small" />}
+          variant="outlined"
+          onClick={(e) => setAnchorEl(e.currentTarget)}
+          sx={{ borderStyle: 'dashed', color: 'text.disabled', borderColor: 'divider' }}
+        />
+      </Stack>
+      <Menu anchorEl={anchorEl} open={!!anchorEl} onClose={() => setAnchorEl(null)}>
+        {available.length === 0 && <MenuItem disabled>Aucun module disponible</MenuItem>}
+        {available.map((c) => (
+          <MenuItem key={c.id} onClick={() => add(c.id)}>
+            {c.name}
+          </MenuItem>
+        ))}
+      </Menu>
+    </Box>
   );
 }
 
-// TextInput with an array-valued source: edited as a comma-separated string,
-// stored as an array (same convention already used for the "modules" field).
+// Keeps the legacy "modules" field (comma-joined SAP_MODULES codes,
+// catalog_projects.module) aligned with whatever's picked in the
+// referential chip UI above, so ChatCvScreen's project cards - which still
+// read the legacy field - don't go silently blank now that this form has
+// no checkbox UI for it. Deliberately a no-op while nothing is selected,
+// so opening an older project that only has legacy data (no referential
+// selection yet) doesn't wipe it out just by being viewed/saved.
+function LegacyModulesSync({ moduleChoices }) {
+  const { setValue } = useFormContext();
+  const referentialModuleIds = useWatch({ name: 'referentialModuleIds' }) || [];
+  useEffect(() => {
+    if (!referentialModuleIds.length || !moduleChoices.length) return;
+    const codes = moduleChoices.filter((c) => referentialModuleIds.includes(c.id)).map((c) => c.code);
+    setValue('modules', codes, { shouldDirty: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(referentialModuleIds), moduleChoices]);
+  return null;
+}
+
+// Today the only two required() fields (client, missionType) both live in
+// step 1 - so a failed submit while looking at step 2/3 needs to jump back
+// there, or the validation error is invisibly hidden behind display:none.
+function ValidationJumpBack({ setActiveStep }) {
+  const { errors } = useFormState();
+  useEffect(() => {
+    if (errors.client || errors.missionType) setActiveStep(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errors.client, errors.missionType]);
+  return null;
+}
+
+function computeEndDatePreview(goLiveDate, hypercareEndDate) {
+  if (hypercareEndDate) return hypercareEndDate;
+  if (goLiveDate) {
+    const [y, m, d] = goLiveDate.split('-').map(Number);
+    const totalMonths = m - 1 + 2;
+    const newYear = y + Math.floor(totalMonths / 12);
+    const newMonth = (totalMonths % 12) + 1;
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${newYear}-${pad(newMonth)}-${pad(d)}`;
+  }
+  return null;
+}
+
+function formatFr(iso) {
+  if (!iso) return null;
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+// For a brand-new project there's nothing saved yet to distinguish "the
+// backend computed this" from "someone typed it in" - so the live preview
+// (mirroring backend/server.js's computeEndDate()) only makes sense here.
+// Editing an existing project always shows the real, already-resolved
+// field instead of guessing which case it is.
+function EndDateField() {
+  const record = useRecordContext();
+  const [overrideVisible, setOverrideVisible] = useState(!!record?.id);
+  const [goLiveDate, hypercareEndDate] = useWatch({ name: ['goLiveDate', 'hypercareEndDate'] });
+
+  if (overrideVisible) {
+    return (
+      <DateInput
+        source="endDate"
+        label="Date de fin (calculée si vide)"
+        helperText="Calculée automatiquement à partir du Go-Live/Hypercare si laissée vide - toujours modifiable"
+        fullWidth
+      />
+    );
+  }
+
+  const preview = computeEndDatePreview(goLiveDate, hypercareEndDate);
+  return (
+    <Box sx={{ mt: 1.5, bgcolor: 'action.hover', borderRadius: 2, px: 1.75, py: 1.25, display: 'flex', alignItems: 'center', gap: 1 }}>
+      <CalculateIcon fontSize="small" sx={{ color: 'text.disabled' }} />
+      <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+        {preview ? (
+          <>
+            Date de fin : <b>calculée automatiquement</b> · {formatFr(preview)}
+          </>
+        ) : (
+          'Date de fin : calculée automatiquement une fois le Go-Live renseigné'
+        )}
+      </Typography>
+      <Typography
+        component="span"
+        onClick={() => setOverrideVisible(true)}
+        sx={{ fontSize: 12, color: 'secondary.dark', ml: 'auto', cursor: 'pointer', fontWeight: 600 }}
+      >
+        Modifier
+      </Typography>
+    </Box>
+  );
+}
+
 function TechnologiesInput() {
   return (
     <TextInput
@@ -218,53 +389,90 @@ function DocumentsSection() {
 }
 
 export default function ProjectForm(props) {
+  const record = useRecordContext();
+  const [activeStep, setActiveStep] = useState(0);
+  const [moduleChoices, setModuleChoices] = useState([]);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/admin/sap-modules`, { headers: { Authorization: getAuthHeader() } })
+      .then((res) => res.json())
+      .then((data) => setModuleChoices(data.map((m) => ({ id: m.id, name: m.label, code: m.code }))));
+  }, []);
+
+  const parentSectionDefaultOpen = !!(record?.parentId || record?.description || props.defaultValues?.parentId);
+  const hypercareSectionDefaultOpen = !!(record?.hypercareStartDate || record?.hypercareEndDate);
+
   return (
-    <SimpleForm {...props}>
-      <TextInput source="client" label="Projet" validate={required()} fullWidth />
-      <ParentIdInput />
-      <CheckboxGroupInput source="modules" label="Modules SAP" choices={SAP_MODULES} />
-      <ReferentialModulesInput />
-      <SelectInput
-        source="missionType"
-        label="Type de mission"
-        choices={MISSION_TYPES}
-        defaultValue="Intégration"
-        validate={required()}
-        fullWidth
-      />
-      <TextInput source="description" label="Description de la mission" multiline rows={3} fullWidth />
+    <SimpleForm toolbar={false} {...props}>
+      <ValidationJumpBack setActiveStep={setActiveStep} />
+      <LegacyModulesSync moduleChoices={moduleChoices} />
 
-      <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700, display: 'block', mt: 1 }}>
-        Informations projet
-      </Typography>
-      <TextInput source="sector" label="Secteur d'activité" fullWidth />
-      <TextInput source="country" label="Pays" fullWidth />
-      <SelectInput source="projectType" label="Type de projet" choices={PROJECT_TYPES} fullWidth />
-      <SelectInput source="status" label="Statut" choices={PROJECT_STATUSES} fullWidth />
-      <SelectInput
-        source="experienceType"
-        label="Type d'expérience (pour le choix des phases côté consultant)"
-        choices={EXPERIENCE_TYPES}
-        fullWidth
-      />
-      <TextInput source="projectManager" label="Chef de projet" fullWidth />
-      <TextInput source="sponsor" label="Sponsor" fullWidth />
-      <TechnologiesInput />
+      <StepPills activeStep={activeStep} onChange={setActiveStep} />
 
-      <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700, display: 'block', mt: 1 }}>
-        Dates du cycle de vie
-      </Typography>
-      <DateInput source="startDate" label="Date de démarrage" />
-      <DateInput source="realizationStartDate" label="Date de début de réalisation" />
-      <DateInput source="goLiveDate" label="Date de Go-Live" />
-      <DateInput source="hypercareStartDate" label="Date de début Hypercare" />
-      <DateInput source="hypercareEndDate" label="Date de fin Hypercare" />
-      <DateInput source="closureDate" label="Date de clôture" />
-      <DateInput
-        source="endDate"
-        label="Date de fin (calculée si vide)"
-        helperText="Calculée automatiquement à partir du Go-Live/Hypercare si laissée vide - toujours modifiable"
-      />
+      <Paper variant="outlined" sx={{ borderRadius: '12px', p: '1.25rem 1.5rem' }}>
+        <Box sx={{ display: activeStep === 0 ? 'block' : 'none' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', mb: 2 }}>
+            <TextInput source="client" label="Projet" validate={required()} fullWidth />
+            <SelectInput
+              source="missionType"
+              label="Type de mission"
+              choices={MISSION_TYPES}
+              defaultValue="Intégration"
+              validate={required()}
+              fullWidth
+            />
+          </Box>
+          <ReferentialChipInput choices={moduleChoices} />
+          <CollapsibleSection title="Projet parent & description" defaultOpen={parentSectionDefaultOpen}>
+            <ParentIdInput />
+            <TextInput source="description" label="Description de la mission" multiline rows={3} fullWidth />
+          </CollapsibleSection>
+        </Box>
+
+        <Box sx={{ display: activeStep === 1 ? 'block' : 'none' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+            <TextInput source="sector" label="Secteur d'activité" fullWidth />
+            <TextInput source="country" label="Pays" fullWidth />
+            <SelectInput source="projectType" label="Type de projet" choices={PROJECT_TYPES} fullWidth />
+            <SelectInput source="status" label="Statut" choices={PROJECT_STATUSES} fullWidth />
+            <SelectInput
+              source="experienceType"
+              label="Type d'expérience (pour le choix des phases côté consultant)"
+              choices={EXPERIENCE_TYPES}
+              fullWidth
+            />
+            <TechnologiesInput />
+          </Box>
+        </Box>
+
+        <Box sx={{ display: activeStep === 2 ? 'block' : 'none' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', mb: 1.5 }}>
+            <TextInput source="projectManager" label="Chef de projet" fullWidth />
+            <TextInput source="sponsor" label="Sponsor" fullWidth />
+          </Box>
+          <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 1.5 }}>
+            <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700, display: 'block', mb: 1.25 }}>
+              Cycle de vie
+            </Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <DateInput source="startDate" label="Date de démarrage" />
+              <DateInput source="realizationStartDate" label="Date de début de réalisation" />
+              <DateInput source="goLiveDate" label="Date de Go-Live" />
+              <DateInput source="closureDate" label="Date de clôture" />
+            </Box>
+            <CollapsibleSection title="Fenêtre Hypercare (début / fin)" defaultOpen={hypercareSectionDefaultOpen}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <DateInput source="hypercareStartDate" label="Date de début Hypercare" />
+                <DateInput source="hypercareEndDate" label="Date de fin Hypercare" />
+              </Box>
+            </CollapsibleSection>
+            <EndDateField />
+          </Box>
+          <Box sx={{ borderTop: '1px solid', borderColor: 'divider', mt: 2.5, pt: 1.5, display: 'flex', justifyContent: 'flex-end' }}>
+            <SaveButton icon={<CheckIcon />} label={record?.id ? 'Enregistrer les modifications' : 'Créer le projet'} />
+          </Box>
+        </Box>
+      </Paper>
 
       <DocumentsSection />
       <TaskSection />
