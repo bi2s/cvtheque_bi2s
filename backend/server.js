@@ -1004,6 +1004,61 @@ app.delete('/api/admin/project-documents/:id', requireAdminOrPmo, async (req, re
   res.json({ ok: true });
 });
 
+// Flat per-consultant document list (diploma/certificate scans, etc.) -
+// same shape/convention as catalog_project_documents above.
+const CONSULTANT_DOCS_DIR = path.join(__dirname, 'uploads', 'consultant-documents');
+fs.mkdirSync(CONSULTANT_DOCS_DIR, { recursive: true });
+const uploadConsultantDocument = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+function mapConsultantDocumentRow(r) {
+  return { id: r.id, consultantId: r.consultant_id, originalName: r.original_name, uploadedAt: r.uploaded_at };
+}
+
+app.get('/api/admin/consultants/:id/documents', requireAdminOrPmo, async (req, res) => {
+  const [rows] = await pool.query(
+    'SELECT * FROM consultant_documents WHERE consultant_id = ? ORDER BY uploaded_at DESC',
+    [req.params.id]
+  );
+  res.json(rows.map(mapConsultantDocumentRow));
+});
+
+app.post('/api/admin/consultants/:id/documents', requireAdminOrPmo, (req, res) => {
+  uploadConsultantDocument.single('file')(req, res, async (err) => {
+    if (err) return res.status(400).json({ detail: 'Fichier invalide ou trop volumineux' });
+    if (!req.file) return res.status(400).json({ detail: 'Aucun fichier fourni' });
+    const consultantId = Number(req.params.id);
+    const ext = path.extname(req.file.originalname || '');
+    const safeExt = /^\.[a-zA-Z0-9]{1,10}$/.test(ext) ? ext : '';
+    const filename = `${consultantId}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}${safeExt}`;
+    const relativePath = path.join('uploads', 'consultant-documents', filename);
+    fs.writeFileSync(path.join(CONSULTANT_DOCS_DIR, filename), req.file.buffer);
+    const [result] = await pool.query(
+      'INSERT INTO consultant_documents (consultant_id, file_path, original_name) VALUES (?, ?, ?)',
+      [consultantId, relativePath, req.file.originalname]
+    );
+    res.json(mapConsultantDocumentRow({
+      id: result.insertId,
+      consultant_id: consultantId,
+      original_name: req.file.originalname,
+      uploaded_at: new Date(),
+    }));
+  });
+});
+
+app.get('/api/admin/consultant-documents/:id/download', requireAdminOrPmo, async (req, res) => {
+  const [[doc]] = await pool.query('SELECT * FROM consultant_documents WHERE id = ?', [req.params.id]);
+  if (!doc) return res.status(404).json({ detail: 'Document introuvable' });
+  res.download(path.join(__dirname, doc.file_path), doc.original_name);
+});
+
+app.delete('/api/admin/consultant-documents/:id', requireAdminOrPmo, async (req, res) => {
+  const [[doc]] = await pool.query('SELECT * FROM consultant_documents WHERE id = ?', [req.params.id]);
+  if (!doc) return res.status(404).json({ detail: 'Document introuvable' });
+  fs.unlink(path.join(__dirname, doc.file_path), () => {});
+  await pool.query('DELETE FROM consultant_documents WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+});
+
 function mapTaskRow(r) {
   return { id: r.id, projectId: r.project_id, label: r.label, done: !!r.done, sortOrder: r.sort_order };
 }

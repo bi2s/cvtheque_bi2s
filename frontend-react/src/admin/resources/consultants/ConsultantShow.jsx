@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Show, useShowContext } from 'react-admin';
+import { useEffect, useState } from 'react';
+import { Show, useShowContext, useNotify } from 'react-admin';
 import {
   Box,
   Typography,
@@ -23,6 +23,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
 import CheckIcon from '@mui/icons-material/Check';
+import UploadFileIcon from '@mui/icons-material/UploadFileOutlined';
 import ResetPasswordButton from './ResetPasswordButton';
 import InviteButton from './InviteButton';
 import DownloadCvButton from './DownloadCvButton';
@@ -30,6 +31,100 @@ import PhotoUploadButton from './PhotoUploadButton';
 import useAdminPhotoUrl from './useAdminPhotoUrl';
 import DepartureSection from './DepartureSection';
 import CvPreview from '../../../CvPreview';
+import { API_BASE_URL } from '../../../api';
+import { getAuthHeader } from '../../authHeader';
+
+// Flat, per-consultant list of diploma/certificate scans - deliberately not
+// tied to a specific Formations/Certifications row above (scanned filenames
+// like "Certif1.png" don't reliably say which exact line they belong to).
+function ConsultantDocumentsSection({ consultantId }) {
+  const notify = useNotify();
+  const [documents, setDocuments] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  function load() {
+    fetch(`${API_BASE_URL}/api/admin/consultants/${consultantId}/documents`, {
+      headers: { Authorization: getAuthHeader() },
+    })
+      .then((res) => res.json())
+      .then(setDocuments);
+  }
+
+  useEffect(load, [consultantId]);
+
+  async function uploadDocument(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${API_BASE_URL}/api/admin/consultants/${consultantId}/documents`, {
+        method: 'POST',
+        headers: { Authorization: getAuthHeader() },
+        body: formData,
+      });
+      if (!res.ok) {
+        notify("Échec de l'envoi du document", { type: 'error' });
+        return;
+      }
+      load();
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function downloadDocument(doc) {
+    fetch(`${API_BASE_URL}/api/admin/consultant-documents/${doc.id}/download`, {
+      headers: { Authorization: getAuthHeader() },
+    })
+      .then((res) => (res.ok ? res.blob() : Promise.reject(res)))
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = doc.originalName;
+        a.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch(() => notify('Document indisponible', { type: 'error' }));
+  }
+
+  async function deleteDocument(doc) {
+    await fetch(`${API_BASE_URL}/api/admin/consultant-documents/${doc.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: getAuthHeader() },
+    });
+    load();
+  }
+
+  return (
+    <Box sx={{ mt: 3 }}>
+      <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
+        Diplômes &amp; certificats (scans)
+      </Typography>
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mt: 1, alignItems: 'center' }}>
+        {documents === null ? (
+          <CircularProgress size={18} />
+        ) : (
+          <>
+            {documents.length === 0 && (
+              <Typography sx={{ color: 'text.disabled', fontSize: 13.5 }}>Aucun document</Typography>
+            )}
+            {documents.map((d) => (
+              <Chip key={d.id} label={d.originalName} onClick={() => downloadDocument(d)} onDelete={() => deleteDocument(d)} clickable size="small" />
+            ))}
+          </>
+        )}
+        <Button component="label" size="small" startIcon={<UploadFileIcon />} disabled={uploading}>
+          Ajouter
+          <input type="file" hidden onChange={uploadDocument} />
+        </Button>
+      </Stack>
+    </Box>
+  );
+}
 
 // Tab-separated rows paste as real cells into Excel/Word, unlike a plain
 // text dump - same convention as CvPreview.jsx's copy buttons.
@@ -238,6 +333,8 @@ function ConsultantShowContent() {
           </Table>
         </Box>
       )}
+
+      <ConsultantDocumentsSection consultantId={record.id} />
 
       <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
         <DepartureSection consultant={record} />

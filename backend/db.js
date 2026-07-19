@@ -450,6 +450,20 @@ async function initSchema() {
         FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE
       )
     `);
+    // Flat, generic per-consultant document list (diploma/certificate scans,
+    // etc.) - deliberately not tied to a specific consultant_formations/
+    // certifications row, since scanned filenames (Certif1.png, CamScanner
+    // ...jpg) don't reliably indicate which exact line they belong to.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS consultant_documents (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        consultant_id INT NOT NULL,
+        file_path VARCHAR(255) NOT NULL,
+        original_name VARCHAR(255) NOT NULL,
+        uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (consultant_id) REFERENCES consultants(id) ON DELETE CASCADE
+      )
+    `);
     await conn.query(`
       CREATE TABLE IF NOT EXISTS candidate_audit (
         id INT AUTO_INCREMENT PRIMARY KEY,
