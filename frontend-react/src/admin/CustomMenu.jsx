@@ -214,13 +214,17 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
   );
 }
 
-// Same PNG lockup used everywhere else (AppHeader.jsx, Login.jsx, etc.) -
-// its transparent background reads fine on this dark navy sidebar, so this
-// no longer needs its own two-tone text approximation.
+// Same PNG lockup used everywhere else (AppHeader.jsx, Login.jsx, etc.), but
+// its "2S" and caption are drawn in a dark ink meant for light backgrounds -
+// unreadable directly on this dark navy sidebar. A small white card behind
+// it restores the contrast the asset assumes, without needing a separate
+// dark-background export of the logo.
 function SidebarLogo() {
   return (
     <Box sx={{ px: 2.25, pt: 1.25, pb: 1.5, borderBottom: '1px solid rgba(255,255,255,.1)', mb: 1.25 }}>
-      <Box component="img" src="/logo_bi2s.webp" alt="Bi2S — Best IS Solutions" sx={{ width: 140, display: 'block' }} />
+      <Box sx={{ display: 'inline-block', bgcolor: '#fff', borderRadius: 1.5, px: 1.25, py: 1 }}>
+        <Box component="img" src="/logo_bi2s.webp" alt="Bi2S — Best IS Solutions" sx={{ width: 120, display: 'block' }} />
+      </Box>
     </Box>
   );
 }
