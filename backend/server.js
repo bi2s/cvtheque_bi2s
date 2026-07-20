@@ -1184,7 +1184,7 @@ app.get('/api/consultants', requireAdmin, async (req, res) => {
   if (req.query.onlyArchived) where = 'WHERE c.archived_at IS NOT NULL';
   else if (req.query.includeArchived) where = '';
   const [rows] = await pool.query(`
-    SELECT c.id, c.name, c.title, c.job_title AS jobTitle, c.username, (c.photo_path IS NOT NULL) AS hasPhoto,
+    SELECT c.id, c.name, c.title, c.job_title AS jobTitle, c.username, c.email, (c.photo_path IS NOT NULL) AS hasPhoto,
            c.status_id AS statusId, cs.label AS statusLabel, c.archived_at AS archivedAt,
            c.seniority_level AS seniorityLevel, c.years_of_experience AS yearsOfExperience,
            (c.password_hash IS NOT NULL) AS hasPassword

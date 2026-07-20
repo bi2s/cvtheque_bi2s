@@ -4,6 +4,8 @@ import { Avatar, Chip, Stack, Box, Typography, TextField, Menu, MenuItem } from 
 import SearchIcon from '@mui/icons-material/Search';
 import WarningAmberIcon from '@mui/icons-material/WarningAmberOutlined';
 import BulkDownloadCvButton from './BulkDownloadCvButton';
+import BulkExportButton from './BulkExportButton';
+import BulkContactButton from './BulkContactButton';
 import RowActionsMenu from './RowActionsMenu';
 import useAdminPhotoUrl from './useAdminPhotoUrl';
 import { SENIORITY_LEVELS, seniorityLabel } from '../../seniorityLabels';
@@ -233,7 +235,16 @@ export default function ConsultantList() {
   return (
     <List sort={defaultSort} perPage={25}>
       <ConsultantFilterBar />
-      <Datagrid rowClick="show" bulkActionButtons={<BulkDownloadCvButton />}>
+      <Datagrid
+        rowClick="show"
+        bulkActionButtons={
+          <>
+            <BulkExportButton />
+            <BulkDownloadCvButton />
+            <BulkContactButton />
+          </>
+        }
+      >
         <ConsultantField label="Consultant" sortBy="name" />
         <ModulesField label="Modules" sortable={false} />
         <AvailabilityField label="Disponibilité" sortBy="utilizationPct" />
