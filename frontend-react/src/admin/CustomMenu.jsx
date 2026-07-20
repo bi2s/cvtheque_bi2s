@@ -51,18 +51,6 @@ const GROUPS = [
     ],
   },
   {
-    key: 'recruitment',
-    label: 'Recrutement',
-    icon: GroupsOutlinedIcon,
-    color: '#2EE5C0',
-    items: [
-      { to: '/admin/candidates', label: 'Candidats & pipeline', icon: BadgeOutlinedIcon },
-      { to: '/admin/hrDashboard', label: 'Indicateurs RH', icon: QueryStatsOutlinedIcon },
-      { to: '/admin/alerts', label: 'Alertes', icon: NotificationsActiveOutlinedIcon, badge: 'openAlerts', badgeVariant: 'urgent' },
-      { to: '/admin/staffingSearch', label: 'Staffing', icon: PersonSearchOutlinedIcon },
-    ],
-  },
-  {
     key: 'projects',
     label: 'Projets',
     icon: BusinessCenterOutlinedIcon,
@@ -72,6 +60,18 @@ const GROUPS = [
       { to: '/admin/staffingPlanning', label: 'Planning', icon: EventNoteOutlinedIcon },
       { to: '/admin/rfp', label: "Appels d'offres", icon: DescriptionOutlinedIcon },
       { to: '/admin/rfpBoilerplate', label: 'Sections types (RFP)', icon: ArticleOutlinedIcon },
+    ],
+  },
+  {
+    key: 'recruitment',
+    label: 'Recrutement',
+    icon: GroupsOutlinedIcon,
+    color: '#2EE5C0',
+    items: [
+      { to: '/admin/candidates', label: 'Candidats & pipeline', icon: BadgeOutlinedIcon },
+      { to: '/admin/hrDashboard', label: 'Indicateurs RH', icon: QueryStatsOutlinedIcon },
+      { to: '/admin/alerts', label: 'Alertes', icon: NotificationsActiveOutlinedIcon, badge: 'openAlerts', badgeVariant: 'urgent' },
+      { to: '/admin/staffingSearch', label: 'Staffing', icon: PersonSearchOutlinedIcon },
     ],
   },
 ];
