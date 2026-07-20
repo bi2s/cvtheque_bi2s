@@ -18,7 +18,31 @@ export function isDescendant(flatProjects, candidateParentId, id) {
   return false;
 }
 
-export default function useProjectTree(records) {
+export const PROJECT_TYPES = [
+  'Implémentation', 'Rollout', 'Support', 'TMA', 'Upgrade', 'Migration',
+  'Conversion S/4HANA', 'AMS', 'POC', 'Audit',
+];
+
+// 'Clôturé'/'Annulé' are the only two statuses treated as no-longer-active -
+// everything else (including no status set at all, common on older records)
+// counts as active, matching the mockup's "Actifs" filter. Lives here
+// (rather than in ProjectTree.jsx, which renders ProjectTreeNode, which in
+// turn needs this) purely to avoid a circular import between the two.
+const INACTIVE_STATUSES = ['Clôturé', 'Annulé'];
+export function isActiveStatus(status) {
+  return !INACTIVE_STATUSES.includes(status);
+}
+
+export function isIncomplete(node) {
+  return !node.modules?.length && !node.startDate;
+}
+
+const SORT_ORDER_COMPARATOR = (a, b) => a.sortOrder - b.sortOrder;
+
+// `compare` defaults to the manual drag-order column - pass a different
+// comparator (échéance/nom/type) to sort siblings by that instead. Sibling
+// grouping itself never changes, only the order within each group.
+export default function useProjectTree(records, compare = SORT_ORDER_COMPARATOR) {
   return useMemo(() => {
     const byParent = new Map();
     for (const p of records) {
@@ -27,7 +51,7 @@ export default function useProjectTree(records) {
       byParent.get(key).push(p);
     }
     for (const siblings of byParent.values()) {
-      siblings.sort((a, b) => a.sortOrder - b.sortOrder);
+      siblings.sort(compare);
     }
 
     const childrenOf = (parentId) => byParent.get(parentId ?? null) || [];
@@ -44,5 +68,5 @@ export default function useProjectTree(records) {
     };
 
     return { roots: childrenOf(null), childrenOf, descendantsOf };
-  }, [records]);
+  }, [records, compare]);
 }
