@@ -78,7 +78,6 @@ const GROUPS = [
       { to: '/admin/hrDashboard', label: 'Tableau de bord RH', icon: QueryStatsOutlinedIcon },
       { to: '/admin/alerts', label: "Centre d'alertes", icon: NotificationsActiveOutlinedIcon },
       { to: '/admin/staffingSearch', label: 'Recherche de staffing', icon: PersonSearchOutlinedIcon },
-      { to: '/admin/staffingPlanning', label: 'Planning', icon: EventNoteOutlinedIcon },
     ],
   },
   {
@@ -88,6 +87,7 @@ const GROUPS = [
     color: '#D9A441',
     items: [
       { to: '/admin/catalogProjects', label: 'Catalogue projets', icon: WorkOutlineIcon },
+      { to: '/admin/staffingPlanning', label: 'Planning', icon: EventNoteOutlinedIcon },
       { to: '/admin/rfp', label: "Appels d'offres", icon: DescriptionOutlinedIcon },
       { to: '/admin/rfpBoilerplate', label: 'Sections types (RFP)', icon: ArticleOutlinedIcon },
     ],
