@@ -567,6 +567,10 @@ async function initSchema() {
     `);
 
     await ensureColumn(conn, 'consultants', 'seniority_level', 'VARCHAR(20) NULL');
+    // Admin-editable, shown alongside seniority_level in list/show views
+    // ("Expert · 8 ans") - not derived from project history, since project
+    // dates on file don't necessarily cover a consultant's whole career.
+    await ensureColumn(conn, 'consultants', 'years_of_experience', 'INT NULL');
     // Personal info (Smart-wizard plan section) - admin-managed, the wizard
     // only ever displays these read-only, never asks the consultant to type them.
     await ensureColumn(conn, 'consultants', 'first_name', 'VARCHAR(100) NULL');

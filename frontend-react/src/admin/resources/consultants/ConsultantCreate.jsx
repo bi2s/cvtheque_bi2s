@@ -5,6 +5,7 @@ import {
   SaveButton,
   TextInput,
   SelectInput,
+  NumberInput,
   useNotify,
   useRedirect,
   required,
@@ -263,8 +264,9 @@ export default function ConsultantCreate() {
             fullWidth
             helperText="Pour les responsables, chefs de projet, directeurs de mission - laisser vide sinon"
           />
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', mb: 1.75, mt: 0.5 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', mb: 1.75, mt: 0.5 }}>
             <SelectInput source="seniorityLevel" label="Niveau d'expérience" choices={SENIORITY_LEVELS} fullWidth helperText={false} />
+            <NumberInput source="yearsOfExperience" label="Années d'expérience" fullWidth helperText={false} min={0} />
             <SelectInput
               source="gender"
               label="Genre"

@@ -83,14 +83,31 @@ const consultantsResource = {
     const currentProjectByConsultant = new Map();
     for (const a of assignments) {
       if (a.startDate <= todayIso && a.endDate >= todayIso) {
-        currentProjectByConsultant.set(a.consultantId, a.projectClient);
+        currentProjectByConsultant.set(a.consultantId, { client: a.projectClient, endDate: a.endDate });
       }
     }
-    const enriched = all.map((c) => ({
-      ...c,
-      utilizationPct: utilByConsultant.get(c.id) ?? null,
-      currentProjectClient: currentProjectByConsultant.get(c.id) || null,
-    }));
+    // "Non renseignée" reuses the same incompleteness signal as the list's
+    // own "Profil incomplet" row treatment (no seniorityLevel on file) - the
+    // utilization endpoint itself can't distinguish "confirmed free" from
+    // "we have no idea" (a consultant with zero current assignments simply
+    // isn't in that response at all), so a complete profile with no
+    // assignment reads as genuinely available instead.
+    const enriched = all.map((c) => {
+      const current = currentProjectByConsultant.get(c.id);
+      const utilizationPct = utilByConsultant.get(c.id) ?? null;
+      let availabilityTier;
+      if (!c.seniorityLevel) availabilityTier = 'non_renseignee';
+      else if (!utilizationPct) availabilityTier = 'disponible';
+      else if (utilizationPct >= 70) availabilityTier = 'staffe';
+      else availabilityTier = 'partiel';
+      return {
+        ...c,
+        utilizationPct,
+        availabilityTier,
+        currentProjectClient: current?.client || null,
+        currentProjectEndDate: current?.endDate || null,
+      };
+    });
     return paginateSortFilter(enriched, params, {
       searchFields: ['name', 'username', 'title', 'seniorityLevel', 'modules'],
       defaultSortField: 'name',

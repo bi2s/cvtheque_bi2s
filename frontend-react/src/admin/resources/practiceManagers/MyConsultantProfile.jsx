@@ -112,6 +112,7 @@ export default function MyConsultantProfile() {
       title: record.title || '',
       jobTitle: record.jobTitle || '',
       seniorityLevel: record.seniorityLevel || '',
+      yearsOfExperience: record.yearsOfExperience ?? '',
       gender: record.gender || '',
       firstName: record.firstName || '',
       lastName: record.lastName || '',
@@ -273,6 +274,14 @@ export default function MyConsultantProfile() {
                 </MenuItem>
               ))}
             </TextField>
+            <TextField
+              type="number"
+              label="Années d'expérience"
+              value={form.yearsOfExperience}
+              onChange={(e) => setForm({ ...form, yearsOfExperience: e.target.value === '' ? '' : Number(e.target.value) })}
+              fullWidth
+              inputProps={{ min: 0 }}
+            />
             {missionTypeChoices.length > 0 && (
               <Box>
                 <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 0.5 }}>Types de mission</Typography>

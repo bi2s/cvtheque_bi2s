@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { TextInput, SelectInput, CheckboxGroupInput } from 'react-admin';
+import { TextInput, SelectInput, NumberInput, CheckboxGroupInput } from 'react-admin';
 import { Typography } from '@mui/material';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
@@ -34,6 +34,7 @@ export default function ConsultantProfileFields() {
         Profil
       </Typography>
       <SelectInput source="seniorityLevel" label="Niveau d'expérience" choices={SENIORITY_LEVELS} fullWidth />
+      <NumberInput source="yearsOfExperience" label="Années d'expérience" fullWidth min={0} />
       <MissionTypesInput />
 
       <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700, display: 'block', mt: 1 }}>

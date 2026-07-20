@@ -44,7 +44,7 @@ export default function BulkDownloadCvButton() {
       onClick={download}
       disabled={loading}
     >
-      Télécharger les CV (ZIP)
+      Générer les CV
     </Button>
   );
 }
