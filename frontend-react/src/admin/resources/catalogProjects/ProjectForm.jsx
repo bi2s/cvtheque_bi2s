@@ -13,8 +13,8 @@ import {
   DateInput,
   required,
 } from 'react-admin';
-import { useFormContext, useFormState, useWatch } from 'react-hook-form';
-import { Box, Typography, Stack, Chip, Button, CircularProgress, Paper, Collapse, Menu, MenuItem } from '@mui/material';
+import { useFormContext, useWatch } from 'react-hook-form';
+import { Box, Typography, Stack, Chip, Button, CircularProgress, Collapse, Menu, MenuItem } from '@mui/material';
 import UploadFileIcon from '@mui/icons-material/UploadFileOutlined';
 import AddIcon from '@mui/icons-material/Add';
 import CheckIcon from '@mui/icons-material/Check';
@@ -58,31 +58,18 @@ const EXPERIENCE_TYPES = [
 
 const ALL_PROJECTS_QUERY = { pagination: { page: 1, perPage: 1000 }, sort: { field: 'client', order: 'ASC' } };
 
-const STEPS = ["L'essentiel", 'Contexte', 'Dates & équipe'];
-
-function StepPills({ activeStep, onChange }) {
+// Same numbered-section convention as the "Nouvelle affectation" form
+// (StaffingPlanning.jsx's FormSection) - every field visible in one scroll
+// rather than paged behind steps, kept as its own small copy rather than a
+// shared component since the two forms live in unrelated resource folders.
+function FormSection({ title, children }) {
   return (
-    <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mb: 1.5 }}>
-      {STEPS.map((label, i) => {
-        const isActive = i === activeStep;
-        const isDone = i < activeStep;
-        return (
-          <Chip
-            key={label}
-            size="small"
-            onClick={() => onChange(i)}
-            icon={isDone ? <CheckIcon fontSize="small" /> : undefined}
-            label={isDone ? `${i + 1}` : `${i + 1} · ${label}`}
-            sx={{
-              cursor: 'pointer',
-              fontWeight: isActive ? 600 : 400,
-              bgcolor: isActive ? 'secondary.light' : 'grey.100',
-              color: isActive ? 'secondary.dark' : 'text.secondary',
-            }}
-          />
-        );
-      })}
-    </Stack>
+    <Box sx={{ mb: 2.5 }}>
+      <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700, display: 'block', mb: 1 }}>
+        {title}
+      </Typography>
+      <Stack spacing={1.5}>{children}</Stack>
+    </Box>
   );
 }
 
@@ -195,18 +182,6 @@ function LegacyModulesSync({ moduleChoices }) {
     setValue('modules', codes, { shouldDirty: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(referentialModuleIds), moduleChoices]);
-  return null;
-}
-
-// Today the only two required() fields (client, missionType) both live in
-// step 1 - so a failed submit while looking at step 2/3 needs to jump back
-// there, or the validation error is invisibly hidden behind display:none.
-function ValidationJumpBack({ setActiveStep }) {
-  const { errors } = useFormState();
-  useEffect(() => {
-    if (errors.client || errors.missionType) setActiveStep(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [errors.client, errors.missionType]);
   return null;
 }
 
@@ -390,7 +365,6 @@ function DocumentsSection() {
 
 export default function ProjectForm(props) {
   const record = useRecordContext();
-  const [activeStep, setActiveStep] = useState(0);
   const [moduleChoices, setModuleChoices] = useState([]);
 
   useEffect(() => {
@@ -404,75 +378,70 @@ export default function ProjectForm(props) {
 
   return (
     <SimpleForm toolbar={false} {...props}>
-      <ValidationJumpBack setActiveStep={setActiveStep} />
       <LegacyModulesSync moduleChoices={moduleChoices} />
 
-      <StepPills activeStep={activeStep} onChange={setActiveStep} />
-
-      <Paper variant="outlined" sx={{ borderRadius: '12px', p: '1.25rem 1.5rem' }}>
-        <Box sx={{ display: activeStep === 0 ? 'block' : 'none' }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', mb: 2 }}>
-            <TextInput source="client" label="Projet" validate={required()} fullWidth />
-            <SelectInput
-              source="missionType"
-              label="Type de mission"
-              choices={MISSION_TYPES}
-              defaultValue="Intégration"
-              validate={required()}
-              fullWidth
-            />
-          </Box>
-          <ReferentialChipInput choices={moduleChoices} />
-          <CollapsibleSection title="Projet parent & description" defaultOpen={parentSectionDefaultOpen}>
-            <ParentIdInput />
-            <TextInput source="description" label="Description de la mission" multiline rows={3} fullWidth />
-          </CollapsibleSection>
+      <FormSection title="① Qui & quoi">
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+          <TextInput source="client" label="Projet" validate={required()} fullWidth />
+          <SelectInput
+            source="missionType"
+            label="Type de mission"
+            choices={MISSION_TYPES}
+            defaultValue="Intégration"
+            validate={required()}
+            fullWidth
+          />
         </Box>
+        <ReferentialChipInput choices={moduleChoices} />
+      </FormSection>
 
-        <Box sx={{ display: activeStep === 1 ? 'block' : 'none' }}>
+      <FormSection title="② Contexte">
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+          <TextInput source="sector" label="Secteur d'activité" fullWidth />
+          <TextInput source="country" label="Pays" fullWidth />
+          <SelectInput source="projectType" label="Type de projet" choices={PROJECT_TYPES} fullWidth />
+          <SelectInput source="status" label="Statut" choices={PROJECT_STATUSES} fullWidth />
+          <SelectInput
+            source="experienceType"
+            label="Type d'expérience (pour le choix des phases côté consultant)"
+            choices={EXPERIENCE_TYPES}
+            fullWidth
+          />
+          <TechnologiesInput />
+        </Box>
+      </FormSection>
+
+      <CollapsibleSection title="③ Projet parent & description" defaultOpen={parentSectionDefaultOpen}>
+        <ParentIdInput />
+        <TextInput source="description" label="Description de la mission" multiline rows={3} fullWidth />
+      </CollapsibleSection>
+
+      <FormSection title="④ Cycle de vie">
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+          <DateInput source="startDate" label="Date de démarrage" />
+          <DateInput source="realizationStartDate" label="Date de début de réalisation" />
+          <DateInput source="goLiveDate" label="Date de Go-Live" />
+          <DateInput source="closureDate" label="Date de clôture" />
+        </Box>
+        <CollapsibleSection title="Fenêtre Hypercare (début / fin)" defaultOpen={hypercareSectionDefaultOpen}>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-            <TextInput source="sector" label="Secteur d'activité" fullWidth />
-            <TextInput source="country" label="Pays" fullWidth />
-            <SelectInput source="projectType" label="Type de projet" choices={PROJECT_TYPES} fullWidth />
-            <SelectInput source="status" label="Statut" choices={PROJECT_STATUSES} fullWidth />
-            <SelectInput
-              source="experienceType"
-              label="Type d'expérience (pour le choix des phases côté consultant)"
-              choices={EXPERIENCE_TYPES}
-              fullWidth
-            />
-            <TechnologiesInput />
+            <DateInput source="hypercareStartDate" label="Date de début Hypercare" />
+            <DateInput source="hypercareEndDate" label="Date de fin Hypercare" />
           </Box>
-        </Box>
+        </CollapsibleSection>
+        <EndDateField />
+      </FormSection>
 
-        <Box sx={{ display: activeStep === 2 ? 'block' : 'none' }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', mb: 1.5 }}>
-            <TextInput source="projectManager" label="Chef de projet" fullWidth />
-            <TextInput source="sponsor" label="Sponsor" fullWidth />
-          </Box>
-          <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 1.5 }}>
-            <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700, display: 'block', mb: 1.25 }}>
-              Cycle de vie
-            </Typography>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-              <DateInput source="startDate" label="Date de démarrage" />
-              <DateInput source="realizationStartDate" label="Date de début de réalisation" />
-              <DateInput source="goLiveDate" label="Date de Go-Live" />
-              <DateInput source="closureDate" label="Date de clôture" />
-            </Box>
-            <CollapsibleSection title="Fenêtre Hypercare (début / fin)" defaultOpen={hypercareSectionDefaultOpen}>
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                <DateInput source="hypercareStartDate" label="Date de début Hypercare" />
-                <DateInput source="hypercareEndDate" label="Date de fin Hypercare" />
-              </Box>
-            </CollapsibleSection>
-            <EndDateField />
-          </Box>
-          <Box sx={{ borderTop: '1px solid', borderColor: 'divider', mt: 2.5, pt: 1.5, display: 'flex', justifyContent: 'flex-end' }}>
-            <SaveButton icon={<CheckIcon />} label={record?.id ? 'Enregistrer les modifications' : 'Créer le projet'} />
-          </Box>
+      <FormSection title="⑤ Encadrement">
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+          <TextInput source="projectManager" label="Chef de projet" fullWidth />
+          <TextInput source="sponsor" label="Sponsor" fullWidth />
         </Box>
-      </Paper>
+      </FormSection>
+
+      <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 1.5, display: 'flex', justifyContent: 'flex-end' }}>
+        <SaveButton icon={<CheckIcon />} label={record?.id ? 'Enregistrer les modifications' : 'Créer le projet'} />
+      </Box>
 
       <DocumentsSection />
       <TaskSection />
