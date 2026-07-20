@@ -214,25 +214,13 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
   );
 }
 
-// Compact text lockup for the sidebar header - "Bi" in the brand turquoise,
-// "2S" in a light ink, small letter-spaced caption below. Plain styled text
-// (not the SVG lockup used on Login.jsx/the public chat header) since this
-// spot is narrow and dark - a two-tone text mark reads cleanly at this size
-// without needing a separate light-background asset variant.
+// Same PNG lockup used everywhere else (AppHeader.jsx, Login.jsx, etc.) -
+// its transparent background reads fine on this dark navy sidebar, so this
+// no longer needs its own two-tone text approximation.
 function SidebarLogo() {
   return (
-    <Box sx={{ px: 2.25, pt: 0.75, pb: 2, borderBottom: '1px solid rgba(255,255,255,.1)', mb: 1.25 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Typography sx={{ fontSize: 20, fontWeight: 500, letterSpacing: '-0.5px', lineHeight: 1 }}>
-          <Box component="span" sx={{ color: '#5DCAA5' }}>
-            Bi
-          </Box>
-          <Box component="span" sx={{ color: '#E6F1FB' }}>
-            2S
-          </Box>
-        </Typography>
-      </Box>
-      <Typography sx={{ fontSize: 10, color: '#85B7EB', letterSpacing: '.08em', mt: 0.5 }}>BEST IS SOLUTIONS</Typography>
+    <Box sx={{ px: 2.25, pt: 1.25, pb: 1.5, borderBottom: '1px solid rgba(255,255,255,.1)', mb: 1.25 }}>
+      <Box component="img" src="/logo_bi2s.webp" alt="Bi2S — Best IS Solutions" sx={{ width: 140, display: 'block' }} />
     </Box>
   );
 }
