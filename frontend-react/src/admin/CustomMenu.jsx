@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Menu, usePermissions } from 'react-admin';
-import { Box, List, Collapse, MenuItem, ListItemIcon, ListItemText, Chip, Divider } from '@mui/material';
+import { Box, Typography, List, Collapse, MenuItem, ListItemIcon, ListItemText, Chip, Divider } from '@mui/material';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutlineOutlined';
 import WorkOutlineIcon from '@mui/icons-material/WorkOutlineOutlined';
 import PendingActionsOutlinedIcon from '@mui/icons-material/PendingActionsOutlined';
 import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
-import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
 import ChecklistOutlinedIcon from '@mui/icons-material/ChecklistOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
@@ -27,34 +26,18 @@ import { API_BASE_URL } from '../api';
 import { getAuthHeader } from './authHeader';
 
 // Domain groupings for the admin/RH sidebar - every item here is one of the
-// 14 resources already registered in AdminApp.jsx's fullResources(); this
-// file only changes how they're presented, not what routes/permissions
-// exist. "Vue d'ensemble" (the dashboard) stays pinned above these groups,
-// same as Fiori/Dynamics/Salesforce/Jira/Odoo all do with their Home item.
+// resources already registered in AdminApp.jsx's fullResources(); this file
+// only changes how they're presented, not what routes/permissions exist.
+// "Vue d'ensemble" (the dashboard) stays pinned above these groups.
 //
 // Menu.Item's `to` prop needs the full '/admin/...' path here, NOT a
-// basename-relative one. react-admin's MenuItemLink only consults
-// useBasename() for active-route matching - it passes `to` straight
-// through to react-router's raw <Link>, unprefixed (confirmed by reading
-// MenuItemLink.js and reactRouterProvider.js directly). react-router only
-// auto-applies the basename to <Link to> when <Admin> creates its OWN
-// router (AdminRouter.js: `RouterWrapper` sets basename on the internal
-// router only when NOT already inside a router). This app nests <Admin
-// basename="/admin"> inside its own pre-existing <BrowserRouter> in
-// App.jsx (required, since non-admin routes like the consultant wizard
-// share the tree) - react-router never learns "/admin" is a basename in
-// that mode, so unprefixed `to` values resolve from the true root and land
-// on the wrong page. Confirmed empirically via Playwright click-through
-// testing (not just inspecting rendered href attributes, which look
-// correct either way but don't prove real navigation). Do not remove this
-// prefix again without re-testing an actual click, not just the href.
+// basename-relative one - see the App.jsx nested-router note this file
+// carried before (react-router never learns "/admin" is a basename since
+// <Admin> is nested inside this app's own pre-existing <BrowserRouter>).
 //
-// Labels are sentence case throughout (only the first word + genuine
-// abbreviations/proper nouns capitalized) - a prior version mixed sentence
-// case with Title Case across groups/items, which read as inconsistent.
-// Each group also carries a distinct accent `color` for its icon, since
-// every group icon rendering in the same default grey made them hard to
-// tell apart at a glance even though the icon shapes themselves differ.
+// `secondary: true` (on an item, or `secondaryGroup: true` on a group header)
+// marks a less-used destination (archive, config, own profile) for the
+// dimmer of the sidebar's two non-active text tiers - see SidebarShell.
 const GROUPS = [
   {
     key: 'consultants',
@@ -62,22 +45,21 @@ const GROUPS = [
     icon: PeopleOutlineIcon,
     color: '#5FA8E0',
     items: [
-      { to: '/admin/consultants', label: 'Consultants', icon: PeopleOutlineIcon },
-      { to: '/admin/archivedConsultants', label: 'Consultants archivés', icon: Inventory2OutlinedIcon },
-      { to: '/admin/changeRequests', label: 'Validations', icon: PendingActionsOutlinedIcon, badge: 'pendingChangeRequests' },
+      { to: '/admin/consultants', label: 'Tous les consultants', icon: PeopleOutlineIcon },
+      { to: '/admin/changeRequests', label: 'Validations', icon: PendingActionsOutlinedIcon, badge: 'pendingChangeRequests', badgeVariant: 'routine' },
+      { to: '/admin/archivedConsultants', label: 'Archivés', icon: Inventory2OutlinedIcon, secondary: true },
     ],
   },
   {
     key: 'recruitment',
-    label: 'Recrutement & pilotage RH',
+    label: 'Recrutement',
     icon: GroupsOutlinedIcon,
     color: '#2EE5C0',
     items: [
-      { to: '/admin/candidates', label: 'Candidats', icon: BadgeOutlinedIcon },
-      { to: '/admin/pipelineStages', label: 'Pipeline', icon: AccountTreeOutlinedIcon },
-      { to: '/admin/hrDashboard', label: 'Tableau de bord RH', icon: QueryStatsOutlinedIcon },
-      { to: '/admin/alerts', label: "Centre d'alertes", icon: NotificationsActiveOutlinedIcon },
-      { to: '/admin/staffingSearch', label: 'Recherche de staffing', icon: PersonSearchOutlinedIcon },
+      { to: '/admin/candidates', label: 'Candidats & pipeline', icon: BadgeOutlinedIcon },
+      { to: '/admin/hrDashboard', label: 'Indicateurs RH', icon: QueryStatsOutlinedIcon },
+      { to: '/admin/alerts', label: 'Alertes', icon: NotificationsActiveOutlinedIcon, badge: 'openAlerts', badgeVariant: 'urgent' },
+      { to: '/admin/staffingSearch', label: 'Staffing', icon: PersonSearchOutlinedIcon },
     ],
   },
   {
@@ -86,18 +68,11 @@ const GROUPS = [
     icon: BusinessCenterOutlinedIcon,
     color: '#D9A441',
     items: [
-      { to: '/admin/catalogProjects', label: 'Catalogue projets', icon: WorkOutlineIcon },
+      { to: '/admin/catalogProjects', label: 'Catalogue', icon: WorkOutlineIcon },
       { to: '/admin/staffingPlanning', label: 'Planning', icon: EventNoteOutlinedIcon },
       { to: '/admin/rfp', label: "Appels d'offres", icon: DescriptionOutlinedIcon },
       { to: '/admin/rfpBoilerplate', label: 'Sections types (RFP)', icon: ArticleOutlinedIcon },
     ],
-  },
-  {
-    key: 'adminTracking',
-    label: 'Suivi administratif',
-    icon: AssignmentOutlinedIcon,
-    color: '#8B7CF6',
-    items: [{ to: '/admin/administrativeTracking', label: 'Suivi administratif', icon: AssignmentOutlinedIcon }],
   },
 ];
 
@@ -108,13 +83,14 @@ const GROUPS = [
 const CONFIG_GROUPS = [
   {
     key: 'admin',
-    label: 'Terminologie / bibliothèque',
+    label: 'Référentiels & config',
     icon: SettingsOutlinedIcon,
     color: '#8FA3A8',
+    secondaryGroup: true,
     items: [
-      { to: '/admin/projectReferentials', label: 'Référentiels', icon: TuneOutlinedIcon },
-      { to: '/admin/taskLibrary', label: 'Bibliothèque de tâches', icon: ChecklistOutlinedIcon },
-      { to: '/admin/scopeAdmin', label: 'Rôles & périmètres', icon: AdminPanelSettingsOutlinedIcon },
+      { to: '/admin/projectReferentials', label: 'Référentiels', icon: TuneOutlinedIcon, secondary: true },
+      { to: '/admin/taskLibrary', label: 'Bibliothèque de tâches', icon: ChecklistOutlinedIcon, secondary: true },
+      { to: '/admin/scopeAdmin', label: 'Rôles & périmètres', icon: AdminPanelSettingsOutlinedIcon, secondary: true },
     ],
   },
 ];
@@ -138,12 +114,24 @@ function saveOpenGroups(state) {
   }
 }
 
+// Turquoise = routine (Validations - a normal, expected queue), coral =
+// urgent (Alertes - something that needs attention). Zero never renders a
+// badge at all (handled by the badgeCount > 0 check at the call site).
+const BADGE_STYLES = {
+  routine: { bgcolor: '#5DCAA5', color: '#04342C' },
+  urgent: { bgcolor: '#F0997B', color: '#4A1B0C' },
+};
+
+const TEXT_PRIMARY = 'rgba(255,255,255,.92)';
+const TEXT_REGULAR = '#B5D4F4';
+const TEXT_SECONDARY = '#6E93A8';
+
 // Mirrors react-admin's own documented "nested menu" pattern exactly
 // (ra-ui-materialui's Menu.stories.tsx): the toggle MenuItem and its
 // Collapse are direct children of <Menu>, not wrapped in an extra <List> -
 // wrapping them broke click handling, since <Menu> renders a MUI
 // <MenuList> that expects to manage its direct children itself.
-function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname, pendingChangeRequests }) {
+function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname, badgeCounts }) {
   // Once a user has explicitly opened/closed a group, that choice persists
   // (via openGroups, backed by localStorage) across navigation and future
   // visits - only falls back to forceOpen (auto-open the group matching
@@ -151,6 +139,7 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
   // fresh session doesn't require two clicks to reach anything nested.
   const open = openGroups[group.key] ?? forceOpen;
   const GroupIcon = group.icon;
+  const groupTextColor = group.secondaryGroup ? TEXT_SECONDARY : isActive ? TEXT_PRIMARY : TEXT_REGULAR;
 
   return (
     <>
@@ -163,7 +152,7 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
           primaryTypographyProps={{
             fontSize: 13,
             fontWeight: isActive ? 700 : 500,
-            color: isActive ? 'rgba(255,255,255,.92)' : 'rgba(255,255,255,.68)',
+            color: groupTextColor,
             noWrap: true,
           }}
         >
@@ -179,7 +168,8 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
         <List disablePadding dense>
           {group.items.map((item) => {
             const itemActive = pathname.startsWith(item.to);
-            const badgeCount = item.badge === 'pendingChangeRequests' ? pendingChangeRequests : null;
+            const badgeCount = item.badge ? badgeCounts[item.badge] : null;
+            const badgeStyle = BADGE_STYLES[item.badgeVariant] || BADGE_STYLES.routine;
             return (
               <Menu.Item
                 key={item.to}
@@ -191,8 +181,14 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
                       <Chip
                         label={badgeCount}
                         size="small"
-                        color="error"
-                        sx={{ ml: 1, height: 18, fontSize: 11, '& .MuiChip-label': { px: 0.8 } }}
+                        sx={{
+                          ml: 1,
+                          height: 18,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          '& .MuiChip-label': { px: 0.8 },
+                          ...badgeStyle,
+                        }}
                       />
                     </>
                   ) : (
@@ -202,6 +198,7 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
                 leftIcon={<item.icon fontSize="small" />}
                 sx={{
                   pl: 4,
+                  ...(item.secondary && !itemActive ? { '& .RaMenuItemLink-root, & .RaMenuItemLink-icon': { color: `${TEXT_SECONDARY} !important` } } : {}),
                   ...(itemActive && {
                     bgcolor: `${group.color}26`,
                     borderLeft: '3px solid',
@@ -217,8 +214,31 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
   );
 }
 
-// Dark petrol sidebar - scoped to this component (not a global MuiDrawer
-// theme override) so other Drawers in the app (e.g. StaffingPlanning's
+// Compact text lockup for the sidebar header - "Bi" in the brand turquoise,
+// "2S" in a light ink, small letter-spaced caption below. Plain styled text
+// (not the SVG lockup used on Login.jsx/the public chat header) since this
+// spot is narrow and dark - a two-tone text mark reads cleanly at this size
+// without needing a separate light-background asset variant.
+function SidebarLogo() {
+  return (
+    <Box sx={{ px: 2.25, pt: 0.75, pb: 2, borderBottom: '1px solid rgba(255,255,255,.1)', mb: 1.25 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Typography sx={{ fontSize: 20, fontWeight: 500, letterSpacing: '-0.5px', lineHeight: 1 }}>
+          <Box component="span" sx={{ color: '#5DCAA5' }}>
+            Bi
+          </Box>
+          <Box component="span" sx={{ color: '#E6F1FB' }}>
+            2S
+          </Box>
+        </Typography>
+      </Box>
+      <Typography sx={{ fontSize: 10, color: '#85B7EB', letterSpacing: '.08em', mt: 0.5 }}>BEST IS SOLUTIONS</Typography>
+    </Box>
+  );
+}
+
+// Dark navy sidebar - scoped to this component (not a global MuiDrawer theme
+// override) so other Drawers in the app (e.g. StaffingPlanning's
 // create-assignment side panel) stay light. react-admin's <Menu.Item>/
 // <Menu.DashboardItem> render via MenuItemLink, whose text/icon colors come
 // from stable CSS classes (RaMenuItemLink-root/-icon/-active). Descendant
@@ -234,16 +254,17 @@ function SidebarShell({ children }) {
   return (
     <Box
       sx={{
-        bgcolor: '#153A4B',
+        bgcolor: '#0E2A38',
         minHeight: '100%',
         py: 1,
-        '& .RaMenuItemLink-root': { color: 'rgba(255,255,255,.78) !important' },
-        '& .RaMenuItemLink-icon': { color: 'rgba(255,255,255,.7) !important' },
+        '& .RaMenuItemLink-root': { color: `${TEXT_REGULAR} !important` },
+        '& .RaMenuItemLink-icon': { color: `${TEXT_REGULAR} !important` },
         '& .RaMenuItemLink-active': { color: '#ffffff !important' },
         '& .MuiMenuItem-root:hover': { bgcolor: 'rgba(255,255,255,.06)' },
         '& .MuiDivider-root': { borderColor: 'rgba(255,255,255,.12)' },
       }}
     >
+      <SidebarLogo />
       {children}
     </Box>
   );
@@ -261,6 +282,7 @@ export default function CustomMenu() {
   const { permissions } = usePermissions();
   const [openGroups, setOpenGroups] = useState(loadOpenGroups);
   const [pendingChangeRequests, setPendingChangeRequests] = useState(0);
+  const [openAlerts, setOpenAlerts] = useState(0);
 
   function handleToggle(key, isOpen) {
     setOpenGroups((prev) => {
@@ -283,6 +305,18 @@ export default function CustomMenu() {
     // reflects approvals/rejections made on the Validations page without a
     // full reload — there's no global cache-invalidation to hook into instead.
   }, [permissions?.role, location.pathname]);
+
+  // Same pattern as pendingChangeRequests above, for the 'recruitment'
+  // group's Alertes item - only admin/rh ever see that group.
+  useEffect(() => {
+    if (!['admin', 'rh'].includes(permissions?.role)) return;
+    fetch(`${API_BASE_URL}/api/admin/alerts`, { headers: { Authorization: getAuthHeader() } })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => setOpenAlerts(rows.filter((a) => a.status === 'open').length))
+      .catch(() => setOpenAlerts(0));
+  }, [permissions?.role, location.pathname]);
+
+  const badgeCounts = { pendingChangeRequests, openAlerts };
 
   if (permissions?.role === 'manager') {
     return (
@@ -337,9 +371,6 @@ export default function CustomMenu() {
     <SidebarShell>
       <Menu>
         <Menu.DashboardItem />
-        {permissions?.role === 'admin' && (
-          <Menu.Item to="/admin/myConsultant" primaryText="Mon profil" leftIcon={<PeopleOutlineIcon fontSize="small" />} />
-        )}
         {visibleGroups.map((group) => {
           const isActive = group.items.some((item) => location.pathname.startsWith(item.to));
           return (
@@ -351,11 +382,22 @@ export default function CustomMenu() {
               openGroups={openGroups}
               onToggle={handleToggle}
               pathname={location.pathname}
-              pendingChangeRequests={pendingChangeRequests}
+              badgeCounts={badgeCounts}
             />
           );
         })}
-        {visibleConfigGroups.length > 0 && <Divider sx={{ my: 1 }} />}
+        {(visibleConfigGroups.length > 0 || permissions?.role === 'admin') && <Divider sx={{ my: 1 }} />}
+        {/* "Suivi administratif" is a single destination, not a group with
+            one item repeating its own label - a plain item avoids both the
+            redundant label and an unnecessary collapse/expand chevron. */}
+        {permissions?.role === 'admin' && (
+          <Menu.Item
+            to="/admin/administrativeTracking"
+            primaryText="Suivi administratif"
+            leftIcon={<AssignmentOutlinedIcon fontSize="small" />}
+            sx={{ '& .RaMenuItemLink-root, & .RaMenuItemLink-icon': { color: `${TEXT_SECONDARY} !important` } }}
+          />
+        )}
         {visibleConfigGroups.map((group) => {
           const isActive = group.items.some((item) => location.pathname.startsWith(item.to));
           return (
@@ -367,10 +409,18 @@ export default function CustomMenu() {
               openGroups={openGroups}
               onToggle={handleToggle}
               pathname={location.pathname}
-              pendingChangeRequests={pendingChangeRequests}
+              badgeCounts={badgeCounts}
             />
           );
         })}
+        {permissions?.role === 'admin' && (
+          <Menu.Item
+            to="/admin/myConsultant"
+            primaryText="Mon profil"
+            leftIcon={<PeopleOutlineIcon fontSize="small" />}
+            sx={{ '& .RaMenuItemLink-root, & .RaMenuItemLink-icon': { color: `${TEXT_SECONDARY} !important` } }}
+          />
+        )}
       </Menu>
     </SidebarShell>
   );

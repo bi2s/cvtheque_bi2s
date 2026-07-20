@@ -6,6 +6,10 @@ import { Box, Paper, Typography, Stack } from '@mui/material';
 // catalog_projects don't get one). highlight gives a metric a distinct
 // visual treatment (used for "demandes en attente" when >0 - an action
 // queue depth reads differently from a plain informational count).
+//
+// Compact layout: a small colored icon inline with the (muted) label line,
+// then the number large underneath - same information as before, just a
+// slimmer card (was a 42x42 icon tile + value/label side-by-side).
 export function StatCard({ icon, label, value, color, onClick, trend, highlight }) {
   const delta = trend ? trend.current - trend.previous : null;
   return (
@@ -13,10 +17,11 @@ export function StatCard({ icon, label, value, color, onClick, trend, highlight 
       variant="outlined"
       onClick={onClick}
       sx={{
-        p: 2.5,
-        borderRadius: 3,
+        px: 1.75,
+        py: 1.5,
+        borderRadius: 2,
         flex: 1,
-        minWidth: 170,
+        minWidth: 150,
         cursor: onClick ? 'pointer' : 'default',
         ...(highlight
           ? { borderColor: 'warning.main', borderWidth: 2, bgcolor: 'warning.light' }
@@ -24,32 +29,17 @@ export function StatCard({ icon, label, value, color, onClick, trend, highlight 
         '&:hover': onClick ? { boxShadow: 3, borderColor: highlight ? 'warning.main' : 'transparent' } : undefined,
       }}
     >
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-        <Box
-          sx={{
-            width: 42,
-            height: 42,
-            borderRadius: 2.5,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            bgcolor: `${color}.light`,
-            color: `${color}.main`,
-          }}
-        >
-          {icon}
-        </Box>
-        <Box>
-          <Stack direction="row" spacing={0.75} sx={{ alignItems: 'baseline' }}>
-            <Typography sx={{ fontSize: 24, fontWeight: 700, lineHeight: 1.1 }}>{value}</Typography>
-            {delta !== null && delta !== 0 && (
-              <Typography sx={{ fontSize: 12, fontWeight: 700, color: delta > 0 ? 'success.main' : 'error.main' }}>
-                {delta > 0 ? `↗ +${delta}` : `↘ ${delta}`}
-              </Typography>
-            )}
-          </Stack>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{label}</Typography>
-        </Box>
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', color: 'text.secondary', mb: 0.5 }}>
+        <Box sx={{ display: 'flex', color: `${color}.main`, '& svg': { fontSize: 16 } }}>{icon}</Box>
+        <Typography sx={{ fontSize: 12 }}>{label}</Typography>
+      </Stack>
+      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'baseline' }}>
+        <Typography sx={{ fontSize: 22, fontWeight: 500, lineHeight: 1.1 }}>{value}</Typography>
+        {delta !== null && delta !== 0 && (
+          <Typography sx={{ fontSize: 12, fontWeight: 700, color: delta > 0 ? 'success.main' : 'error.main' }}>
+            {delta > 0 ? `↗ +${delta}` : `↘ ${delta}`}
+          </Typography>
+        )}
       </Stack>
     </Paper>
   );

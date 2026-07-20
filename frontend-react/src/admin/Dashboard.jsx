@@ -23,6 +23,7 @@ import { API_BASE_URL } from '../api';
 import { getAuthHeader } from './authHeader';
 import RecentActivity from './RecentActivity';
 import KpiBarChart from './charts/KpiBarChart';
+import FlatBarRow from './charts/FlatBarRow';
 import { StatCard, ChartCard } from './DashboardCards';
 
 const CONSULTANTS_QUERY = { pagination: { page: 1, perPage: 1000 }, sort: { field: 'name', order: 'ASC' } };
@@ -116,9 +117,19 @@ export default function Dashboard() {
     <Box sx={{ p: { xs: 2, sm: 4 } }}>
       <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
         <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, mb: 3 }}>
-          <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em' }}>
-            Vue d'ensemble
-          </Typography>
+          <Stack direction="row" spacing={1.25} sx={{ alignItems: 'baseline' }}>
+            <Typography sx={{ fontSize: 19, fontWeight: 500, letterSpacing: '-0.5px' }}>
+              <Box component="span" sx={{ color: 'secondary.dark' }}>
+                Bi
+              </Box>
+              <Box component="span" sx={{ color: 'primary.dark' }}>
+                2S
+              </Box>
+            </Typography>
+            <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em' }}>
+              Vue d'ensemble
+            </Typography>
+          </Stack>
           <ToggleButtonGroup size="small" exclusive value={period} onChange={(e, v) => v && setPeriod(v)}>
             {PERIOD_OPTIONS.map((opt) => (
               <ToggleButton key={opt.value} value={opt.value}>
@@ -252,22 +263,10 @@ export default function Dashboard() {
 
             <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap', mt: 3 }}>
               <ChartCard title="Répartition par type de mission">
-                {missionEntries.length > 0 && missionEntries.length <= 2 ? (
-                  <Stack direction="row" spacing={2} sx={{ mt: 1.5 }}>
-                    {missionEntries.map(([name, value]) => (
-                      <Box key={name}>
-                        <Typography sx={{ fontSize: 22, fontWeight: 700 }}>{value}</Typography>
-                        <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>{name}</Typography>
-                      </Box>
-                    ))}
-                  </Stack>
-                ) : (
-                  <KpiBarChart
-                    data={missionEntries.map(([name, value]) => ({ name, value }))}
-                    color="multi"
-                    emptyAction={{ label: 'Ajouter un projet', onClick: () => navigate(createPath({ resource: 'catalogProjects', type: 'create' })) }}
-                  />
-                )}
+                <FlatBarRow
+                  data={missionEntries.map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)}
+                  emptyAction={{ label: 'Ajouter un projet', onClick: () => navigate(createPath({ resource: 'catalogProjects', type: 'create' })) }}
+                />
               </ChartCard>
               <ChartCard title="Répartition par module SAP">
                 <KpiBarChart

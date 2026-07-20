@@ -82,6 +82,17 @@ const ACTION_COLORS = {
   reinstated: 'success',
 };
 
+// "DA" from "Djamila AZOUANE" - first letter of the first two words, same
+// convention as an initials avatar anywhere else needing one.
+function initials(name) {
+  return (name || '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join('');
+}
+
 // Adjacent entries (already sorted newest-first by the API) for the same
 // consultant + action collapse into one expandable row - a burst of "X a
 // soumis une mise à jour" x6 from the same person reads as noise otherwise,
@@ -209,15 +220,35 @@ export default function RecentActivity() {
                     gap: 1.5,
                   }}
                 >
-                  <Typography sx={{ fontSize: 13.5 }}>
-                    {isGrouped ? (
-                      <>
-                        <strong>{group.consultantName}</strong> a soumis {group.items.length} mises à jour
-                      </>
-                    ) : (
-                      activityText(head)
-                    )}
-                  </Typography>
+                  <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', minWidth: 0 }}>
+                    <Box
+                      sx={{
+                        width: 30,
+                        height: 30,
+                        flexShrink: 0,
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        ...(group.action === 'approved'
+                          ? { bgcolor: '#E1F5EE', color: '#085041' }
+                          : { bgcolor: 'action.hover', color: 'text.secondary' }),
+                      }}
+                    >
+                      {initials(group.consultantName)}
+                    </Box>
+                    <Typography sx={{ fontSize: 13.5, minWidth: 0 }} noWrap>
+                      {isGrouped ? (
+                        <>
+                          <strong>{group.consultantName}</strong> a soumis {group.items.length} mises à jour
+                        </>
+                      ) : (
+                        activityText(head)
+                      )}
+                    </Typography>
+                  </Stack>
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0 }}>
                     <Chip
                       size="small"
