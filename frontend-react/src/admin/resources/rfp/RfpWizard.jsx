@@ -19,18 +19,37 @@ import {
   CircularProgress,
   FormControlLabel,
   Checkbox,
+  IconButton,
 } from '@mui/material';
 import UploadFileIcon from '@mui/icons-material/UploadFileOutlined';
 import DownloadIcon from '@mui/icons-material/DownloadOutlined';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import PendingOutlinedIcon from '@mui/icons-material/PendingOutlined';
+import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { useNotify } from 'react-admin';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
 import ScoreBreakdown from '../staffing/ScoreBreakdown';
 import { SENIORITY_LEVELS as SENIORITY_CHOICES, seniorityLabel } from '../../seniorityLabels';
+import { dueUrgency, URGENCY_COLORS } from '../administrativeTracking/administrativeTrackingShared';
+import formatRelativeDate from '../../formatRelativeDate';
 
 const MODULE_CHOICES = ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'];
 const COMPLIANCE_LABELS = { satisfied: 'Satisfait', missing: 'Manquant' };
 const COMPLIANCE_COLORS = { satisfied: 'success', missing: 'error' };
+
+const STAGE_LABELS = {
+  en_redaction: 'En rédaction',
+  demarree: 'Démarrée',
+  attente_reponse: 'Attente réponse',
+  gagnee: 'Gagnée',
+  perdue: 'Perdue',
+};
+const TERMINAL_STAGES = ['gagnee', 'perdue'];
+
+const WIZARD_STEPS = ['Import', 'Extraction', 'Consultants', 'Conformité', 'Export'];
 
 function ImportTab({ proposal, onExtracted }) {
   const notify = useNotify();
@@ -60,17 +79,54 @@ function ImportTab({ proposal, onExtracted }) {
     }
   }
 
+  const extracted = proposal.extractedData;
+  const extractedCount = extracted ? (extracted.detectedModules?.length || 0) + (extracted.detectedCertifications?.length || 0) : 0;
+
   return (
     <Stack spacing={2} sx={{ maxWidth: 600 }}>
       <Typography sx={{ fontSize: 13.5, color: 'text.secondary' }}>
         Importez le cahier des charges (PDF, Word ou Excel). L'extraction est automatique mais partielle par
         conception — complétez les champs manquants dans l'onglet "Extraction".
       </Typography>
-      <Button variant="contained" component="label" startIcon={uploading ? <CircularProgress size={16} /> : <UploadFileIcon />} disabled={uploading}>
-        {uploading ? 'Analyse en cours...' : 'Importer un fichier'}
-        <input type="file" hidden accept=".pdf,.doc,.docx,.xls,.xlsx" onChange={handleFile} />
-      </Button>
-      {proposal.sourceFilePath && <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>Fichier déjà importé pour cette proposition.</Typography>}
+
+      {proposal.sourceFilePath ? (
+        <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <DescriptionOutlinedIcon sx={{ fontSize: 22, color: 'secondary.dark' }} />
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography sx={{ fontSize: 13, fontWeight: 600 }} noWrap>
+              {proposal.sourceFilePath.split(/[\\/]/).pop()}
+            </Typography>
+            <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
+              {extractedCount} exigence{extractedCount > 1 ? 's' : ''} extraite{extractedCount > 1 ? 's' : ''}
+            </Typography>
+          </Box>
+          <Typography
+            component="a"
+            href={`${API_BASE_URL}/api/admin/rfp-proposals/${proposal.id}/source`}
+            onClick={(e) => {
+              e.preventDefault();
+              fetch(`${API_BASE_URL}/api/admin/rfp-proposals/${proposal.id}/source`, { headers: { Authorization: getAuthHeader() } })
+                .then((r) => r.blob())
+                .then((blob) => {
+                  const url = URL.createObjectURL(blob);
+                  window.open(url, '_blank');
+                });
+            }}
+            sx={{ fontSize: 12.5, color: 'secondary.dark', cursor: 'pointer', flexShrink: 0 }}
+          >
+            Consulter
+          </Typography>
+          <Typography component="label" sx={{ fontSize: 12.5, color: 'text.disabled', cursor: 'pointer', flexShrink: 0 }}>
+            Remplacer
+            <input type="file" hidden accept=".pdf,.doc,.docx,.xls,.xlsx" onChange={handleFile} />
+          </Typography>
+        </Paper>
+      ) : (
+        <Button variant="contained" component="label" startIcon={uploading ? <CircularProgress size={16} /> : <UploadFileIcon />} disabled={uploading}>
+          {uploading ? 'Analyse en cours...' : 'Importer un fichier'}
+          <input type="file" hidden accept=".pdf,.doc,.docx,.xls,.xlsx" onChange={handleFile} />
+        </Button>
+      )}
     </Stack>
   );
 }
@@ -420,12 +476,107 @@ function ExportTab({ proposalId }) {
   );
 }
 
+// Connected step row (Import → Extraction → Consultants → Conformité →
+// Export) - done/current/pending computed from real signals already on the
+// page (proposal fields, consultant count, the live compliance rows this
+// same detail view already fetches for its own Conformité tab). "Reprendre"
+// jumps straight to the first not-yet-complete step.
+function ProgressStrip({ proposal, consultants, versions, missingCount, tab, setTab }) {
+  const importDone = !!proposal.sourceFilePath;
+  const extractionDone = !!proposal.extractedData && Object.keys(proposal.extractedData).length > 0;
+  const consultantsDone = consultants.length > 0;
+  const complianceDone = consultantsDone && missingCount === 0;
+  const exportDone = (versions?.length || 0) > 0;
+  const steps = [
+    { label: 'Import', done: importDone },
+    { label: 'Extraction', done: extractionDone },
+    { label: 'Consultants', done: consultantsDone },
+    { label: 'Conformité', done: complianceDone, badge: consultantsDone && missingCount > 0 ? `${missingCount} exigence${missingCount > 1 ? 's' : ''} à traiter` : null },
+    { label: 'Export', done: exportDone },
+  ];
+  const firstIncomplete = steps.findIndex((s) => !s.done);
+
+  return (
+    <Stack direction="row" spacing={0.75} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
+      {steps.map((s, i) => (
+        <Stack key={s.label} direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+          {i > 0 && <Box sx={{ width: 16, height: 1, bgcolor: 'divider' }} />}
+          <Stack
+            direction="row"
+            spacing={0.5}
+            onClick={() => setTab(i)}
+            sx={{ alignItems: 'center', cursor: 'pointer', color: s.done ? 'secondary.dark' : i === firstIncomplete ? 'warning.dark' : 'text.disabled' }}
+          >
+            {s.done ? (
+              <CheckCircleIcon sx={{ fontSize: 15 }} />
+            ) : i === firstIncomplete ? (
+              <PendingOutlinedIcon sx={{ fontSize: 15 }} />
+            ) : (
+              <RadioButtonUncheckedIcon sx={{ fontSize: 15 }} />
+            )}
+            <Typography sx={{ fontSize: 12, fontWeight: i === tab ? 700 : 500 }}>{s.label}</Typography>
+            {s.badge && (
+              <Typography sx={{ fontSize: 11, bgcolor: '#FAECE7', color: '#712B13', px: 0.75, borderRadius: 5 }}>{s.badge}</Typography>
+            )}
+          </Stack>
+        </Stack>
+      ))}
+    </Stack>
+  );
+}
+
+function HeaderEditForm({ proposal, onClose, onSaved }) {
+  const [title, setTitle] = useState(proposal.title);
+  const [deadline, setDeadline] = useState(proposal.deadline || '');
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!title.trim()) return;
+    setSaving(true);
+    try {
+      await fetch(`${API_BASE_URL}/api/admin/rfp-proposals/${proposal.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: getAuthHeader() },
+        body: JSON.stringify({ title: title.trim(), deadline: deadline || null }),
+      });
+      onSaved();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+      <TextField size="small" value={title} onChange={(e) => setTitle(e.target.value)} sx={{ width: 320 }} />
+      <TextField
+        size="small"
+        type="date"
+        label="Remise"
+        value={deadline}
+        onChange={(e) => setDeadline(e.target.value)}
+        InputLabelProps={{ shrink: true }}
+        sx={{ width: 160 }}
+      />
+      <Button size="small" variant="contained" onClick={save} disabled={saving || !title.trim()}>
+        Enregistrer
+      </Button>
+      <Button size="small" onClick={onClose}>
+        Annuler
+      </Button>
+    </Stack>
+  );
+}
+
 export default function RfpWizard() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [proposal, setProposal] = useState(null);
   const [consultants, setConsultants] = useState([]);
+  const [versions, setVersions] = useState(null);
+  const [complianceRows, setComplianceRows] = useState([]);
   const [tab, setTab] = useState(0);
+  const [editingHeader, setEditingHeader] = useState(false);
 
   function load() {
     fetch(`${API_BASE_URL}/api/admin/rfp-proposals/${id}`, { headers: { Authorization: getAuthHeader() } })
@@ -434,6 +585,12 @@ export default function RfpWizard() {
     fetch(`${API_BASE_URL}/api/admin/rfp-proposals/${id}/consultants`, { headers: { Authorization: getAuthHeader() } })
       .then((r) => r.json())
       .then(setConsultants);
+    fetch(`${API_BASE_URL}/api/admin/rfp-proposals/${id}/versions`, { headers: { Authorization: getAuthHeader() } })
+      .then((r) => r.json())
+      .then(setVersions);
+    fetch(`${API_BASE_URL}/api/admin/rfp-proposals/${id}/compliance`, { headers: { Authorization: getAuthHeader() } })
+      .then((r) => r.json())
+      .then(setComplianceRows);
   }
 
   useEffect(load, [id]);
@@ -447,6 +604,15 @@ export default function RfpWizard() {
     load();
   }
 
+  async function setStage(stage) {
+    await fetch(`${API_BASE_URL}/api/admin/rfp-proposals/${id}/stage`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: getAuthHeader() },
+      body: JSON.stringify({ stage }),
+    });
+    load();
+  }
+
   if (!proposal) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}>
@@ -455,21 +621,54 @@ export default function RfpWizard() {
     );
   }
 
+  const urgency = dueUrgency(proposal.deadline, proposal.stage, TERMINAL_STAGES);
+  const missingCount = complianceRows.filter((r) => r.status === 'missing').length;
+  const latestVersion = versions?.[0];
+
   return (
     <Box sx={{ p: 3, maxWidth: 900 }}>
       <Button size="small" onClick={() => navigate('/admin/rfp')} sx={{ mb: 1 }}>
         ← Retour
       </Button>
-      <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>
-        {proposal.title}
-      </Typography>
+
+      {editingHeader ? (
+        <HeaderEditForm proposal={proposal} onClose={() => setEditingHeader(false)} onSaved={load} />
+      ) : (
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 1, flexWrap: 'wrap' }} useFlexGap>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            {proposal.title}
+          </Typography>
+          <IconButton size="small" onClick={() => setEditingHeader(true)}>
+            <EditOutlinedIcon fontSize="small" />
+          </IconButton>
+          {proposal.deadline && (
+            <Chip
+              size="small"
+              label={`Remise : ${new Date(proposal.deadline).toLocaleDateString('fr-FR')}`}
+              sx={urgency ? { bgcolor: '#FAECE7', color: '#712B13', fontWeight: 500 } : undefined}
+            />
+          )}
+          <TextField select size="small" value={proposal.stage} onChange={(e) => setStage(e.target.value)} sx={{ width: 160 }}>
+            {Object.entries(STAGE_LABELS).map(([id, label]) => (
+              <MenuItem key={id} value={id}>
+                {label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <Typography sx={{ fontSize: 12, color: 'text.disabled', ml: 'auto' }}>
+            {versions === null
+              ? ''
+              : `v${versions.length}${latestVersion ? ` · dernière modif. ${formatRelativeDate(latestVersion.createdAt)}` : ''}`}
+          </Typography>
+        </Stack>
+      )}
+
+      <ProgressStrip proposal={proposal} consultants={consultants} versions={versions} missingCount={missingCount} tab={tab} setTab={setTab} />
 
       <Tabs value={tab} onChange={(e, v) => setTab(v)} sx={{ mb: 3 }}>
-        <Tab label="Import" />
-        <Tab label="Extraction" />
-        <Tab label="Consultants" />
-        <Tab label="Conformité" />
-        <Tab label="Export & versions" />
+        {WIZARD_STEPS.map((label) => (
+          <Tab key={label} label={label} />
+        ))}
       </Tabs>
 
       {tab === 0 && <ImportTab proposal={proposal} onExtracted={load} />}

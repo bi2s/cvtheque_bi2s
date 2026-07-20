@@ -17,6 +17,8 @@ const uploadRfpSource = multer({
   fileFilter: (req, file, cb) => cb(null, ACCEPTED_MIMETYPES.includes(file.mimetype)),
 });
 
+const STAGES = ['en_redaction', 'demarree', 'attente_reponse', 'gagnee', 'perdue'];
+
 function mapProposalRow(r) {
   return {
     id: r.id,
@@ -27,6 +29,8 @@ function mapProposalRow(r) {
     scoringWeights: r.scoring_weights ? parseJsonColumn(r.scoring_weights) : null,
     outcome: r.outcome,
     outcomeNote: r.outcome_note,
+    deadline: r.deadline,
+    stage: r.stage,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -76,9 +80,27 @@ module.exports = function buildRfpRouter({ pool, requireAdmin }) {
   });
 
   // --- Proposals ---
+  // consultantCount/versionCount feed the list's Avancement progress bar
+  // (Import/Extraction come straight from source_file_path/extracted_data
+  // on rfp_proposals itself, no join needed) - cheap aggregates rather than
+  // recomputing the full live compliance check for every row.
   router.get('/rfp-proposals', requireAdmin, async (req, res) => {
-    const [rows] = await pool.query('SELECT * FROM rfp_proposals ORDER BY updated_at DESC');
-    res.json(rows.map(mapProposalRow));
+    const [rows] = await pool.query(
+      `SELECT rp.*, a.username AS created_by_username,
+              (SELECT COUNT(*) FROM rfp_proposal_consultants WHERE proposal_id = rp.id) AS consultant_count,
+              (SELECT COUNT(*) FROM rfp_proposal_versions WHERE proposal_id = rp.id) AS version_count
+       FROM rfp_proposals rp
+       LEFT JOIN admins a ON a.id = rp.created_by_admin_id
+       ORDER BY rp.updated_at DESC`
+    );
+    res.json(
+      rows.map((r) => ({
+        ...mapProposalRow(r),
+        createdByUsername: r.created_by_username,
+        consultantCount: r.consultant_count,
+        versionCount: r.version_count,
+      }))
+    );
   });
 
   router.get('/rfp-proposals/:id', requireAdmin, async (req, res) => {
@@ -90,11 +112,35 @@ module.exports = function buildRfpRouter({ pool, requireAdmin }) {
   router.post('/rfp-proposals', requireAdmin, async (req, res) => {
     const title = (req.body.title || '').trim();
     if (!title) return res.status(400).json({ detail: 'Titre requis.' });
-    const [result] = await pool.query('INSERT INTO rfp_proposals (title, created_by_admin_id) VALUES (?, ?)', [
-      title,
-      req.admin.id,
-    ]);
+    const deadline = req.body.deadline || null;
+    const [result] = await pool.query(
+      'INSERT INTO rfp_proposals (title, deadline, created_by_admin_id) VALUES (?, ?, ?)',
+      [title, deadline, req.admin.id]
+    );
     res.json({ id: result.insertId });
+  });
+
+  // Title/deadline only - status/stage/outcome each have their own
+  // dedicated routes below since they carry side effects (stage↔outcome
+  // sync, status flipping on upload) a generic PATCH-everything endpoint
+  // would make easy to bypass by accident.
+  router.put('/rfp-proposals/:id', requireAdmin, async (req, res) => {
+    const title = (req.body.title || '').trim();
+    if (!title) return res.status(400).json({ detail: 'Titre requis.' });
+    const [result] = await pool.query('UPDATE rfp_proposals SET title = ?, deadline = ? WHERE id = ?', [
+      title,
+      req.body.deadline || null,
+      req.params.id,
+    ]);
+    if (result.affectedRows === 0) return res.status(404).json({ detail: 'Proposition introuvable' });
+    res.json({ ok: true });
+  });
+
+  router.put('/rfp-proposals/:id/stage', requireAdmin, async (req, res) => {
+    if (!STAGES.includes(req.body.stage)) return res.status(400).json({ detail: 'Étape invalide.' });
+    const [result] = await pool.query('UPDATE rfp_proposals SET stage = ? WHERE id = ?', [req.body.stage, req.params.id]);
+    if (result.affectedRows === 0) return res.status(404).json({ detail: 'Proposition introuvable' });
+    res.json({ ok: true });
   });
 
   router.delete('/rfp-proposals/:id', requireAdmin, async (req, res) => {
@@ -104,18 +150,36 @@ module.exports = function buildRfpRouter({ pool, requireAdmin }) {
   });
 
   const VALID_OUTCOMES = ['won', 'lost'];
+  // Reaching a won/lost outcome also forces stage to match (gagnee/perdue) -
+  // clearing the outcome back to "pending" deliberately leaves stage as-is
+  // rather than guessing which earlier stage to revert to.
   router.put('/rfp-proposals/:id/outcome', requireAdmin, async (req, res) => {
     const outcome = req.body.outcome || null;
     if (outcome !== null && !VALID_OUTCOMES.includes(outcome)) {
       return res.status(400).json({ detail: "Issue invalide (won, lost, ou null pour 'en attente')." });
     }
-    const [result] = await pool.query('UPDATE rfp_proposals SET outcome = ?, outcome_note = ? WHERE id = ?', [
-      outcome,
-      req.body.outcomeNote || null,
-      req.params.id,
-    ]);
+    const stageUpdate = outcome === 'won' ? 'gagnee' : outcome === 'lost' ? 'perdue' : null;
+    const [result] = await pool.query(
+      `UPDATE rfp_proposals SET outcome = ?, outcome_note = ?${stageUpdate ? ', stage = ?' : ''} WHERE id = ?`,
+      stageUpdate
+        ? [outcome, req.body.outcomeNote || null, stageUpdate, req.params.id]
+        : [outcome, req.body.outcomeNote || null, req.params.id]
+    );
     if (result.affectedRows === 0) return res.status(404).json({ detail: 'Proposition introuvable' });
     res.json({ ok: true });
+  });
+
+  // Serves the originally-imported cahier des charges back - same "stream
+  // the stored file with its original name" idiom as
+  // /api/admin/project-documents/:id/download.
+  router.get('/rfp-proposals/:id/source', requireAdmin, async (req, res) => {
+    const [[proposal]] = await pool.query('SELECT title, source_file_path FROM rfp_proposals WHERE id = ?', [
+      req.params.id,
+    ]);
+    if (!proposal || !proposal.source_file_path) return res.status(404).json({ detail: 'Aucun document importé.' });
+    const absolutePath = path.join(__dirname, '..', proposal.source_file_path);
+    if (!fs.existsSync(absolutePath)) return res.status(404).json({ detail: 'Fichier introuvable sur le serveur.' });
+    res.download(absolutePath, `${proposal.title.replace(/[^a-zA-Z0-9]/g, '_')}${path.extname(absolutePath)}`);
   });
 
   // --- Upload + heuristic extraction ---

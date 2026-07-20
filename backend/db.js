@@ -975,6 +975,14 @@ async function initSchema() {
     await ensureColumn(conn, 'rfp_proposals', 'scoring_weights', 'JSON NULL');
     await ensureColumn(conn, 'rfp_proposals', 'outcome', 'VARCHAR(20) NULL');
     await ensureColumn(conn, 'rfp_proposals', 'outcome_note', 'TEXT NULL');
+    // deadline: submission due date, drives the list's urgency-sorted
+    // "Remise" column (reuses administrativeTrackingShared.js's dueUrgency).
+    // stage: the client-facing pipeline label shown on the list - separate
+    // from `status` above, which keeps gating internal wizard behavior
+    // (draft/in_progress/finalized). Reaching a won/lost `outcome` also sets
+    // stage to match, so the two never disagree.
+    await ensureColumn(conn, 'rfp_proposals', 'deadline', 'DATE NULL');
+    await ensureColumn(conn, 'rfp_proposals', 'stage', "VARCHAR(30) NOT NULL DEFAULT 'en_redaction'");
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS rfp_proposal_consultants (
