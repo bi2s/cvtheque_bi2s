@@ -52,6 +52,7 @@ import RfpProposalList from './resources/rfp/RfpProposalList';
 import RfpWizard from './resources/rfp/RfpWizard';
 import RfpBoilerplateAdmin from './resources/rfp/RfpBoilerplateAdmin';
 import AdministrativeTracking from './resources/administrativeTracking/AdministrativeTracking';
+import MyAccount from './resources/account/MyAccount';
 import theme from '../theme';
 
 // 'manager'-role admins only ever see their own scoped surface - their own
@@ -335,12 +336,21 @@ export default function AdminApp() {
       theme={theme}
     >
       {(permissions) => {
-        if (permissions?.role === 'manager') return managerResources();
-        if (permissions?.role === 'rh') return rhResources();
-        if (permissions?.role === 'pmo') return pmoResources();
-        if (['responsable_mission', 'chef_projet'].includes(permissions?.role)) return missionRoleResources();
-        if (['office_manager', 'commercial'].includes(permissions?.role)) return staffResources();
-        return fullResources(permissions?.role);
+        let resources;
+        if (permissions?.role === 'manager') resources = managerResources();
+        else if (permissions?.role === 'rh') resources = rhResources();
+        else if (permissions?.role === 'pmo') resources = pmoResources();
+        else if (['responsable_mission', 'chef_projet'].includes(permissions?.role)) resources = missionRoleResources();
+        else if (['office_manager', 'commercial'].includes(permissions?.role)) resources = staffResources();
+        else resources = fullResources(permissions?.role);
+        return [
+          // Reached from CustomAppBar's account menu, not the sidebar - every
+          // role gets this one regardless of which resources() above ran.
+          <CustomRoutes key="myAccountRoute">
+            <Route path="/myAccount" element={<MyAccount />} />
+          </CustomRoutes>,
+          ...resources,
+        ];
       }}
     </Admin>
   );

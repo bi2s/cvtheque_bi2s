@@ -2619,6 +2619,56 @@ app.get('/api/admin/me', requireAnyAdmin, (req, res) => {
     role: req.admin.role,
     moduleIds: req.admin.moduleIds,
     consultantId: req.admin.consultantId,
+    email: req.admin.email,
+  });
+});
+
+// Self-service account edit (own row only, via req.admin.id from the
+// already-verified Basic Auth credentials) - deliberately just email, not
+// username (the login identifier, entangled with every other auth flow) or
+// role (a privilege, not a preference).
+app.put('/api/admin/me', requireAnyAdmin, async (req, res) => {
+  await pool.query('UPDATE admins SET email = ? WHERE id = ?', [emptyToNull(req.body.email), req.admin.id]);
+  res.json({ ok: true });
+});
+
+app.put('/api/admin/me/password', requireAnyAdmin, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) return res.status(400).json({ detail: 'Mot de passe actuel et nouveau requis' });
+  if (newPassword.length < 8) return res.status(400).json({ detail: 'Le nouveau mot de passe doit contenir au moins 8 caractères' });
+  const [[row]] = await pool.query('SELECT password_hash FROM admins WHERE id = ?', [req.admin.id]);
+  const valid = row && (await bcrypt.compare(currentPassword, row.password_hash));
+  if (!valid) return res.status(400).json({ detail: 'Mot de passe actuel incorrect' });
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await pool.query('UPDATE admins SET password_hash = ? WHERE id = ?', [passwordHash, req.admin.id]);
+  res.json({ ok: true });
+});
+
+// Global "Ctrl K" search, scoped to consultants + candidates (the two
+// person-directories admins jump to most) - a small LIKE-based lookup, not
+// a full-text index; fine at this table size, revisit if it ever needs to
+// scale further.
+app.get('/api/admin/search', requireAnyAdmin, async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (q.length < 2) return res.json({ consultants: [], candidates: [] });
+  const like = `%${q}%`;
+  const [consultants] = await pool.query(
+    `SELECT id, name, title FROM consultants WHERE archived_at IS NULL AND name LIKE ? ORDER BY name LIMIT 8`,
+    [like]
+  );
+  const [candidates] = await pool.query(
+    `SELECT c.id, c.first_name, c.last_name, ps.name AS stage_name
+     FROM candidates c LEFT JOIN pipeline_stages ps ON ps.id = c.current_stage_id
+     WHERE c.first_name LIKE ? OR c.last_name LIKE ? ORDER BY c.last_name LIMIT 8`,
+    [like, like]
+  );
+  res.json({
+    consultants: consultants.map((c) => ({ id: c.id, name: c.name, subtitle: c.title || '' })),
+    candidates: candidates.map((c) => ({
+      id: c.id,
+      name: `${c.first_name} ${c.last_name}`.trim(),
+      subtitle: c.stage_name || '',
+    })),
   });
 });
 

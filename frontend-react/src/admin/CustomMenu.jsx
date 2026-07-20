@@ -96,6 +96,17 @@ const CONFIG_GROUPS = [
   },
 ];
 
+// CustomAppBar's breadcrumb reuses these same GROUPS/CONFIG_GROUPS arrays
+// rather than a second hardcoded copy, so the header's "group / page" label
+// can never drift out of sync with what the sidebar actually shows.
+export function findBreadcrumb(pathname) {
+  for (const group of [...GROUPS, ...CONFIG_GROUPS]) {
+    const item = group.items.find((i) => pathname === i.to || pathname.startsWith(`${i.to}/`));
+    if (item) return { groupLabel: group.label, itemLabel: item.label };
+  }
+  return null;
+}
+
 const OPEN_GROUPS_STORAGE_KEY = 'cvtheque:sidebarOpenGroups';
 
 function loadOpenGroups() {
@@ -217,13 +228,13 @@ function MenuGroup({ group, isActive, forceOpen, openGroups, onToggle, pathname,
 
 // Same PNG lockup used everywhere else (AppHeader.jsx, Login.jsx, etc.), but
 // its "2S" and caption are drawn in a dark ink meant for light backgrounds -
-// unreadable directly on this dark navy sidebar. A small white card behind
-// it restores the contrast the asset assumes, without needing a separate
-// dark-background export of the logo.
+// unreadable directly on this dark navy sidebar. A soft, translucent card
+// behind it restores enough contrast without the harsher look of a solid
+// white block dropped onto the dark sidebar.
 function SidebarLogo() {
   return (
     <Box sx={{ px: 2.25, pt: 1.25, pb: 1.5, borderBottom: '1px solid rgba(255,255,255,.1)', mb: 1.25 }}>
-      <Box sx={{ display: 'inline-block', bgcolor: '#fff', borderRadius: 1.5, px: 1.25, py: 1 }}>
+      <Box sx={{ display: 'inline-block', bgcolor: 'rgba(255,255,255,0.85)', borderRadius: 1.5, px: 1.25, py: 1 }}>
         <Box component="img" src="/logo_bi2s.webp" alt="Bi2S — Best IS Solutions" sx={{ width: 120, display: 'block' }} />
       </Box>
     </Box>

@@ -100,25 +100,7 @@ export default function LoginScreen({ onAdminSuccess, onConsultantSuccess }) {
           }}
         >
           <Box sx={{ mb: 2.5 }}>
-            <Box sx={{ display: 'flex', alignItems: 'baseline', fontSize: 34, fontWeight: 500, letterSpacing: '-1px', lineHeight: 1 }}>
-              <Box
-                component="span"
-                sx={{
-                  background: 'linear-gradient(120deg, #17E3B2 0%, #1D9E75 45%, #14536B 100%)',
-                  WebkitBackgroundClip: 'text',
-                  backgroundClip: 'text',
-                  color: 'transparent',
-                }}
-              >
-                Bi
-              </Box>
-              <Box component="span" sx={{ color: '#14536B' }}>
-                2S
-              </Box>
-            </Box>
-            <Typography sx={{ fontSize: 9, color: '#14536B', letterSpacing: '0.2em', fontWeight: 500, mt: 0.5 }}>
-              BEST IS SOLUTIONS
-            </Typography>
+            <Box component="img" src="/logo_bi2s.webp" alt="Bi2S — Best IS Solutions" sx={{ width: 140, display: 'block' }} />
           </Box>
 
           <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 0.25 }}>Connexion</Typography>

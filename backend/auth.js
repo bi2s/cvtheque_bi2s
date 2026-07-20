@@ -49,7 +49,6 @@ function parseBasicAuth(req) {
 async function requireAdmin(req, res, next) {
   const creds = parseBasicAuth(req);
   if (!creds) {
-    res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants admin invalides' });
   }
 
@@ -58,7 +57,6 @@ async function requireAdmin(req, res, next) {
   ]);
   const valid = await bcrypt.compare(creds.password, admin ? admin.password_hash : DUMMY_HASH);
   if (!admin || !valid || admin.role !== 'admin') {
-    res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants admin invalides' });
   }
 
@@ -75,7 +73,6 @@ async function requireAdmin(req, res, next) {
 async function requireAdminOrRh(req, res, next) {
   const creds = parseBasicAuth(req);
   if (!creds) {
-    res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants admin invalides' });
   }
 
@@ -84,7 +81,6 @@ async function requireAdminOrRh(req, res, next) {
   ]);
   const valid = await bcrypt.compare(creds.password, admin ? admin.password_hash : DUMMY_HASH);
   if (!admin || !valid || !['admin', 'rh'].includes(admin.role)) {
-    res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants admin invalides' });
   }
 
@@ -101,7 +97,6 @@ async function requireAdminOrRh(req, res, next) {
 async function requireAdminOrPmo(req, res, next) {
   const creds = parseBasicAuth(req);
   if (!creds) {
-    res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants admin invalides' });
   }
 
@@ -110,7 +105,6 @@ async function requireAdminOrPmo(req, res, next) {
   ]);
   const valid = await bcrypt.compare(creds.password, admin ? admin.password_hash : DUMMY_HASH);
   if (!admin || !valid || !['admin', 'pmo'].includes(admin.role)) {
-    res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants admin invalides' });
   }
 
@@ -136,7 +130,6 @@ async function requireAdminOrPmo(req, res, next) {
 async function requireAdminOrManager(req, res, next) {
   const creds = parseBasicAuth(req);
   if (!creds) {
-    res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants admin invalides' });
   }
 
@@ -145,7 +138,6 @@ async function requireAdminOrManager(req, res, next) {
   ]);
   const valid = await bcrypt.compare(creds.password, admin ? admin.password_hash : DUMMY_HASH);
   if (!admin || !valid || !['admin', 'rh', 'manager', 'responsable_mission', 'chef_projet'].includes(admin.role)) {
-    res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants admin invalides' });
   }
 
@@ -173,16 +165,14 @@ async function requireAdminOrManager(req, res, next) {
 async function requireAnyAdmin(req, res, next) {
   const creds = parseBasicAuth(req);
   if (!creds) {
-    res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants admin invalides' });
   }
 
-  const [[admin]] = await pool.query('SELECT id, password_hash, role, consultant_id FROM admins WHERE username = ?', [
+  const [[admin]] = await pool.query('SELECT id, password_hash, role, consultant_id, email FROM admins WHERE username = ?', [
     creds.username,
   ]);
   const valid = await bcrypt.compare(creds.password, admin ? admin.password_hash : DUMMY_HASH);
   if (!admin || !valid) {
-    res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants admin invalides' });
   }
 
@@ -194,7 +184,14 @@ async function requireAnyAdmin(req, res, next) {
     moduleIds = rows.map((r) => r.sap_module_id);
   }
 
-  req.admin = { id: admin.id, username: creds.username, role: admin.role, moduleIds, consultantId: admin.consultant_id };
+  req.admin = {
+    id: admin.id,
+    username: creds.username,
+    role: admin.role,
+    moduleIds,
+    consultantId: admin.consultant_id,
+    email: admin.email,
+  };
   next();
 }
 
@@ -231,7 +228,6 @@ async function assertConsultantInScope(req, consultantId) {
 async function requireConsultant(req, res, next) {
   const creds = parseBasicAuth(req);
   if (!creds) {
-    res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants invalides' });
   }
 
@@ -242,7 +238,6 @@ async function requireConsultant(req, res, next) {
   const hasPassword = !!consultant?.password_hash;
   const valid = await bcrypt.compare(creds.password, hasPassword ? consultant.password_hash : DUMMY_HASH);
   if (!consultant || !hasPassword || !valid) {
-    res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants invalides' });
   }
 
@@ -259,7 +254,6 @@ async function requireConsultant(req, res, next) {
 async function requireConsultantOrOwnAdmin(req, res, next) {
   const creds = parseBasicAuth(req);
   if (!creds) {
-    res.set('WWW-Authenticate', 'Basic');
     return res.status(401).json({ detail: 'Identifiants invalides' });
   }
 
@@ -292,7 +286,6 @@ async function requireConsultantOrOwnAdmin(req, res, next) {
     }
   }
 
-  res.set('WWW-Authenticate', 'Basic');
   return res.status(401).json({ detail: 'Identifiants invalides' });
 }
 
