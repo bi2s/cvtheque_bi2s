@@ -459,6 +459,7 @@ async function fetchConsultantDetail(consultantId) {
     hasPassword: !!consultant.password_hash,
     seniorityLevel: consultant.seniority_level,
     yearsOfExperience: consultant.years_of_experience,
+    hireDate: consultant.hire_date,
     statusId: consultant.status_id,
     statusLabel: consultant.status_label,
     archivedAt: consultant.archived_at,
@@ -1187,7 +1188,7 @@ app.get('/api/consultants', requireAdmin, async (req, res) => {
   const [rows] = await pool.query(`
     SELECT c.id, c.name, c.title, c.job_title AS jobTitle, c.username, c.email, (c.photo_path IS NOT NULL) AS hasPhoto,
            c.status_id AS statusId, cs.label AS statusLabel, c.archived_at AS archivedAt,
-           c.seniority_level AS seniorityLevel, c.years_of_experience AS yearsOfExperience,
+           c.seniority_level AS seniorityLevel, c.years_of_experience AS yearsOfExperience, c.hire_date AS hireDate,
            (c.password_hash IS NOT NULL) AS hasPassword
     FROM consultants c
     LEFT JOIN consultant_statuses cs ON cs.id = c.status_id
@@ -1244,8 +1245,8 @@ app.post('/api/admin/consultants', requireAdmin, async (req, res) => {
     await conn.beginTransaction();
     const [result] = await conn.query(
       `INSERT INTO consultants
-         (name, title, job_title, username, password_hash, seniority_level, years_of_experience, first_name, last_name, email, phone, address, nationality, gender)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (name, title, job_title, username, password_hash, seniority_level, years_of_experience, hire_date, first_name, last_name, email, phone, address, nationality, gender)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name,
         title || '',
@@ -1254,6 +1255,7 @@ app.post('/api/admin/consultants', requireAdmin, async (req, res) => {
         passwordHash,
         emptyToNull(req.body.seniorityLevel),
         emptyToNull(req.body.yearsOfExperience),
+        toValidDateOrNull(req.body.hireDate),
         emptyToNull(req.body.firstName),
         emptyToNull(req.body.lastName),
         emptyToNull(req.body.email),
@@ -1294,7 +1296,7 @@ app.put('/api/admin/consultants/:id', requireAdmin, async (req, res) => {
     await conn.beginTransaction();
     [result] = await conn.query(
       `UPDATE consultants
-       SET name = ?, title = ?, job_title = ?, username = ?, seniority_level = ?, years_of_experience = ?, first_name = ?, last_name = ?,
+       SET name = ?, title = ?, job_title = ?, username = ?, seniority_level = ?, years_of_experience = ?, hire_date = ?, first_name = ?, last_name = ?,
            email = ?, phone = ?, address = ?, nationality = ?, gender = ?
        WHERE id = ?`,
       [
@@ -1304,6 +1306,7 @@ app.put('/api/admin/consultants/:id', requireAdmin, async (req, res) => {
         username,
         emptyToNull(req.body.seniorityLevel),
         emptyToNull(req.body.yearsOfExperience),
+        toValidDateOrNull(req.body.hireDate),
         emptyToNull(req.body.firstName),
         emptyToNull(req.body.lastName),
         emptyToNull(req.body.email),
@@ -1452,7 +1455,7 @@ app.put('/api/admin/me/consultant', requireAdminOrManager, async (req, res) => {
     await conn.beginTransaction();
     await conn.query(
       `UPDATE consultants
-       SET name = ?, title = ?, job_title = ?, seniority_level = ?, years_of_experience = ?, first_name = ?, last_name = ?,
+       SET name = ?, title = ?, job_title = ?, seniority_level = ?, years_of_experience = ?, hire_date = ?, first_name = ?, last_name = ?,
            email = ?, phone = ?, address = ?, nationality = ?, gender = ?
        WHERE id = ?`,
       [
@@ -1461,6 +1464,7 @@ app.put('/api/admin/me/consultant', requireAdminOrManager, async (req, res) => {
         emptyToNull(req.body.jobTitle),
         emptyToNull(req.body.seniorityLevel),
         emptyToNull(req.body.yearsOfExperience),
+        toValidDateOrNull(req.body.hireDate),
         emptyToNull(req.body.firstName),
         emptyToNull(req.body.lastName),
         emptyToNull(req.body.email),

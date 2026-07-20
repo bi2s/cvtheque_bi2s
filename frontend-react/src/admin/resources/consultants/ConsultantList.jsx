@@ -34,6 +34,15 @@ const AVAILABILITY_CHOICES = [
 
 const defaultSort = { field: 'name', order: 'ASC' };
 
+// Computed from hireDate rather than stored, so it never goes stale (see
+// server.js's consultants.hire_date - replaced the old manually-typed
+// years_of_experience field).
+function yearsSince(hireDate) {
+  if (!hireDate) return null;
+  const years = Math.floor((Date.now() - new Date(hireDate).getTime()) / (365.25 * 86400000));
+  return years >= 0 ? years : null;
+}
+
 // Deterministic per-person color so two consultants with the same initial
 // (e.g. two "M"s) don't render as visually identical grey circles - same
 // hash-to-palette approach as StaffingPlanning's projectColor.
@@ -141,6 +150,7 @@ function ConsultantField() {
   const photoUrl = useAdminPhotoUrl(record?.id, record?.hasPhoto);
   if (!record) return null;
   const incomplete = !record.seniorityLevel;
+  const years = yearsSince(record.hireDate);
   return (
     <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
       <Avatar
@@ -158,7 +168,7 @@ function ConsultantField() {
         ) : (
           <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>
             {seniorityLabel(record.seniorityLevel)}
-            {record.yearsOfExperience ? ` · ${record.yearsOfExperience} ans` : ''}
+            {years != null ? ` · ${years} ans` : ''}
           </Typography>
         )}
       </Box>

@@ -5,7 +5,7 @@ import {
   SaveButton,
   TextInput,
   SelectInput,
-  NumberInput,
+  DateInput,
   useNotify,
   useRedirect,
   required,
@@ -266,7 +266,7 @@ export default function ConsultantCreate() {
           />
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', mb: 1.75, mt: 0.5 }}>
             <SelectInput source="seniorityLevel" label="Niveau d'expérience" choices={SENIORITY_LEVELS} fullWidth helperText={false} />
-            <NumberInput source="yearsOfExperience" label="Années d'expérience" fullWidth helperText={false} min={0} />
+            <DateInput source="hireDate" label="Date d'arrivée" fullWidth helperText={false} />
             <SelectInput
               source="gender"
               label="Genre"

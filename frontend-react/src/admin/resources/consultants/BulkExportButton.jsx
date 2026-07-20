@@ -15,6 +15,13 @@ function csvEscape(value) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+// Computed from hireDate rather than stored (see ConsultantList.jsx's same helper).
+function yearsSince(hireDate) {
+  if (!hireDate) return null;
+  const years = Math.floor((Date.now() - new Date(hireDate).getTime()) / (365.25 * 86400000));
+  return years >= 0 ? years : null;
+}
+
 // Client-side only - no export endpoint on the backend, since the current
 // page's already-loaded, already-enriched records (availabilityTier etc.
 // joined by dataProvider.js) are exactly what the list itself shows, so
@@ -32,7 +39,7 @@ export default function BulkExportButton() {
           r.name,
           r.title,
           r.seniorityLevel ? seniorityLabel(r.seniorityLevel) : '',
-          r.yearsOfExperience ?? '',
+          yearsSince(r.hireDate) ?? '',
           (r.modules || []).join(' / '),
           AVAILABILITY_LABELS[r.availabilityTier] || '',
           r.currentProjectClient || (r.seniorityLevel ? 'Intercontrat' : ''),

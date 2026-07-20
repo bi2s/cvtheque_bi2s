@@ -28,6 +28,13 @@ import { SENIORITY_LEVELS as SENIORITY_CHOICES, seniorityLabel } from '../../sen
 
 const MODULE_CHOICES = ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'];
 const TECHNOLOGY_CHOICES = ['SAP Fiori UX & Launchpad', 'Clean Core', 'SAP BTP', 'RISE with SAP'];
+
+// Computed from hireDate rather than stored (see ConsultantList.jsx's same helper).
+function yearsSince(hireDate) {
+  if (!hireDate) return null;
+  const years = Math.floor((Date.now() - new Date(hireDate).getTime()) / (365.25 * 86400000));
+  return years >= 0 ? years : null;
+}
 const LANGUAGE_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
 const FILTER_LABELS = {
@@ -65,6 +72,7 @@ function loadSavedSearches() {
 function ResultCard({ consultant, onPropose }) {
   const photoUrl = useAdminPhotoUrl(consultant.id, consultant.hasPhoto);
   const subLabel = scoreSubLabel(consultant.breakdown);
+  const years = yearsSince(consultant.hireDate);
   return (
     <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
@@ -77,7 +85,7 @@ function ResultCard({ consultant, onPropose }) {
             <Typography component="span" sx={{ fontSize: 12, color: 'text.disabled', fontWeight: 400 }}>
               {' · '}
               {consultant.seniorityLevel ? seniorityLabel(consultant.seniorityLevel) : '—'}
-              {consultant.yearsOfExperience ? ` · ${consultant.yearsOfExperience} ans` : ''}
+              {years != null ? ` · ${years} ans` : ''}
             </Typography>
           </Typography>
           <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
