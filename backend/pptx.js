@@ -180,6 +180,25 @@ function addFooter(slide, leftText, pageNum) {
   });
 }
 
+function mostRecentCertification(certificationDetails) {
+  if (!certificationDetails || certificationDetails.length === 0) return null;
+  return [...certificationDetails].sort((a, b) => {
+    if (!a.obtainedDate) return 1;
+    if (!b.obtainedDate) return -1;
+    return b.obtainedDate.localeCompare(a.obtainedDate);
+  })[0];
+}
+
+// "2025 — en cours" / "2025" / "2024 — 2025", matching the reference deck's
+// period badges - null/future periodEnd reads as still ongoing.
+function periodLabel(periodStart, periodEnd) {
+  if (!periodStart) return null;
+  const startYear = periodStart.slice(0, 4);
+  if (!periodEnd || new Date(periodEnd) > new Date()) return `${startYear} — en cours`;
+  const endYear = periodEnd.slice(0, 4);
+  return startYear === endYear ? startYear : `${startYear} — ${endYear}`;
+}
+
 function primaryModuleLabel(data) {
   const starred = data.skills.find((s) => s.category === 'module' && s.starred);
   if (starred) return starred.label;
@@ -390,10 +409,26 @@ function addExperienceSlides(pres, data, startPage) {
       const x = 0.55 + i * (cardW + gap);
       addCard(slide, { x, y: top, w: cardW, h: cardH, fill: COLOR.menthe, line: { color: COLOR.menthe } });
 
+      const period = periodLabel(proj.periodStart, proj.periodEnd);
+      let clientNameW = cardW - 0.4;
+      if (period) {
+        const pillW = Math.min(1.6, 0.3 + period.length * 0.065);
+        addPill(slide, period, {
+          x: x + cardW - 0.2 - pillW,
+          y: top + 0.18,
+          w: pillW,
+          h: 0.24,
+          fill: COLOR.charbon,
+          textColor: COLOR.turquoise,
+          fontSize: 7,
+          bold: true,
+        });
+        clientNameW = cardW - 0.4 - pillW - 0.15;
+      }
       slide.addText(proj.client || 'Client', {
         x: x + 0.2,
         y: top + 0.18,
-        w: cardW - 0.4,
+        w: clientNameW,
         h: 0.55,
         fontFace: FONT,
         fontSize: 12.5,
@@ -455,8 +490,10 @@ function addExperienceSlides(pres, data, startPage) {
         cy += 0.38;
       }
 
+      const hasModules = proj.modules && proj.modules.length > 0;
+      const envReserve = hasModules ? 0.5 : 0;
       const points = (proj.rolePoints || []).slice(0, 6);
-      const bulletAreaH = top + cardH - 0.3 - cy;
+      const bulletAreaH = top + cardH - 0.3 - cy - envReserve;
       if (points.length) {
         slide.addText(
           points.map((pt) => ({ text: pt, options: { bullet: { code: '25AA' }, breakLine: true } })),
@@ -471,6 +508,14 @@ function addExperienceSlides(pres, data, startPage) {
             valign: 'top',
           }
         );
+      }
+
+      if (hasModules) {
+        const envY = top + cardH - 0.42;
+        slide.addText('ENVIRONNEMENT', {
+          x: x + 0.2, y: envY, w: cardW - 0.4, h: 0.16, fontFace: FONT, fontSize: 6.5, bold: true, color: COLOR.gris,
+        });
+        addPillRow(slide, proj.modules, { x: x + 0.2, y: envY + 0.17, maxW: cardW - 0.4, fontSize: 6.5 });
       }
     });
 
@@ -496,90 +541,59 @@ function addFormationSlide(pres, data, pageNum) {
     color: COLOR.charbon,
   });
 
-  const TABLE_ROW_H = 0.28;
-  const TABLE_MAX_ROWS = 5;
-  const tableHeaderStyle = { bold: true, fill: { color: COLOR.charbon }, color: COLOR.turquoise, fontSize: 7.5 };
-  const tableCellStyle = { fontSize: 7.5, color: COLOR.charbon, valign: 'top' };
+  const CARD_W = 5.7;
+  const FORMATION_MAX = 5;
 
   let cy = 1.1;
-  slide.addText('FORMATIONS / DIPLÔMES OBTENUS', {
-    x: 0.6, y: cy, w: 5.7, h: 0.25, fontFace: FONT, fontSize: 9, bold: true, color: COLOR.gris,
-  });
-  cy += 0.3;
-  const formations = data.formationDetails || [];
-  if (formations.length === 0) {
-    slide.addText('Non renseigné', { x: 0.6, y: cy, w: 5.7, h: 0.3, fontFace: FONT, fontSize: 9, color: COLOR.gris });
-    cy += 0.4;
-  } else {
-    const shown = formations.slice(0, TABLE_MAX_ROWS);
-    const rows = [
-      [
-        { text: 'Date', options: tableHeaderStyle },
-        { text: 'Diplôme(s) obtenu(s)', options: tableHeaderStyle },
-        { text: 'Établissement', options: tableHeaderStyle },
-        { text: 'Spécialité', options: tableHeaderStyle },
-      ],
-      ...shown.map((f) => [
-        { text: f.obtainedDate || f.year || '', options: tableCellStyle },
-        { text: f.degree || '', options: tableCellStyle },
-        { text: f.school || '', options: tableCellStyle },
-        { text: f.fieldOfStudy || '—', options: tableCellStyle },
-      ]),
-    ];
-    slide.addTable(rows, {
-      x: 0.6, y: cy, w: 5.7, colW: [0.75, 1.85, 1.85, 1.25], rowH: TABLE_ROW_H,
-      fontFace: FONT, border: { type: 'solid', color: 'E5E5E5', pt: 0.5 }, autoPage: false,
+  const featuredCert = mostRecentCertification(data.certificationDetails);
+  if (featuredCert) {
+    const cardH = 1.3;
+    addCard(slide, { x: 0.6, y: cy, w: CARD_W, h: cardH, fill: COLOR.navy, line: { color: COLOR.navy } });
+    addPill(slide, '✓ CERTIFICATION SAP', {
+      x: 0.8, y: cy + 0.15, w: 2.3, h: 0.28, fill: COLOR.turquoise, textColor: COLOR.charbon, fontSize: 7.5, bold: true,
     });
-    cy += TABLE_ROW_H * (shown.length + 1);
-    if (formations.length > TABLE_MAX_ROWS) {
-      slide.addText(`+${formations.length - TABLE_MAX_ROWS} autre(s) - voir le profil complet`, {
-        x: 0.6, y: cy, w: 5.7, h: 0.2, fontFace: FONT, fontSize: 6.5, italic: true, color: COLOR.gris,
+    slide.addText(featuredCert.name || '', {
+      x: 0.8, y: cy + 0.5, w: CARD_W - 0.4, h: 0.5, fontFace: FONT, fontSize: 12, bold: true, color: COLOR.white, valign: 'top',
+    });
+    const certSubtitle = [featuredCert.issuingBody, featuredCert.level].filter(Boolean).join(' · ');
+    if (certSubtitle) {
+      slide.addText(certSubtitle, {
+        x: 0.8, y: cy + 0.95, w: CARD_W - 0.4, h: 0.3, fontFace: FONT, fontSize: 8.5, color: COLOR.pill, valign: 'top',
       });
-      cy += 0.22;
     }
+    cy += cardH + 0.25;
+  } else {
+    slide.addText('CERTIFICATIONS SAP', { x: 0.6, y: cy, w: CARD_W, h: 0.25, fontFace: FONT, fontSize: 9, bold: true, color: COLOR.gris });
+    cy += 0.3;
+    slide.addText('Aucune certification renseignée', { x: 0.6, y: cy, w: CARD_W, h: 0.3, fontFace: FONT, fontSize: 9, color: COLOR.gris });
+    cy += 0.4;
   }
 
-  cy += 0.25;
-  slide.addText('CERTIFICATIONS SAP', {
-    x: 0.6, y: cy, w: 5.7, h: 0.25, fontFace: FONT, fontSize: 9, bold: true, color: COLOR.gris,
+  cy += 0.15;
+  slide.addText('DIPLÔMES ACADÉMIQUES', {
+    x: 0.6, y: cy, w: CARD_W, h: 0.25, fontFace: FONT, fontSize: 9, bold: true, color: COLOR.gris,
   });
-  cy += 0.3;
-  const certifications = data.certificationDetails || [];
-  if (certifications.length === 0) {
-    slide.addText('Aucune certification renseignée', {
-      x: 0.6, y: cy, w: 5.7, h: 0.3, fontFace: FONT, fontSize: 9, color: COLOR.gris,
-    });
+  cy += 0.32;
+  const formations = data.formationDetails || [];
+  if (formations.length === 0) {
+    slide.addText('Non renseigné', { x: 0.6, y: cy, w: CARD_W, h: 0.3, fontFace: FONT, fontSize: 9, color: COLOR.gris });
+    cy += 0.4;
   } else {
-    const shown = certifications.slice(0, TABLE_MAX_ROWS);
-    const rows = [
-      [
-        { text: 'Date', options: tableHeaderStyle },
-        { text: 'Certification', options: tableHeaderStyle },
-        { text: 'N° Référence', options: tableHeaderStyle },
-        { text: 'Validité', options: tableHeaderStyle },
-        { text: 'Organisme', options: tableHeaderStyle },
-      ],
-      // Reference column (certificateNumber/credlyUrl/verificationUrl) was
-      // previously missing entirely from this table, even though
-      // CvPreview.jsx treats it as a first-class column - same fallback
-      // chain as the web version, so the exported file no longer silently
-      // drops this data.
-      ...shown.map((c) => [
-        { text: c.obtainedDate || '', options: tableCellStyle },
-        { text: c.name || '', options: tableCellStyle },
-        { text: c.certificateNumber || c.credlyUrl || c.verificationUrl || '—', options: tableCellStyle },
-        { text: c.validityYears ? `${c.validityYears} an${c.validityYears > 1 ? 's' : ''}` : '—', options: tableCellStyle },
-        { text: c.issuingBody || '—', options: tableCellStyle },
-      ]),
-    ];
-    slide.addTable(rows, {
-      x: 0.6, y: cy, w: 5.7, colW: [0.6, 1.5, 1.55, 0.8, 1.25], rowH: TABLE_ROW_H,
-      fontFace: FONT, border: { type: 'solid', color: 'E5E5E5', pt: 0.5 }, autoPage: false,
-    });
-    cy += TABLE_ROW_H * (shown.length + 1);
-    if (certifications.length > TABLE_MAX_ROWS) {
-      slide.addText(`+${certifications.length - TABLE_MAX_ROWS} autre(s) - voir le profil complet`, {
-        x: 0.6, y: cy, w: 5.7, h: 0.2, fontFace: FONT, fontSize: 6.5, italic: true, color: COLOR.gris,
+    const shown = formations.slice(0, FORMATION_MAX);
+    for (const f of shown) {
+      const year = f.year || (f.obtainedDate ? f.obtainedDate.slice(0, 4) : '');
+      slide.addText(year, {
+        x: 0.6, y: cy, w: CARD_W, h: 0.22, fontFace: FONT, fontSize: 9.5, bold: true, color: COLOR.accentGreen,
+      });
+      cy += 0.24;
+      slide.addText([f.degree, f.school].filter(Boolean).join(' — '), {
+        x: 0.6, y: cy, w: CARD_W, h: 0.32, fontFace: FONT, fontSize: 8.5, color: COLOR.charbon, valign: 'top',
+      });
+      cy += 0.4;
+    }
+    if (formations.length > FORMATION_MAX) {
+      slide.addText(`+${formations.length - FORMATION_MAX} autre(s) - voir le profil complet`, {
+        x: 0.6, y: cy, w: CARD_W, h: 0.2, fontFace: FONT, fontSize: 6.5, italic: true, color: COLOR.gris,
       });
     }
   }

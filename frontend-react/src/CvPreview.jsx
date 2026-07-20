@@ -48,6 +48,7 @@ const STYLE = `
     letter-spacing:1px; text-transform:uppercase; padding:1.1mm 3mm; border-radius:99px; margin-bottom:2.2mm;
   }
   .cv-preview-page .cert-card .cert-title{ font-weight:700; font-size:8.8pt; line-height:1.3; }
+  .cv-preview-page .cert-card .cert-sub{ font-size:7.6pt; color:var(--gris); margin-top:1mm; }
   .cv-preview-page .skill-group{ margin-bottom:3.6mm; }
   .cv-preview-page .skill-group:last-child{ margin-bottom:0; }
   .cv-preview-page .skill-group .sg-title{ font-weight:700; font-size:8.2pt; margin-bottom:1.6mm; }
@@ -97,6 +98,10 @@ const STYLE = `
   .cv-preview-page .xp-head{ display:flex; justify-content:space-between; align-items:baseline; gap:3mm; }
   .cv-preview-page .xp-head .role{ font-weight:700; font-size:10.2pt; }
   .cv-preview-page .xp-head .role .client{ color:#127a55; }
+  .cv-preview-page .xp-head .period{
+    background:var(--charbon); color:var(--turquoise); font-size:7pt; font-weight:700;
+    padding:.8mm 2.6mm; border-radius:99px; white-space:nowrap; flex:none;
+  }
   .cv-preview-page .xp .ctx{ font-size:8.6pt; margin:1.4mm 0 1.6mm; color:var(--gris); }
   .cv-preview-page .xp .ctx b{ color:var(--charbon); font-weight:700; }
   .cv-preview-page .xp ul{ list-style:none; display:flex; flex-direction:column; gap:1.1mm; margin-bottom:1.8mm; }
@@ -173,8 +178,6 @@ export default function CvPreview({ detail, photoUrl }) {
     formationDetails = [],
   } = detail;
 
-  const isUrl = (v) => /^https?:\/\//i.test(v || '');
-
   const [copiedTable, setCopiedTable] = useState(null);
 
   // Tab-separated rows paste cleanly into Excel/Word as real table cells,
@@ -192,6 +195,27 @@ export default function CvPreview({ detail, photoUrl }) {
   const methodologyTags = skillsByCategory('methodology').map((s) => s.label);
   const starredModule = skillsByCategory('module').find((s) => s.starred)?.label;
   const ownModuleLabels = skillsByCategory('module').map((s) => s.label);
+
+  // Same "most recent by obtainedDate" pick as backend/pptx.js's
+  // mostRecentCertification() - the two must feature the same certification.
+  const featuredCert =
+    certificationDetails.length > 0
+      ? [...certificationDetails].sort((a, b) => {
+          if (!a.obtainedDate) return 1;
+          if (!b.obtainedDate) return -1;
+          return b.obtainedDate.localeCompare(a.obtainedDate);
+        })[0]
+      : null;
+  const certSubtitle = featuredCert ? [featuredCert.issuingBody, featuredCert.level].filter(Boolean).join(' · ') : '';
+
+  // "2025 — en cours" / "2025" / "2024 — 2025" - mirrors pptx.js's periodLabel().
+  function periodLabel(periodStart, periodEnd) {
+    if (!periodStart) return null;
+    const startYear = periodStart.slice(0, 4);
+    if (!periodEnd || new Date(periodEnd) > new Date()) return `${startYear} — en cours`;
+    const endYear = periodEnd.slice(0, 4);
+    return startYear === endYear ? startYear : `${startYear} — ${endYear}`;
+  }
 
   return (
     <div className="cv-preview-page">
@@ -288,6 +312,9 @@ export default function CvPreview({ detail, photoUrl }) {
                     <span className="client">{p.client}</span>
                     {p.modules?.length ? ` — ${p.modules.join(', ')}` : ''}
                   </div>
+                  {periodLabel(p.periodStart, p.periodEnd) && (
+                    <span className="period">{periodLabel(p.periodStart, p.periodEnd)}</span>
+                  )}
                 </div>
                 <div className="ctx">
                   <b>Rôle : </b>
@@ -343,55 +370,22 @@ export default function CvPreview({ detail, photoUrl }) {
                     ))}
                   </ul>
                 )}
+                {p.modules?.length > 0 && (
+                  <div className="env">
+                    <span className="env-label">Environnement</span>
+                    {p.modules.map((m) => (
+                      <span className="pill" key={m}>
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </article>
             ))}
           </div>
 
           <div className="sec-title" style={{ marginTop: '6mm' }}>
-            Formations / Diplômes obtenus
-            {formationDetails.length > 0 && (
-              <button
-                type="button"
-                className="copy-btn"
-                onClick={() =>
-                  copyTable(
-                    'formations',
-                    ['Date', 'Diplôme(s) obtenu(s)', 'Établissement / Institut', 'Spécialité'],
-                    formationDetails.map((f) => [f.obtainedDate || f.year || '', f.degree || '', f.school || '', f.fieldOfStudy || ''])
-                  )
-                }
-              >
-                {copiedTable === 'formations' ? 'Copié ✓' : 'Copier'}
-              </button>
-            )}
-          </div>
-          {formationDetails.length === 0 ? (
-            <p className="empty-hint">Aucune formation renseignée.</p>
-          ) : (
-            <table className="doc-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Diplôme(s) obtenu(s)</th>
-                  <th>Établissement / Institut</th>
-                  <th>Spécialité</th>
-                </tr>
-              </thead>
-              <tbody>
-                {formationDetails.map((f) => (
-                  <tr key={f.id}>
-                    <td>{f.obtainedDate || f.year}</td>
-                    <td>{f.degree}</td>
-                    <td>{f.school}</td>
-                    <td>{f.fieldOfStudy || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-
-          <div className="sec-title" style={{ marginTop: '6mm' }}>
-            Certifications SAP
+            Certification SAP
             {certificationDetails.length > 0 && (
               <button
                 type="button"
@@ -414,46 +408,46 @@ export default function CvPreview({ detail, photoUrl }) {
               </button>
             )}
           </div>
-          {certificationDetails.length === 0 ? (
-            <p className="empty-hint">Aucune certification renseignée.</p>
+          {featuredCert ? (
+            <div className="cert-card">
+              <span className="cert-badge">✓ Certification SAP</span>
+              <div className="cert-title">{featuredCert.name}</div>
+              {certSubtitle && <div className="cert-sub">{certSubtitle}</div>}
+            </div>
           ) : (
-            <table className="doc-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Certification</th>
-                  <th>N° Référence</th>
-                  <th>Validité (Années)</th>
-                  <th>Organisme</th>
-                </tr>
-              </thead>
-              <tbody>
-                {certificationDetails.map((c) => {
-                  const reference = c.certificateNumber || c.credlyUrl || c.verificationUrl;
-                  return (
-                    <tr key={c.id}>
-                      <td>{c.obtainedDate || '—'}</td>
-                      <td>{c.name}</td>
-                      <td>
-                        {reference ? (
-                          isUrl(reference) ? (
-                            <a href={reference} target="_blank" rel="noreferrer">
-                              Voir le certificat
-                            </a>
-                          ) : (
-                            reference
-                          )
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td>{c.validityYears ? `${c.validityYears} an${c.validityYears > 1 ? 's' : ''}` : '—'}</td>
-                      <td>{c.issuingBody || '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <p className="empty-hint">Aucune certification renseignée.</p>
+          )}
+
+          <div className="sec-title" style={{ marginTop: '6mm' }}>
+            Diplômes académiques
+            {formationDetails.length > 0 && (
+              <button
+                type="button"
+                className="copy-btn"
+                onClick={() =>
+                  copyTable(
+                    'formations',
+                    ['Date', 'Diplôme(s) obtenu(s)', 'Établissement / Institut', 'Spécialité'],
+                    formationDetails.map((f) => [f.obtainedDate || f.year || '', f.degree || '', f.school || '', f.fieldOfStudy || ''])
+                  )
+                }
+              >
+                {copiedTable === 'formations' ? 'Copié ✓' : 'Copier'}
+              </button>
+            )}
+          </div>
+          {formationDetails.length === 0 ? (
+            <p className="empty-hint">Aucune formation renseignée.</p>
+          ) : (
+            <div className="edu">
+              {formationDetails.map((f) => (
+                <div className="item" key={f.id}>
+                  <div className="yr">{f.obtainedDate ? f.obtainedDate.slice(0, 4) : f.year}</div>
+                  <div className="deg">{f.degree}</div>
+                  <div className="sch">{f.school}</div>
+                </div>
+              ))}
+            </div>
           )}
         </main>
       </div>

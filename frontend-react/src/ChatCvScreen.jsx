@@ -598,7 +598,7 @@ export default function ChatCvScreen() {
       setPendingDraft(draft);
       setStep(STEP.RESUME_DRAFT);
       botSay(
-        `Vous avez une mise à jour non terminée (sauvegardée le ${new Date(draft.savedAt).toLocaleString('fr-FR')}). Voulez-vous reprendre où vous en étiez ?`
+        `Vous avez une mise à jour non terminée (sauvegardée le ${new Date(draft.savedAt).toLocaleString('fr-FR')}). Voulez-vous reprendre où vous en étiez, ou recommencer à zéro (les modifications non sauvegardées seront perdues) ?`
       );
     } else {
       setStep(STEP.DASHBOARD);
@@ -1953,7 +1953,14 @@ export default function ChatCvScreen() {
           </Box>
         );
       case STEP.RESUME_DRAFT:
-        return <YesNo yesLabel="Reprendre" noLabel="Recommencer" onYes={handleResumeDraft} onNo={handleDiscardDraft} />;
+        return (
+          <YesNo
+            yesLabel="Reprendre ma mise à jour"
+            noLabel="Recommencer à zéro"
+            onYes={handleResumeDraft}
+            onNo={handleDiscardDraft}
+          />
+        );
       default:
         return null;
     }
