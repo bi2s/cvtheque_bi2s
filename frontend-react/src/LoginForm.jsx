@@ -9,9 +9,13 @@ import {
   Box,
   IconButton,
   InputAdornment,
+  Checkbox,
+  FormControlLabel,
+  Typography,
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import { API_BASE_URL, basicAuthHeader } from './api';
 
 // One standard login form for every role - admin/rh/manager/pmo/
@@ -29,6 +33,7 @@ export default function LoginForm({ onAdminSuccess, onConsultantSuccess }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -41,13 +46,13 @@ export default function LoginForm({ onAdminSuccess, onConsultantSuccess }) {
       const adminRes = await fetch(`${API_BASE_URL}/api/admin/me`, { headers: { Authorization: authHeader } });
       if (adminRes.ok) {
         const data = await adminRes.json();
-        await onAdminSuccess({ username, password, data });
+        await onAdminSuccess({ username, password, data, remember });
         return;
       }
       const consultantRes = await fetch(`${API_BASE_URL}/api/consultant/me`, { headers: { Authorization: authHeader } });
       if (consultantRes.ok) {
         const data = await consultantRes.json();
-        await onConsultantSuccess({ username, password, data });
+        await onConsultantSuccess({ username, password, data, remember });
         return;
       }
       // Deliberately identical whether the username doesn't exist, matched
@@ -63,9 +68,9 @@ export default function LoginForm({ onAdminSuccess, onConsultantSuccess }) {
   }
 
   return (
-    <Stack spacing={2.5}>
+    <Stack spacing={2}>
       <TextField
-        label="Identifiant"
+        label="Identifiant ou e-mail"
         value={username}
         onChange={(e) => setUsername(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && submit()}
@@ -73,7 +78,7 @@ export default function LoginForm({ onAdminSuccess, onConsultantSuccess }) {
         size="small"
         autoFocus
         autoComplete="username"
-        inputProps={{ 'aria-label': 'Identifiant' }}
+        inputProps={{ 'aria-label': 'Identifiant ou e-mail' }}
       />
       <TextField
         label="Mot de passe"
@@ -100,19 +105,43 @@ export default function LoginForm({ onAdminSuccess, onConsultantSuccess }) {
           ),
         }}
       />
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: -0.5 }}>
+        <FormControlLabel
+          sx={{ ml: -1 }}
+          control={
+            <Checkbox size="small" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+          }
+          label={
+            <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>Rester connectée</Typography>
+          }
+        />
+        <Button size="small" color="inherit" onClick={() => navigate('/forgot-password')} sx={{ fontSize: 12.5, minWidth: 0 }}>
+          Mot de passe oublié ?
+        </Button>
+      </Box>
       {error && <Alert severity="error">{error}</Alert>}
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center' }}>
           <CircularProgress size={28} />
         </Box>
       ) : (
-        <Button variant="contained" onClick={submit} size="large">
-          Se connecter
-        </Button>
+        <>
+          <Button variant="contained" onClick={submit} size="large">
+            Se connecter
+          </Button>
+          {/* Reuses the existing reset-password flow rather than a real
+              passwordless magic link - this app has no session/token layer
+              to redeem a one-time link into (confirmed with the user). */}
+          <Button
+            variant="outlined"
+            color="inherit"
+            startIcon={<MailOutlineIcon fontSize="small" />}
+            onClick={() => navigate('/forgot-password')}
+          >
+            Recevoir un lien de connexion par e-mail
+          </Button>
+        </>
       )}
-      <Button size="small" color="inherit" onClick={() => navigate('/forgot-password')}>
-        Mot de passe oublié ?
-      </Button>
     </Stack>
   );
 }

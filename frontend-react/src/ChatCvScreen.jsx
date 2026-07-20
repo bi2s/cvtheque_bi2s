@@ -31,8 +31,9 @@ import { API_BASE_URL, basicAuthHeader } from './api';
 import AppHeader from './AppHeader';
 import CvPreview from './CvPreview';
 import ChangeSummary from './shared/ChangeSummary';
-import LoginForm from './LoginForm';
+import LoginScreen from './LoginScreen';
 import { storeAdminAuth } from './admin/authProvider';
+import { readAuth, writeAuth, clearAuth } from './authStorage';
 import formatRelativeDate from './admin/formatRelativeDate';
 import {
   EXPERIENCE_LEVELS,
@@ -452,20 +453,18 @@ export default function ChatCvScreen() {
   const [taskSuggestions, setTaskSuggestions] = useState([]);
   const messagesEndRef = useRef(null);
   const hasInitialized = useRef(false);
-  // If this tab was opened from "Compléter via le chatbot" (an admin's own
-  // linked-consultant profile), the admin app already stored this same
-  // account's credentials + consultantId in localStorage (same origin,
-  // see authProvider.js's storeAdminAuth) - reuse them to sign straight
-  // into the consultant view instead of showing the login form again.
-  // A plain consultant login never writes to this key, so this can't
-  // accidentally auto-login someone who isn't the linked admin.
+  // Restores a previously-stored session on load - either "Rester
+  // connectée" from a plain consultant login (writeAuth in
+  // handleConsultantLoginSuccess below), or a tab opened from "Compléter
+  // via le chatbot" (an admin's own linked-consultant profile, whose
+  // credentials + consultantId were stored by the admin app's own
+  // storeAdminAuth - same origin, same 'auth' key, see authStorage.js).
+  // Either way the stored username/password gets re-verified against the
+  // server below before anything is trusted, so this can't log in as
+  // someone whose credentials aren't actually known.
   const [autoLoginState, setAutoLoginState] = useState(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem('auth') || 'null');
-      return stored?.username && stored?.password && stored?.consultantId ? 'checking' : 'idle';
-    } catch {
-      return 'idle';
-    }
+    const stored = readAuth();
+    return stored?.username && stored?.password && stored?.consultantId ? 'checking' : 'idle';
   });
 
   useEffect(() => {
@@ -476,12 +475,7 @@ export default function ChatCvScreen() {
 
   useEffect(() => {
     if (autoLoginState !== 'checking') return;
-    let stored;
-    try {
-      stored = JSON.parse(localStorage.getItem('auth') || 'null');
-    } catch {
-      stored = null;
-    }
+    const stored = readAuth();
     if (!stored?.username || !stored?.password || !stored?.consultantId) {
       setAutoLoginState('idle');
       return;
@@ -711,9 +705,13 @@ export default function ChatCvScreen() {
 
   // Consultant match from the shared LoginForm (tries admin, then
   // consultant) - same handoff handleLogin always did, just fed data the
-  // form already fetched instead of re-probing here.
-  async function handleConsultantLoginSuccess({ username, password, data }) {
+  // form already fetched instead of re-probing here. Persists the session
+  // per the "Rester connectée" checkbox (see authStorage.js) so a plain
+  // consultant login survives a page refresh too, not just the admin's
+  // own-profile preview case the auto-login effect originally existed for.
+  async function handleConsultantLoginSuccess({ username, password, data, remember = true }) {
     const authHeader = basicAuthHeader(username, password);
+    writeAuth({ username, password, consultantId: data.id }, remember);
     setCredentials({ username, password });
     applyMeData(data);
     const draft = loadDraft(username);
@@ -730,11 +728,18 @@ export default function ChatCvScreen() {
   }
 
   // An admin/rh/manager/pmo/mission credential typed at the app root (the
-  // consultant entry point) - persists the same localStorage shape
-  // authProvider.js's own login() writes, so react-admin sees an
-  // already-authenticated session and skips its own login screen too.
-  function handleAdminLoginSuccess({ username, password, data }) {
-    storeAdminAuth({ username, password, role: data.role, moduleIds: data.moduleIds, consultantId: data.consultantId });
+  // consultant entry point) - persists the same auth shape authProvider.js's
+  // own login() writes, so react-admin sees an already-authenticated
+  // session and skips its own login screen too.
+  function handleAdminLoginSuccess({ username, password, data, remember = true }) {
+    storeAdminAuth({
+      username,
+      password,
+      role: data.role,
+      moduleIds: data.moduleIds,
+      consultantId: data.consultantId,
+      remember,
+    });
     window.location.href = '/admin';
   }
 
@@ -1469,6 +1474,13 @@ export default function ChatCvScreen() {
   function resetConversation() {
     setMessages([]);
     setStep(STEP.LOGIN);
+    // Only clears a plain consultant's own stored session. An admin
+    // previewing their own linked-consultant profile shares this same
+    // 'auth' entry with their still-open admin tab (see the auto-login
+    // effect above) - leaving it in place there is deliberate, unchanged
+    // from before this login persisted at all.
+    const stored = readAuth();
+    if (stored && !stored.role) clearAuth();
     setCredentials(null);
     setLoginUsername('');
     setLoginPassword('');
@@ -1508,19 +1520,6 @@ export default function ChatCvScreen() {
 
   function renderInputArea() {
     switch (step) {
-      case STEP.LOGIN:
-        if (autoLoginState === 'checking') {
-          return (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-              <CircularProgress size={28} />
-            </Box>
-          );
-        }
-        return (
-          <Box sx={{ maxWidth: 340, mx: 'auto' }}>
-            <LoginForm onAdminSuccess={handleAdminLoginSuccess} onConsultantSuccess={handleConsultantLoginSuccess} />
-          </Box>
-        );
       case STEP.REVIEW_PERSONAL_INFO:
         return (
           <Stack spacing={1.5} sx={{ maxWidth: 720, mx: 'auto' }}>
@@ -2018,7 +2017,20 @@ export default function ChatCvScreen() {
     }
   }
 
-  const showWelcomeBubble = step === STEP.LOGIN && messages.length === 0 && autoLoginState !== 'checking';
+  // The one unified login screen (see LoginScreen.jsx) rather than the
+  // chatbot shell below - an admin typing their credentials here is
+  // reaching their dashboard without ever needing to know /admin exists.
+  if (step === STEP.LOGIN) {
+    if (autoLoginState === 'checking') {
+      return (
+        <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <CircularProgress size={28} />
+        </Box>
+      );
+    }
+    return <LoginScreen onAdminSuccess={handleAdminLoginSuccess} onConsultantSuccess={handleConsultantLoginSuccess} />;
+  }
+
   const isDashboard = step === STEP.DASHBOARD;
   const isPreview = step === STEP.PREVIEW;
   const isProfile = step === STEP.PROFILE;
@@ -2112,9 +2124,6 @@ export default function ChatCvScreen() {
         <>
           <Box sx={{ flex: 1, overflowY: 'auto', p: 3 }}>
             <Box sx={{ maxWidth: 720, mx: 'auto', display: 'flex', flexDirection: 'column' }}>
-              {showWelcomeBubble && (
-                <Bubble fromBot text="Bienvenue sur BI2S CVthèque. Connectez-vous avec l'identifiant fourni par l'administrateur." />
-              )}
               {messages.map((m, i) => (
                 <Bubble key={i} fromBot={m.fromBot} text={m.text} createdAt={m.createdAt} />
               ))}

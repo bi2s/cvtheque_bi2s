@@ -1,11 +1,11 @@
 import { HttpError } from 'react-admin';
 import { API_BASE_URL } from '../api';
+import { readAuth } from '../authStorage';
 
 function getAuthHeader() {
-  const raw = localStorage.getItem('auth');
-  if (!raw) return null;
-  const { username, password } = JSON.parse(raw);
-  return 'Basic ' + btoa(`${username}:${password}`);
+  const auth = readAuth();
+  if (!auth) return null;
+  return 'Basic ' + btoa(`${auth.username}:${auth.password}`);
 }
 
 async function apiFetch(path, options = {}) {
