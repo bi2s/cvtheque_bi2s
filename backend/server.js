@@ -191,6 +191,18 @@ async function photoAbsolutePathFor(consultantId) {
   return row && row.photo_path ? path.join(__dirname, row.photo_path) : null;
 }
 
+// Same convention as photoAbsolutePathFor above - only the featured
+// document's id/name are ever exposed via the API (fetchConsultantDetail's
+// featuredDocument), the real file path stays server-side.
+async function featuredDocumentAbsolutePathFor(consultantId) {
+  const [[row]] = await pool.query(
+    'SELECT file_path, original_name FROM consultant_documents WHERE consultant_id = ? AND is_featured = 1 LIMIT 1',
+    [consultantId]
+  );
+  if (!row || !IMAGE_EXT_RE.test(row.original_name)) return null;
+  return path.join(__dirname, row.file_path);
+}
+
 // Validates every route's :id param in one place (Express calls this
 // whenever any route matches a segment literally named :id) rather than
 // repeating the same check across a dozen routes. Rejects non-numeric IDs
@@ -368,6 +380,10 @@ function validateGenerateCvPayload(body) {
   return null;
 }
 
+// Only raster images can be embedded as a PPTX picture / shown as an <img> -
+// a featured PDF or .pptx scan still downloads fine, it just isn't embedded.
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp)$/i;
+
 async function fetchConsultantDetail(consultantId) {
   const [[consultant]] = await pool.query(
     `SELECT c.*, cs.label AS status_label
@@ -424,6 +440,10 @@ async function fetchConsultantDetail(consultantId) {
   );
   const [missionTypeRows] = await pool.query(
     'SELECT mission_type_id FROM consultant_mission_types WHERE consultant_id = ?',
+    [consultantId]
+  );
+  const [[featuredDoc]] = await pool.query(
+    'SELECT id, original_name FROM consultant_documents WHERE consultant_id = ? AND is_featured = 1 LIMIT 1',
     [consultantId]
   );
 
@@ -487,6 +507,9 @@ async function fetchConsultantDetail(consultantId) {
       filePath: f.file_path,
     })),
     skills: skillRows.map((s) => ({ category: s.category, label: s.label, starred: !!s.starred })),
+    featuredDocument: featuredDoc
+      ? { id: featuredDoc.id, originalName: featuredDoc.original_name, isImage: IMAGE_EXT_RE.test(featuredDoc.original_name) }
+      : null,
   };
 }
 
@@ -1014,7 +1037,13 @@ fs.mkdirSync(CONSULTANT_DOCS_DIR, { recursive: true });
 const uploadConsultantDocument = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 function mapConsultantDocumentRow(r) {
-  return { id: r.id, consultantId: r.consultant_id, originalName: r.original_name, uploadedAt: r.uploaded_at };
+  return {
+    id: r.id,
+    consultantId: r.consultant_id,
+    originalName: r.original_name,
+    uploadedAt: r.uploaded_at,
+    isFeatured: !!r.is_featured,
+  };
 }
 
 app.get('/api/admin/consultants/:id/documents', requireAdminOrPmo, async (req, res) => {
@@ -1059,6 +1088,30 @@ app.delete('/api/admin/consultant-documents/:id', requireAdminOrPmo, async (req,
   if (!doc) return res.status(404).json({ detail: 'Document introuvable' });
   fs.unlink(path.join(__dirname, doc.file_path), () => {});
   await pool.query('DELETE FROM consultant_documents WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// The one document (per consultant) to embed in the generated CV/PPTX -
+// setting a new one clears any previously-featured document for the same
+// consultant, since only one can be shown there.
+app.put('/api/admin/consultant-documents/:id/feature', requireAdminOrPmo, async (req, res) => {
+  const [[doc]] = await pool.query('SELECT * FROM consultant_documents WHERE id = ?', [req.params.id]);
+  if (!doc) return res.status(404).json({ detail: 'Document introuvable' });
+  const featured = !!req.body.featured;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    if (featured) {
+      await conn.query('UPDATE consultant_documents SET is_featured = 0 WHERE consultant_id = ?', [doc.consultant_id]);
+    }
+    await conn.query('UPDATE consultant_documents SET is_featured = ? WHERE id = ?', [featured ? 1 : 0, doc.id]);
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
   res.json({ ok: true });
 });
 
@@ -1547,7 +1600,8 @@ app.get('/api/consultants/:id/cv', requireAdmin, async (req, res) => {
 
   const outPath = outputPathFor(consultantId);
   const photoPath = await photoAbsolutePathFor(consultantId);
-  await generatePptx(detail, outPath, { photoPath });
+  const featuredDocumentPath = await featuredDocumentAbsolutePathFor(consultantId);
+  await generatePptx(detail, outPath, { photoPath, featuredDocumentPath });
   res.download(outPath, `CV_${detail.name}.pptx`);
 });
 
@@ -1558,7 +1612,8 @@ app.get('/api/admin/me/consultant/cv', requireAdminOrManager, async (req, res) =
 
   const outPath = outputPathFor(req.admin.consultantId);
   const photoPath = await photoAbsolutePathFor(req.admin.consultantId);
-  await generatePptx(detail, outPath, { photoPath });
+  const featuredDocumentPath = await featuredDocumentAbsolutePathFor(req.admin.consultantId);
+  await generatePptx(detail, outPath, { photoPath, featuredDocumentPath });
   res.download(outPath, `CV_${detail.name}.pptx`);
 });
 
@@ -1585,7 +1640,8 @@ app.post('/api/admin/consultants/bulk-cv', requireAdmin, async (req, res) => {
     if (!detail) continue;
     const outPath = outputPathFor(consultantId);
     const photoPath = await photoAbsolutePathFor(consultantId);
-    await generatePptx(detail, outPath, { photoPath });
+    const featuredDocumentPath = await featuredDocumentAbsolutePathFor(consultantId);
+    await generatePptx(detail, outPath, { photoPath, featuredDocumentPath });
     let entryName = `CV_${detail.name}.pptx`;
     let suffix = 2;
     while (usedNames.has(entryName)) {
@@ -1608,7 +1664,8 @@ app.get('/api/consultant/me/cv', requireConsultantOrOwnAdmin, async (req, res) =
 
   const outPath = outputPathFor(consultantId);
   const photoPath = await photoAbsolutePathFor(consultantId);
-  await generatePptx(detail, outPath, { photoPath });
+  const featuredDocumentPath = await featuredDocumentAbsolutePathFor(consultantId);
+  await generatePptx(detail, outPath, { photoPath, featuredDocumentPath });
   res.download(outPath, `CV_${detail.name}.pptx`);
 });
 

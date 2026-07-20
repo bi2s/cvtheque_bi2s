@@ -464,6 +464,10 @@ async function initSchema() {
         FOREIGN KEY (consultant_id) REFERENCES consultants(id) ON DELETE CASCADE
       )
     `);
+    // Marks the one document (per consultant) to embed in the generated
+    // CV/PPTX - filenames like "Certif1.png" or "CamScanner...jpg" can't be
+    // trusted to identify themselves, so this has to be an explicit choice.
+    await ensureColumn(conn, 'consultant_documents', 'is_featured', 'TINYINT(1) NOT NULL DEFAULT 0');
     await conn.query(`
       CREATE TABLE IF NOT EXISTS candidate_audit (
         id INT AUTO_INCREMENT PRIMARY KEY,

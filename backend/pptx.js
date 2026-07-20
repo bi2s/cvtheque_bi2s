@@ -525,7 +525,7 @@ function addExperienceSlides(pres, data, startPage) {
   return chunks.length;
 }
 
-function addFormationSlide(pres, data, pageNum) {
+function addFormationSlide(pres, data, pageNum, featuredDocumentPath) {
   const slide = pres.addSlide();
   slide.background = { color: COLOR.white };
   addLockup(slide);
@@ -595,7 +595,26 @@ function addFormationSlide(pres, data, pageNum) {
       slide.addText(`+${formations.length - FORMATION_MAX} autre(s) - voir le profil complet`, {
         x: 0.6, y: cy, w: CARD_W, h: 0.2, fontFace: FONT, fontSize: 6.5, italic: true, color: COLOR.gris,
       });
+      cy += 0.22;
     }
+  }
+
+  // Optional: the one document the admin marked as "featured" for this
+  // consultant (consultant_documents.is_featured) - only reaches here when
+  // it's actually an image (featuredDocumentAbsolutePathFor already filters
+  // out PDFs/pptx scans server-side), placed in whatever room is left below
+  // the text above so it never overlaps the footer.
+  const imageTop = cy + 0.15;
+  const imageMaxH = 6.9 - imageTop;
+  if (featuredDocumentPath && imageMaxH > 0.6) {
+    slide.addImage({
+      path: featuredDocumentPath,
+      x: 0.6,
+      y: imageTop,
+      w: CARD_W,
+      h: imageMaxH,
+      sizing: { type: 'contain', w: CARD_W, h: imageMaxH },
+    });
   }
 
   addCard(slide, { x: 6.55, y: 1.1, w: 6.15, h: 3.0 });
@@ -667,7 +686,7 @@ function addBackCoverSlide(pres) {
   slide.addImage({ path: LOCKUP_WHITE, x: 10.5, y: 6.55, w: 1.9, h: 1.9 * LOCKUP_RATIO });
 }
 
-async function generatePptx(data, outputPath, { photoPath } = {}) {
+async function generatePptx(data, outputPath, { photoPath, featuredDocumentPath } = {}) {
   const pres = new pptxgen();
   pres.defineLayout({ name: 'BI2S', width: 13.33, height: 7.5 });
   pres.layout = 'BI2S';
@@ -675,7 +694,7 @@ async function generatePptx(data, outputPath, { photoPath } = {}) {
   addTitleSlide(pres, data, photoPath);
   addProfileSlide(pres, data, 2);
   const experienceSlideCount = addExperienceSlides(pres, data, 3);
-  addFormationSlide(pres, data, 3 + experienceSlideCount);
+  addFormationSlide(pres, data, 3 + experienceSlideCount, featuredDocumentPath);
   addBackCoverSlide(pres);
 
   await pres.writeFile({ fileName: outputPath });

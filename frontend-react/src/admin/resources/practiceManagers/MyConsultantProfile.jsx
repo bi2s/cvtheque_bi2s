@@ -31,6 +31,7 @@ import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
 import CvPreview from '../../../CvPreview';
 import { SENIORITY_LEVELS, seniorityLabel } from '../../seniorityLabels';
+import useFeaturedDocumentUrl from '../consultants/useFeaturedDocumentUrl';
 
 const GENDERS = [
   { id: 'F', name: 'Femme' },
@@ -77,6 +78,7 @@ export default function MyConsultantProfile() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const photoUrl = usePhotoUrl(record?.hasPhoto);
+  const featuredDocumentUrl = useFeaturedDocumentUrl(record?.featuredDocument);
 
   function load() {
     fetch(`${API_BASE_URL}/api/admin/me/consultant`, { headers: { Authorization: getAuthHeader() } })
@@ -217,7 +219,7 @@ export default function MyConsultantProfile() {
           </Toolbar>
         </AppBar>
         <Box sx={{ overflowY: 'auto' }}>
-          <CvPreview detail={record} photoUrl={photoUrl} />
+          <CvPreview detail={record} photoUrl={photoUrl} featuredDocumentUrl={featuredDocumentUrl} />
         </Box>
       </Dialog>
 

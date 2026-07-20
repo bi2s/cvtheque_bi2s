@@ -49,6 +49,10 @@ const STYLE = `
   }
   .cv-preview-page .cert-card .cert-title{ font-weight:700; font-size:8.8pt; line-height:1.3; }
   .cv-preview-page .cert-card .cert-sub{ font-size:7.6pt; color:var(--gris); margin-top:1mm; }
+  .cv-preview-page .featured-doc{
+    display:block; max-width:100%; max-height:70mm; margin-top:4mm; border-radius:10px;
+    box-shadow:0 2px 8px rgba(27,29,30,.1); border:1px solid rgba(27,29,30,.08);
+  }
   .cv-preview-page .skill-group{ margin-bottom:3.6mm; }
   .cv-preview-page .skill-group:last-child{ margin-bottom:0; }
   .cv-preview-page .skill-group .sg-title{ font-weight:700; font-size:8.2pt; margin-bottom:1.6mm; }
@@ -165,7 +169,7 @@ const STYLE = `
   }
 `;
 
-export default function CvPreview({ detail, photoUrl }) {
+export default function CvPreview({ detail, photoUrl, featuredDocumentUrl }) {
   const {
     name,
     title,
@@ -448,6 +452,10 @@ export default function CvPreview({ detail, photoUrl }) {
                 </div>
               ))}
             </div>
+          )}
+
+          {featuredDocumentUrl && (
+            <img src={featuredDocumentUrl} alt="Diplôme" className="featured-doc" />
           )}
         </main>
       </div>

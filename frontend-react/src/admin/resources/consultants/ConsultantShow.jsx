@@ -24,11 +24,14 @@ import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
 import CheckIcon from '@mui/icons-material/Check';
 import UploadFileIcon from '@mui/icons-material/UploadFileOutlined';
+import StarIcon from '@mui/icons-material/Star';
+import StarBorderIcon from '@mui/icons-material/StarBorder';
 import ResetPasswordButton from './ResetPasswordButton';
 import InviteButton from './InviteButton';
 import DownloadCvButton from './DownloadCvButton';
 import PhotoUploadButton from './PhotoUploadButton';
 import useAdminPhotoUrl from './useAdminPhotoUrl';
+import useFeaturedDocumentUrl from './useFeaturedDocumentUrl';
 import DepartureSection from './DepartureSection';
 import CvPreview from '../../../CvPreview';
 import { API_BASE_URL } from '../../../api';
@@ -99,10 +102,22 @@ function ConsultantDocumentsSection({ consultantId }) {
     load();
   }
 
+  async function toggleFeature(doc) {
+    await fetch(`${API_BASE_URL}/api/admin/consultant-documents/${doc.id}/feature`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: getAuthHeader() },
+      body: JSON.stringify({ featured: !doc.isFeatured }),
+    });
+    load();
+  }
+
   return (
     <Box sx={{ mt: 3 }}>
       <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
         Diplômes &amp; certificats (scans)
+      </Typography>
+      <Typography sx={{ color: 'text.disabled', fontSize: 12, mt: 0.25 }}>
+        L&rsquo;étoile marque le document à inclure dans le CV généré (un seul à la fois).
       </Typography>
       <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mt: 1, alignItems: 'center' }}>
         {documents === null ? (
@@ -113,7 +128,16 @@ function ConsultantDocumentsSection({ consultantId }) {
               <Typography sx={{ color: 'text.disabled', fontSize: 13.5 }}>Aucun document</Typography>
             )}
             {documents.map((d) => (
-              <Chip key={d.id} label={d.originalName} onClick={() => downloadDocument(d)} onDelete={() => deleteDocument(d)} clickable size="small" />
+              <Stack key={d.id} direction="row" spacing={0} sx={{ alignItems: 'center' }}>
+                <IconButton
+                  size="small"
+                  onClick={() => toggleFeature(d)}
+                  title={d.isFeatured ? 'Retirer de la mise en avant' : 'Mettre en avant dans le CV'}
+                >
+                  {d.isFeatured ? <StarIcon fontSize="small" sx={{ color: 'warning.main' }} /> : <StarBorderIcon fontSize="small" />}
+                </IconButton>
+                <Chip label={d.originalName} onClick={() => downloadDocument(d)} onDelete={() => deleteDocument(d)} clickable size="small" />
+              </Stack>
             ))}
           </>
         )}
@@ -153,6 +177,7 @@ function ConsultantShowContent() {
   const { record, isPending } = useShowContext();
   const [previewOpen, setPreviewOpen] = useState(false);
   const photoUrl = useAdminPhotoUrl(record?.id, record?.hasPhoto);
+  const featuredDocumentUrl = useFeaturedDocumentUrl(record?.featuredDocument);
 
   // react-admin may render with a partial cached record (from the list, which
   // lacks projects/certifications) before the full getOne response arrives.
@@ -197,7 +222,7 @@ function ConsultantShowContent() {
           </Toolbar>
         </AppBar>
         <Box sx={{ overflowY: 'auto' }}>
-          <CvPreview detail={record} photoUrl={photoUrl} />
+          <CvPreview detail={record} photoUrl={photoUrl} featuredDocumentUrl={featuredDocumentUrl} />
         </Box>
       </Dialog>
 
