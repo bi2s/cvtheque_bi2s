@@ -823,8 +823,11 @@ export default function ChatCvScreen() {
     );
   }
 
-  function handleRemoveProject(projectId) {
-    setProjects((prev) => prev.filter((p) => p.projectId !== projectId));
+  // By array index, not projectId - the same project (client) can appear
+  // several times with different period dates (separate site visits), so
+  // projectId alone can't identify which single entry to remove.
+  function handleRemoveProject(index) {
+    setProjects((prev) => prev.filter((_, i) => i !== index));
   }
 
   function goToProjectSelection() {
@@ -1508,10 +1511,10 @@ export default function ChatCvScreen() {
           <Stack spacing={1.5} sx={{ maxWidth: 720, mx: 'auto' }}>
             {projects.length > 0 && (
               <Stack spacing={1}>
-                {projects.map((p) => {
+                {projects.map((p, index) => {
                   const node = projectLookup.get(p.projectId);
                   return (
-                    <Paper key={p.projectId} variant="outlined" sx={{ p: 1.5 }}>
+                    <Paper key={p.id ?? `new-${index}`} variant="outlined" sx={{ p: 1.5 }}>
                       <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
                         <Box sx={{ flex: 1 }}>
                           <Typography sx={{ fontWeight: 700, fontSize: 13.5 }}>
@@ -1538,7 +1541,7 @@ export default function ChatCvScreen() {
                             </Box>
                           )}
                         </Box>
-                        <Button size="small" color="error" onClick={() => handleRemoveProject(p.projectId)}>
+                        <Button size="small" color="error" onClick={() => handleRemoveProject(index)}>
                           Retirer
                         </Button>
                       </Stack>
@@ -2147,17 +2150,12 @@ function ConsultantDashboard({
   return (
     <Box sx={{ flex: 1, overflowY: 'auto', p: 3 }}>
       <Box sx={{ maxWidth: 720, mx: 'auto' }}>
-        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Box>
-            <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em', mb: 0.5 }}>
-              Bonjour {name}
-            </Typography>
-            <Typography sx={{ color: 'text.secondary', fontSize: 14.5, mb: 3 }}>{title}</Typography>
-          </Box>
-          <Button size="small" onClick={onShowProfile}>
-            Voir mon profil
-          </Button>
-        </Stack>
+        <Box>
+          <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em', mb: 0.5 }}>
+            Bonjour {name}
+          </Typography>
+          <Typography sx={{ color: 'text.secondary', fontSize: 14.5, mb: 3 }}>{title}</Typography>
+        </Box>
 
         {pendingRequest && (
           <Paper
@@ -2223,6 +2221,12 @@ function ConsultantDashboard({
                       ? `${node.breadcrumb} — ${node.modules.join(', ')} (${node.missionType})`
                       : 'Projet indisponible'}
                   </Typography>
+                  {p.periodStart && (
+                    <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
+                      {new Date(p.periodStart).toLocaleDateString('fr-FR')}
+                      {p.periodEnd && p.periodEnd !== p.periodStart ? ` → ${new Date(p.periodEnd).toLocaleDateString('fr-FR')}` : ''}
+                    </Typography>
+                  )}
                   {p.rolePoints?.length > 0 && (
                     <Stack component="ul" sx={{ m: '4px 0 0', pl: 2.5 }}>
                       {p.rolePoints.map((pt, j) => (

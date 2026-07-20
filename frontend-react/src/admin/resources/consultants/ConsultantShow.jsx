@@ -209,8 +209,14 @@ function ConsultantShowContent() {
       )}
       <Stack spacing={1.5} sx={{ mb: 3, mt: 1 }}>
         {record.projects.map((p, i) => (
-          <Paper key={i} variant="outlined" sx={{ p: 1.5, bgcolor: 'background.default' }}>
+          <Paper key={p.id ?? i} variant="outlined" sx={{ p: 1.5, bgcolor: 'background.default' }}>
             <Typography sx={{ fontWeight: 700 }}>{p.client}</Typography>
+            {p.periodStart && (
+              <Typography sx={{ fontSize: 12, color: 'text.disabled', mb: 0.25 }}>
+                {new Date(p.periodStart).toLocaleDateString('fr-FR')}
+                {p.periodEnd && p.periodEnd !== p.periodStart ? ` → ${new Date(p.periodEnd).toLocaleDateString('fr-FR')}` : ''}
+              </Typography>
+            )}
             <Stack direction="row" spacing={1} useFlexGap sx={{ my: 0.75, flexWrap: 'wrap' }}>
               {p.modules.map((m) => (
                 <Chip key={m} label={m} size="small" color="primary" variant="outlined" />

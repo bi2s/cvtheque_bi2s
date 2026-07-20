@@ -379,17 +379,20 @@ async function fetchConsultantDetail(consultantId) {
   if (!consultant) return null;
 
   const [projectRows] = await pool.query(
-    `SELECT cp.project_id, cp.role_points, cp.stage_tags, cp.role_id, cr.label AS role_label,
+    `SELECT cp.id, cp.project_id, cp.role_points, cp.stage_tags, cp.role_id, cr.label AS role_label,
             cp.experience_level, cp.experience_phases, cp.experience_certification,
+            cp.period_start, cp.period_end,
             p.client, p.module, p.mission_type, p.description
      FROM consultant_projects cp
      JOIN catalog_projects p ON p.id = cp.project_id
      LEFT JOIN consultant_roles cr ON cr.id = cp.role_id
-     WHERE cp.consultant_id = ?`,
+     WHERE cp.consultant_id = ?
+     ORDER BY cp.period_start, cp.id`,
     [consultantId]
   );
   const allProjects = projectRows.length > 0 ? await fetchAllProjects() : [];
   const projects = projectRows.map((r) => ({
+    id: r.id,
     projectId: r.project_id,
     client: buildBreadcrumb(allProjects, r.project_id) || r.client,
     modules: r.module ? r.module.split(',').filter(Boolean) : [],
@@ -1413,6 +1416,18 @@ app.put('/api/admin/me/consultant', requireAdminOrManager, async (req, res) => {
   } finally {
     conn.release();
   }
+  res.json({ ok: true });
+});
+
+// Scoped to the admin's own linked consultant_id (not an arbitrary id from
+// the URL) so this can't be used to delete another consultant's project row.
+app.delete('/api/admin/me/consultant/projects/:id', requireAdminOrManager, async (req, res) => {
+  if (!req.admin.consultantId) return res.status(404).json({ detail: "Aucun profil consultant n'est lié à ce compte." });
+  const [result] = await pool.query('DELETE FROM consultant_projects WHERE id = ? AND consultant_id = ?', [
+    req.params.id,
+    req.admin.consultantId,
+  ]);
+  if (result.affectedRows === 0) return res.status(404).json({ detail: 'Projet introuvable' });
   res.json({ ok: true });
 });
 

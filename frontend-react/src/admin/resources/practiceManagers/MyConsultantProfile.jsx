@@ -131,6 +131,18 @@ export default function MyConsultantProfile() {
     load();
   }
 
+  async function removeProject(projectRowId) {
+    const res = await fetch(`${API_BASE_URL}/api/admin/me/consultant/projects/${projectRowId}`, {
+      method: 'DELETE',
+      headers: { Authorization: getAuthHeader() },
+    });
+    if (!res.ok) {
+      notify('custom.server_error', { type: 'error', messageArgs: { detail: 'Échec de la suppression' } });
+      return;
+    }
+    load();
+  }
+
   async function downloadCv() {
     const res = await fetch(`${API_BASE_URL}/api/admin/me/consultant/cv`, { headers: { Authorization: getAuthHeader() } });
     if (!res.ok) {
@@ -302,24 +314,39 @@ export default function MyConsultantProfile() {
       {record.projects.length === 0 && <Typography sx={{ color: 'text.disabled', mb: 1 }}>Aucun projet</Typography>}
       <Stack spacing={1.5} sx={{ mb: 3, mt: 1 }}>
         {record.projects.map((p, i) => (
-          <Paper key={i} variant="outlined" sx={{ p: 1.5, bgcolor: 'background.default' }}>
-            <Typography sx={{ fontWeight: 700 }}>{p.client}</Typography>
-            <Stack direction="row" spacing={1} useFlexGap sx={{ my: 0.75, flexWrap: 'wrap' }}>
-              {p.modules.map((m) => (
-                <Chip key={m} label={m} size="small" color="primary" variant="outlined" />
-              ))}
-              <Chip label={p.missionType} size="small" sx={{ bgcolor: 'secondary.light', color: 'secondary.dark' }} />
+          <Paper key={p.id ?? i} variant="outlined" sx={{ p: 1.5, bgcolor: 'background.default' }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+              <Box sx={{ flex: 1 }}>
+                <Typography sx={{ fontWeight: 700 }}>{p.client}</Typography>
+                {p.periodStart && (
+                  <Typography sx={{ fontSize: 12, color: 'text.disabled', mb: 0.25 }}>
+                    {new Date(p.periodStart).toLocaleDateString('fr-FR')}
+                    {p.periodEnd && p.periodEnd !== p.periodStart ? ` → ${new Date(p.periodEnd).toLocaleDateString('fr-FR')}` : ''}
+                  </Typography>
+                )}
+                <Stack direction="row" spacing={1} useFlexGap sx={{ my: 0.75, flexWrap: 'wrap' }}>
+                  {p.modules.map((m) => (
+                    <Chip key={m} label={m} size="small" color="primary" variant="outlined" />
+                  ))}
+                  <Chip label={p.missionType} size="small" sx={{ bgcolor: 'secondary.light', color: 'secondary.dark' }} />
+                </Stack>
+                {p.description && (
+                  <Typography sx={{ fontStyle: 'italic', color: 'text.secondary', fontSize: 13.5, mb: 0.5 }}>{p.description}</Typography>
+                )}
+                <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                  {p.rolePoints.map((point, j) => (
+                    <Typography component="li" key={j} sx={{ fontSize: 13.5 }}>
+                      {point}
+                    </Typography>
+                  ))}
+                </Box>
+              </Box>
+              {p.id != null && (
+                <Button size="small" color="error" onClick={() => removeProject(p.id)}>
+                  Retirer
+                </Button>
+              )}
             </Stack>
-            {p.description && (
-              <Typography sx={{ fontStyle: 'italic', color: 'text.secondary', fontSize: 13.5, mb: 0.5 }}>{p.description}</Typography>
-            )}
-            <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
-              {p.rolePoints.map((point, j) => (
-                <Typography component="li" key={j} sx={{ fontSize: 13.5 }}>
-                  {point}
-                </Typography>
-              ))}
-            </Box>
           </Paper>
         ))}
       </Stack>
