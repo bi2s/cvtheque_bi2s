@@ -2040,24 +2040,29 @@ app.get('/api/admin/change-requests', requireAdmin, async (req, res) => {
      ORDER BY cr.submitted_at DESC`
   );
   res.json(
-    rows.map((r) => ({
-      id: r.id,
-      consultantId: r.consultant_id,
-      consultantName: r.consultant_name,
-      status: r.status,
-      submittedAt: r.submitted_at,
-      reviewedAt: r.reviewed_at,
-      // Lightweight flag only - the raw previous/submitted data snapshots
-      // stay off this list payload (ChangeRequestShow's getOne is the one
-      // place that needs the full data); this just lets the validation
-      // queue's bulk-action UI grey out non-trivial rows without an N+1
-      // getOne fetch per selected row. The bulk-resolve endpoint itself
-      // re-derives this server-side from the same columns before acting -
-      // this flag is UX-only, never trusted for the actual mutation.
-      isTrivial:
-        r.status === 'pending' &&
-        isTrivialChangeRequest(parseJsonColumn(r.previous_data), parseJsonColumn(r.submitted_data)),
-    }))
+    rows.map((r) => {
+      const previousData = parseJsonColumn(r.previous_data);
+      const submittedData = parseJsonColumn(r.submitted_data);
+      return {
+        id: r.id,
+        consultantId: r.consultant_id,
+        consultantName: r.consultant_name,
+        status: r.status,
+        submittedAt: r.submitted_at,
+        reviewedAt: r.reviewed_at,
+        // Lightweight flag only - the raw previous/submitted data snapshots
+        // stay off this list payload (ChangeRequestShow's getOne is the one
+        // place that needs the full data); this just lets the validation
+        // queue's bulk-action UI grey out non-trivial rows without an N+1
+        // getOne fetch per selected row. The bulk-resolve endpoint itself
+        // re-derives this server-side from the same columns before acting -
+        // this flag is UX-only, never trusted for the actual mutation.
+        isTrivial: r.status === 'pending' && isTrivialChangeRequest(previousData, submittedData),
+        // Chip-ready "what changed" summary for the list row - same source
+        // data as isTrivial above, no extra query.
+        changedFieldsSummary: r.status === 'pending' ? summarizeChangedFields(previousData, submittedData) : [],
+      };
+    })
   );
 });
 
@@ -2465,6 +2470,38 @@ function changedSections(previousData, newData) {
   }
 
   return changed;
+}
+
+const CHANGE_SECTION_LABELS = {
+  title: 'Module',
+  languages: 'Langues',
+  projects: 'Projets',
+  skills: 'Compétences',
+  formations: 'Formations',
+};
+
+// Chip-ready summary for the validations queue's list row (one label per
+// changed section) - certifications get a real +/- count since that's cheap
+// to compute from the same arrays changedSections() already compares;
+// everything else stays a plain category label rather than resolving
+// per-item detail (e.g. which project) that the stored snapshot can't
+// cheaply name anyway.
+function summarizeChangedFields(previousData, newData) {
+  const changed = changedSections(previousData, newData);
+  const summary = [];
+  if (changed.has('certifications')) {
+    const prevSet = new Set(previousData.certifications || []);
+    const nextSet = new Set(newData.certifications || []);
+    const added = [...nextSet].filter((c) => !prevSet.has(c)).length;
+    const removed = [...prevSet].filter((c) => !nextSet.has(c)).length;
+    if (added && !removed) summary.push({ label: `+ ${added} certification${added > 1 ? 's' : ''}`, kind: 'addition' });
+    else if (removed && !added) summary.push({ label: `- ${removed} certification${removed > 1 ? 's' : ''}`, kind: 'removal' });
+    else summary.push({ label: 'Certifications', kind: 'change' });
+  }
+  for (const section of ['title', 'languages', 'projects', 'skills', 'formations']) {
+    if (changed.has(section)) summary.push({ label: CHANGE_SECTION_LABELS[section], kind: 'change' });
+  }
+  return summary;
 }
 
 // Confirmed with the user: trivial = exactly one section changed, and that
