@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -290,6 +291,7 @@ function TimelineView({ assignments, utilizationByConsultant, monthOffset, setMo
 export default function StaffingPlanning() {
   const notify = useNotify();
   const { permissions } = usePermissions();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [assignments, setAssignments] = useState(null);
   const [consultants, setConsultants] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -342,6 +344,24 @@ export default function StaffingPlanning() {
   useEffect(() => {
     setPage(0);
   }, [search, filterConsultant, filterProject, filterRegion, filterFrom, filterTo]);
+
+  // Cross-page hand-off from StaffingSearch.jsx's "Proposer" button - opens
+  // the assignment drawer pre-seeded with that consultant instead of
+  // requiring a second manual pick. Consumed once (the param is stripped
+  // right after) so navigating back here later doesn't keep reopening it.
+  useEffect(() => {
+    const prefillConsultantId = searchParams.get('prefillConsultantId');
+    if (!prefillConsultantId) return;
+    setEditingId(null);
+    setForm({ ...EMPTY_FORM, consultantId: Number(prefillConsultantId) });
+    setFormOpen(true);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('prefillConsultantId');
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Inline mirror of the server-side checks (practiceManagers.js) - the
   // server is still the source of truth, this just gives the consultant a
