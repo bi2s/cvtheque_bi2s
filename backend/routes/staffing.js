@@ -80,7 +80,7 @@ const RARE_MODULES = ['IBP', 'EWM', 'BTP', 'GTS', 'TM', 'MDG', 'BRIM', 'IS-U', '
 
 async function fetchStaffingPool(pool) {
   const [consultants] = await pool.query(
-    `SELECT c.id, c.name, c.title, c.seniority_level AS seniorityLevel, (c.photo_path IS NOT NULL) AS hasPhoto,
+    `SELECT c.id, c.name, c.title, c.job_title AS jobTitle, c.seniority_level AS seniorityLevel, (c.photo_path IS NOT NULL) AS hasPhoto,
             cs.label AS statusLabel
      FROM consultants c
      LEFT JOIN consultant_statuses cs ON cs.id = c.status_id
@@ -116,6 +116,7 @@ async function fetchStaffingPool(pool) {
     id: c.id,
     name: c.name,
     title: c.title,
+    jobTitle: c.jobTitle,
     seniorityLevel: c.seniorityLevel,
     hasPhoto: !!c.hasPhoto,
     statusLabel: c.statusLabel,
@@ -135,6 +136,7 @@ function rankConsultants(pool_data, criteria, weights) {
       id: c.id,
       name: c.name,
       title: c.title,
+      jobTitle: c.jobTitle,
       seniorityLevel: c.seniorityLevel,
       hasPhoto: c.hasPhoto,
       statusLabel: c.statusLabel,

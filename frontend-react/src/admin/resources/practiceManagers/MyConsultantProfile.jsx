@@ -38,6 +38,12 @@ const GENDERS = [
   { id: 'M', name: 'Homme' },
 ];
 
+// Same module codes as the consultant wizard's own module-skill picker
+// (frontend-react/src/ChatCvScreen.jsx's SKILL_CATALOG.module) - kept as a
+// small intentional duplicate rather than a shared import, same tradeoff
+// already accepted elsewhere in this app.
+const SAP_MODULES = ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'];
+
 function usePhotoUrl(hasPhoto) {
   const [url, setUrl] = useState(null);
   useEffect(() => {
@@ -104,6 +110,7 @@ export default function MyConsultantProfile() {
     setForm({
       name: record.name || '',
       title: record.title || '',
+      jobTitle: record.jobTitle || '',
       seniorityLevel: record.seniorityLevel || '',
       gender: record.gender || '',
       firstName: record.firstName || '',
@@ -185,7 +192,7 @@ export default function MyConsultantProfile() {
           {record.name?.[0]}
         </Avatar>
         <Typography variant="h6" sx={{ flex: 1 }}>
-          {record.name} — {record.title}
+          {record.name} — {record.jobTitle || record.title}
         </Typography>
         <Button variant="outlined" size="small" onClick={() => setPreviewOpen(true)}>
           Aperçu du CV
@@ -230,7 +237,28 @@ export default function MyConsultantProfile() {
           </Typography>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField label="Nom complet" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} fullWidth required />
-            <TextField label="Expertise / titre" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} fullWidth />
+            <TextField
+              select
+              label="Module"
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              fullWidth
+            >
+              <MenuItem value="">—</MenuItem>
+              {SAP_MODULES.map((m) => (
+                <MenuItem key={m} value={m}>
+                  {m}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              label="Titre"
+              placeholder="Ex. Directeur de projet, Responsable de mission..."
+              helperText="Pour les responsables, chefs de projet, directeurs de mission - laisser vide sinon"
+              value={form.jobTitle}
+              onChange={(e) => setForm({ ...form, jobTitle: e.target.value })}
+              fullWidth
+            />
             <TextField
               select
               label="Niveau d'expérience"

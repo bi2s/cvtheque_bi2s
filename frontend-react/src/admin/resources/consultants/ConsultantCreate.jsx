@@ -27,6 +27,14 @@ const GENDERS = [
   { id: 'F', name: 'Femme' },
   { id: 'M', name: 'Homme' },
 ];
+// Same module codes as the consultant wizard's own module-skill picker
+// (frontend-react/src/ChatCvScreen.jsx's SKILL_CATALOG.module) - kept as a
+// small intentional duplicate rather than a shared import, same tradeoff
+// already accepted elsewhere in this app (e.g. pptx.js/CvPreview.jsx).
+const SAP_MODULES = ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'].map((m) => ({
+  id: m,
+  name: m,
+}));
 
 function stripDiacritics(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -79,7 +87,7 @@ function IdentityFields() {
             ✨ Proposé automatiquement — modifiable
           </Typography>
         </Box>
-        <TextInput source="title" label="Expertise / titre" placeholder="Ex. Consultant SAP FI/CO senior" fullWidth helperText={false} />
+        <SelectInput source="title" label="Module" choices={SAP_MODULES} fullWidth helperText={false} />
       </Box>
     </>
   );
@@ -248,7 +256,14 @@ export default function ConsultantCreate() {
           <Typography sx={{ fontSize: 12, color: 'text.disabled', textTransform: 'uppercase', letterSpacing: '0.04em', mb: 1.5 }}>
             Profil
           </Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', mb: 1.75 }}>
+          <TextInput
+            source="jobTitle"
+            label="Titre"
+            placeholder="Ex. Directeur de projet, Responsable de mission..."
+            fullWidth
+            helperText="Pour les responsables, chefs de projet, directeurs de mission - laisser vide sinon"
+          />
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', mb: 1.75, mt: 0.5 }}>
             <SelectInput source="seniorityLevel" label="Niveau d'expérience" choices={SENIORITY_LEVELS} fullWidth helperText={false} />
             <SelectInput
               source="gender"

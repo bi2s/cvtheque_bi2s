@@ -84,7 +84,7 @@ export default function ArchivedConsultantsList() {
                   >
                     {c.name}
                   </TableCell>
-                  <TableCell>{c.title}</TableCell>
+                  <TableCell>{c.jobTitle || c.title}</TableCell>
                   <TableCell>
                     {c.statusLabel && <Chip label={c.statusLabel} size="small" />}
                   </TableCell>

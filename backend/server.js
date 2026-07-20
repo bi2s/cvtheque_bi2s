@@ -451,6 +451,7 @@ async function fetchConsultantDetail(consultantId) {
     id: consultant.id,
     name: consultant.name,
     title: consultant.title,
+    jobTitle: consultant.job_title,
     username: consultant.username,
     profileSummary: consultant.profile_summary || '',
     hasPhoto: !!consultant.photo_path,
@@ -1182,7 +1183,7 @@ app.get('/api/consultants', requireAdmin, async (req, res) => {
   if (req.query.onlyArchived) where = 'WHERE c.archived_at IS NOT NULL';
   else if (req.query.includeArchived) where = '';
   const [rows] = await pool.query(`
-    SELECT c.id, c.name, c.title, c.username, (c.photo_path IS NOT NULL) AS hasPhoto,
+    SELECT c.id, c.name, c.title, c.job_title AS jobTitle, c.username, (c.photo_path IS NOT NULL) AS hasPhoto,
            c.status_id AS statusId, cs.label AS statusLabel, c.archived_at AS archivedAt,
            c.seniority_level AS seniorityLevel, (c.password_hash IS NOT NULL) AS hasPassword
     FROM consultants c
@@ -1240,11 +1241,12 @@ app.post('/api/admin/consultants', requireAdmin, async (req, res) => {
     await conn.beginTransaction();
     const [result] = await conn.query(
       `INSERT INTO consultants
-         (name, title, username, password_hash, seniority_level, first_name, last_name, email, phone, address, nationality, gender)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (name, title, job_title, username, password_hash, seniority_level, first_name, last_name, email, phone, address, nationality, gender)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name,
         title || '',
+        emptyToNull(req.body.jobTitle),
         username,
         passwordHash,
         emptyToNull(req.body.seniorityLevel),
@@ -1288,12 +1290,13 @@ app.put('/api/admin/consultants/:id', requireAdmin, async (req, res) => {
     await conn.beginTransaction();
     [result] = await conn.query(
       `UPDATE consultants
-       SET name = ?, title = ?, username = ?, seniority_level = ?, first_name = ?, last_name = ?,
+       SET name = ?, title = ?, job_title = ?, username = ?, seniority_level = ?, first_name = ?, last_name = ?,
            email = ?, phone = ?, address = ?, nationality = ?, gender = ?
        WHERE id = ?`,
       [
         name,
         title || '',
+        emptyToNull(req.body.jobTitle),
         username,
         emptyToNull(req.body.seniorityLevel),
         emptyToNull(req.body.firstName),
@@ -1444,12 +1447,13 @@ app.put('/api/admin/me/consultant', requireAdminOrManager, async (req, res) => {
     await conn.beginTransaction();
     await conn.query(
       `UPDATE consultants
-       SET name = ?, title = ?, seniority_level = ?, first_name = ?, last_name = ?,
+       SET name = ?, title = ?, job_title = ?, seniority_level = ?, first_name = ?, last_name = ?,
            email = ?, phone = ?, address = ?, nationality = ?, gender = ?
        WHERE id = ?`,
       [
         name,
         title || '',
+        emptyToNull(req.body.jobTitle),
         emptyToNull(req.body.seniorityLevel),
         emptyToNull(req.body.firstName),
         emptyToNull(req.body.lastName),

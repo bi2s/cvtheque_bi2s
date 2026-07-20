@@ -196,7 +196,7 @@ function ConsultantShowContent() {
           {record.name?.[0]}
         </Avatar>
         <Box sx={{ flex: 1 }}>
-          <Typography variant="h6">{record.name} — {record.title}</Typography>
+          <Typography variant="h6">{record.name} — {record.jobTitle || record.title}</Typography>
           {record.username && (
             <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>Identifiant : {record.username}</Typography>
           )}

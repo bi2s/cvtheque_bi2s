@@ -38,19 +38,74 @@ import {
 import { genderedConsultantLabel } from './genderize';
 import { subscribeToPush, getPushSubscriptionStatus, pushSupported } from './pushClient';
 
+// A comprehensive list of real SAP S/4HANA certifications (on-premise and
+// Cloud editions, across the modules SKILL_CATALOG.module covers, plus
+// Basis/Technology and ABAP) - compiled from general SAP product knowledge,
+// not pulled from an official SAP source, so certifications too new/renamed
+// to be listed here still have the free-text "add missing" box below.
 const SAP_CERTIFICATIONS = [
-  'SAP Certified Application Associate - SD S/4HANA',
+  // Sales (SD)
+  'SAP Certified Application Associate - SAP S/4HANA Sales',
+  'SAP Certified Application Associate - SAP S/4HANA Cloud, Public Edition - Sales',
+  // Sourcing & Procurement (MM)
+  'SAP Certified Application Associate - SAP S/4HANA Sourcing and Procurement',
+  'SAP Certified Application Associate - SAP S/4HANA Cloud, Public Edition - Sourcing and Procurement',
+  // Finance (FI/CO)
+  'SAP Certified Application Associate - SAP S/4HANA for Financial Accounting Associates',
+  'SAP Certified Application Associate - SAP S/4HANA for Management Accounting Associates',
+  'SAP Certified Application Associate - SAP S/4HANA Cloud, Public Edition - Finance',
+  'SAP Certified Application Associate - Central Finance in SAP S/4HANA',
+  // Manufacturing (PP)
+  'SAP Certified Application Associate - SAP S/4HANA Manufacturing - Production Planning',
+  'SAP Certified Application Associate - SAP S/4HANA Cloud, Public Edition - Manufacturing',
+  // HCM
+  'SAP Certified Application Associate - SAP HCM Payroll for SAP S/4HANA',
+  'SAP Certified Application Associate - SAP SuccessFactors Employee Central',
+  // Quality Management (QM)
+  'SAP Certified Application Associate - SAP S/4HANA Quality Management',
+  // Plant Maintenance (PM)
+  'SAP Certified Application Associate - SAP S/4HANA Asset Management',
+  // Warehouse (WM/EWM)
+  'SAP Certified Application Associate - SAP Extended Warehouse Management',
+  // Basis / Technology
+  'SAP Certified Technology Associate - SAP S/4HANA System Administration',
+  'SAP Certified Technology Associate - SAP BTP',
+  // ABAP
+  'SAP Certified Development Associate - ABAP with SAP NetWeaver',
+  'SAP Certified Development Associate - SAP S/4HANA Cloud ABAP for Cloud Developers',
+  // Cross / Cloud generalist
   'SAP Certified Application Specialist - SAP S/4HANA Cloud',
-  'SAP Certified Application Associate - MM S/4HANA',
+  'SAP Certified Associate - SAP Activate Project Manager',
 ];
 
 const SKILL_CATALOG = {
   module: ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'],
   flow: ['Order-to-Cash', 'Procure-to-Pay', 'Record-to-Report', 'Settlement Mgmt (RRR)', 'Business Partners (BP)'],
-  technology: ['SAP Fiori UX & Launchpad', 'Clean Core', 'SAP BTP', 'RISE with SAP'],
-  methodology: ['SAP Activate', 'Fit-to-Standard', 'Agile / Jira', 'MS Project', 'SharePoint', 'Waterfall'],
 };
-const SKILL_STEP_ORDER = ['module', 'flow', 'technology', 'methodology'];
+const SKILL_STEP_ORDER = ['module', 'flow'];
+
+// Reorders SKILL_CATALOG.flow so the flow(s) most relevant to the
+// consultant's chosen module are suggested first - a nudge, not a filter,
+// so any flow can still be picked regardless of module.
+const FLOW_SUGGESTIONS_BY_MODULE = {
+  SD: ['Order-to-Cash'],
+  MM: ['Procure-to-Pay'],
+  FI: ['Record-to-Report'],
+  CO: ['Record-to-Report'],
+  PP: ['Order-to-Cash'],
+  QM: ['Procure-to-Pay'],
+  PM: ['Record-to-Report'],
+};
+
+function orderedFlowChoices(module) {
+  const suggested = FLOW_SUGGESTIONS_BY_MODULE[module] || ['Business Partners (BP)'];
+  return [...SKILL_CATALOG.flow].sort((a, b) => {
+    const aSuggested = suggested.includes(a);
+    const bSuggested = suggested.includes(b);
+    if (aSuggested === bSuggested) return 0;
+    return aSuggested ? -1 : 1;
+  });
+}
 const LANGUAGE_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'Natif'];
 
 const STEP = {
@@ -60,12 +115,9 @@ const STEP = {
   PREVIEW: 'PREVIEW',
   PROFILE: 'PROFILE',
   REVIEW_PERSONAL_INFO: 'REVIEW_PERSONAL_INFO',
-  ASK_TITLE: 'ASK_TITLE',
   ASK_SKILLS_MODULE: 'ASK_SKILLS_MODULE',
   ASK_SKILLS_MODULE_STAR: 'ASK_SKILLS_MODULE_STAR',
   ASK_SKILLS_FLOW: 'ASK_SKILLS_FLOW',
-  ASK_SKILLS_TECHNOLOGY: 'ASK_SKILLS_TECHNOLOGY',
-  ASK_SKILLS_METHODOLOGY: 'ASK_SKILLS_METHODOLOGY',
   REVIEW_PROJECTS: 'REVIEW_PROJECTS',
   ASK_PROJECT_SELECT: 'ASK_PROJECT_SELECT',
   ASK_EXPERIENCE_ROLE: 'ASK_EXPERIENCE_ROLE',
@@ -95,22 +147,15 @@ const STEP = {
 };
 
 // Purely a display grouping over the existing STEP enum - doesn't change
-// the state machine at all, just labels which of 6 logical sections a
-// given step belongs to so the progress header can show "Étape N/6 ·
+// the state machine at all, just labels which of 5 logical sections a
+// given step belongs to so the progress header can show "Étape N/5 ·
 // {section}". Steps not listed here (LOGIN/RESUME_DRAFT/DASHBOARD/PREVIEW)
 // aren't part of the tracked update flow, so no progress bar shows there.
 const PROGRESS_SECTIONS = [
   { label: 'Infos', steps: [STEP.REVIEW_PERSONAL_INFO] },
-  { label: 'Titre', steps: [STEP.ASK_TITLE] },
   {
     label: 'Expertises',
-    steps: [
-      STEP.ASK_SKILLS_MODULE,
-      STEP.ASK_SKILLS_MODULE_STAR,
-      STEP.ASK_SKILLS_FLOW,
-      STEP.ASK_SKILLS_TECHNOLOGY,
-      STEP.ASK_SKILLS_METHODOLOGY,
-    ],
+    steps: [STEP.ASK_SKILLS_MODULE, STEP.ASK_SKILLS_MODULE_STAR, STEP.ASK_SKILLS_FLOW],
   },
   {
     label: 'Projets',
@@ -154,11 +199,16 @@ function progressForStep(step) {
   return { index: idx + 1, total: PROGRESS_SECTIONS.length, label: PROGRESS_SECTIONS[idx].label };
 }
 
+// Steps eligible for "◀ Précédent" - every tracked wizard step except the
+// two transient/terminal ones (an in-flight submission or an already-sent
+// update have nothing meaningful to go "back" to).
+const BACK_NAV_STEPS = new Set(
+  PROGRESS_SECTIONS.flatMap((s) => s.steps).filter((s) => s !== STEP.SUBMITTING && s !== STEP.DONE)
+);
+
 const SKILL_CATEGORY_BY_STEP = {
   [STEP.ASK_SKILLS_MODULE]: 'module',
   [STEP.ASK_SKILLS_FLOW]: 'flow',
-  [STEP.ASK_SKILLS_TECHNOLOGY]: 'technology',
-  [STEP.ASK_SKILLS_METHODOLOGY]: 'methodology',
 };
 
 // Flattens the project tree (parentId-linked) into a depth-first, breadcrumb-
@@ -188,7 +238,7 @@ function flattenProjectTree(projects) {
 }
 
 function emptySkillSets() {
-  return { module: new Set(), flow: new Set(), technology: new Set(), methodology: new Set() };
+  return { module: new Set(), flow: new Set() };
 }
 
 // Autosave only writes/offers-resume at step "checkpoints" - the review
@@ -202,7 +252,6 @@ function emptySkillSets() {
 // progress - not losing everything already confirmed before it.
 const AUTOSAVE_CHECKPOINT_STEPS = new Set([
   STEP.REVIEW_PERSONAL_INFO,
-  STEP.ASK_TITLE,
   STEP.ASK_SKILLS_MODULE,
   STEP.REVIEW_PROJECTS,
   STEP.REVIEW_LANGUAGES,
@@ -290,6 +339,14 @@ function buildSnapshotFromServerData(data) {
 export default function ChatCvScreen() {
   const [messages, setMessages] = useState([]);
   const [step, setStep] = useState(STEP.LOGIN);
+  // Back-navigation: every forward transition between two tracked wizard
+  // steps pushes the step being left onto this history (see the effect
+  // below); handleGoBack pops it and jumps straight back without pushing
+  // again. Per-step state (selections, text) is left as-is when going
+  // back - re-answering just overwrites it going forward again.
+  const [stepHistory, setStepHistory] = useState([]);
+  const prevStepRef = useRef(STEP.LOGIN);
+  const goingBackRef = useRef(false);
   const [catalogProjects, setCatalogProjects] = useState([]);
   const [credentials, setCredentials] = useState(null);
   const [name, setName] = useState('');
@@ -405,6 +462,32 @@ export default function ChatCvScreen() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Tracks step transitions for back-navigation: whenever a forward
+  // transition moves between two tracked steps, the step being left is
+  // pushed onto stepHistory. handleGoBack sets goingBackRef before calling
+  // setStep so this same effect skips pushing when the transition is
+  // itself a "back" jump.
+  useEffect(() => {
+    const previous = prevStepRef.current;
+    prevStepRef.current = step;
+    if (goingBackRef.current) {
+      goingBackRef.current = false;
+      return;
+    }
+    if (previous !== step && BACK_NAV_STEPS.has(previous) && BACK_NAV_STEPS.has(step)) {
+      setStepHistory((h) => [...h, previous]);
+    }
+  }, [step]);
+
+  function handleGoBack() {
+    if (stepHistory.length === 0) return;
+    const previous = stepHistory[stepHistory.length - 1];
+    goingBackRef.current = true;
+    setStepHistory((h) => h.slice(0, -1));
+    userSay('◀ Précédent');
+    setStep(previous);
+  }
+
   const projectLookup = useMemo(() => {
     const map = new Map();
     for (const p of flattenProjectTree(catalogProjects)) map.set(p.id, p);
@@ -505,8 +588,6 @@ export default function ChatCvScreen() {
         selectedSkills: {
           module: [...selectedSkills.module],
           flow: [...selectedSkills.flow],
-          technology: [...selectedSkills.technology],
-          methodology: [...selectedSkills.methodology],
         },
         starredModule,
         projects,
@@ -627,8 +708,6 @@ export default function ChatCvScreen() {
     setSelectedSkills({
       module: new Set(draft.selectedSkills?.module || []),
       flow: new Set(draft.selectedSkills?.flow || []),
-      technology: new Set(draft.selectedSkills?.technology || []),
-      methodology: new Set(draft.selectedSkills?.methodology || []),
     });
     setStarredModule(draft.starredModule ?? null);
     setProjects(draft.projects || []);
@@ -730,9 +809,8 @@ export default function ChatCvScreen() {
 
   function handlePersonalInfoContinue() {
     userSay('Toujours à jour');
-    setStep(STEP.ASK_TITLE);
-    botSay('Quelle est votre expertise principale actuelle ?');
-    setTextInput(title);
+    setStep(STEP.ASK_SKILLS_MODULE);
+    botSay('Sélectionnez vos modules SAP, puis validez.');
   }
 
   // Prénom/nom/e-mail/téléphone/adresse/nationalité are admin-managed
@@ -747,9 +825,8 @@ export default function ChatCvScreen() {
     botSay(
       "Ces informations sont gérées par un administrateur - contactez-le pour les corriger. Continuons la mise à jour du reste de votre profil."
     );
-    setStep(STEP.ASK_TITLE);
-    botSay('Quelle est votre expertise principale actuelle ?');
-    setTextInput(title);
+    setStep(STEP.ASK_SKILLS_MODULE);
+    botSay('Sélectionnez vos modules SAP, puis validez.');
   }
 
   async function handleReturnToDashboard() {
@@ -762,17 +839,6 @@ export default function ChatCvScreen() {
     } finally {
       setStep(STEP.DASHBOARD);
     }
-  }
-
-  function handleTitleSubmitted(text) {
-    if (!text.trim()) {
-      botSay('Merci de renseigner votre expertise avant de continuer.');
-      return;
-    }
-    userSay(text);
-    setTitle(text.trim());
-    setStep(STEP.ASK_SKILLS_MODULE);
-    botSay('Sélectionnez vos modules SAP, puis validez.');
   }
 
   function toggleSkill(category, label) {
@@ -792,16 +858,12 @@ export default function ChatCvScreen() {
         setStep(STEP.ASK_SKILLS_MODULE_STAR);
         botSay('Quel module est votre expertise principale ?');
       } else {
-        setStarredModule(chosen[0] || null);
+        const module = chosen[0] || null;
+        setStarredModule(module);
+        setTitle(module || '');
         setStep(STEP.ASK_SKILLS_FLOW);
         botSay('Sélectionnez vos compétences sur les flux de bout en bout, puis validez.');
       }
-    } else if (category === 'flow') {
-      setStep(STEP.ASK_SKILLS_TECHNOLOGY);
-      botSay('Sélectionnez vos technologies, puis validez.');
-    } else if (category === 'technology') {
-      setStep(STEP.ASK_SKILLS_METHODOLOGY);
-      botSay('Sélectionnez vos méthodologies et outils, puis validez.');
     } else {
       goToProjectsReview();
     }
@@ -810,6 +872,7 @@ export default function ChatCvScreen() {
   function handleStarredModuleSelected(module) {
     userSay(module);
     setStarredModule(module);
+    setTitle(module);
     setStep(STEP.ASK_SKILLS_FLOW);
     botSay('Sélectionnez vos compétences sur les flux de bout en bout, puis validez.');
   }
@@ -1123,7 +1186,6 @@ export default function ChatCvScreen() {
     const languageNames = languages.map((l) => l.name).filter(Boolean);
 
     let intro = genderedConsultantLabel(gender);
-    if (title) intro += ` ${title}`;
     if (moduleLabels.length) {
       intro += ` spécialisé(e) en ${moduleLabels.join(', ')}`;
       if (starredModule) intro += ` (expertise ${starredModule})`;
@@ -1336,11 +1398,6 @@ export default function ChatCvScreen() {
     }
   }
 
-  async function handleQuickEditTitle(newTitle) {
-    await submitPartialUpdate({ title: newTitle });
-    setTitle(newTitle);
-  }
-
   async function handleQuickEditSkills(newSelectedSkills, newStarredModule) {
     const skills = [];
     for (const category of SKILL_STEP_ORDER) {
@@ -1348,9 +1405,13 @@ export default function ChatCvScreen() {
         skills.push({ category, label, starred: category === 'module' && label === newStarredModule });
       }
     }
-    await submitPartialUpdate({ skills });
+    // Module (title) always mirrors the starred module - keeps the two in
+    // sync even when skills are edited from the Profile view rather than
+    // through the main wizard flow.
+    await submitPartialUpdate({ skills, title: newStarredModule || '' });
     setSelectedSkills(newSelectedSkills);
     setStarredModule(newStarredModule);
+    setTitle(newStarredModule || '');
   }
 
   async function handleQuickEditLanguages(newLanguages) {
@@ -1463,25 +1524,14 @@ export default function ChatCvScreen() {
             </Stack>
           </Stack>
         );
-      case STEP.ASK_TITLE:
-        return (
-          <TextRow
-            placeholder="Votre expertise..."
-            value={textInput}
-            onChange={setTextInput}
-            onSubmit={handleTitleSubmitted}
-            maxLength={255}
-          />
-        );
       case STEP.ASK_SKILLS_MODULE:
-      case STEP.ASK_SKILLS_FLOW:
-      case STEP.ASK_SKILLS_TECHNOLOGY:
-      case STEP.ASK_SKILLS_METHODOLOGY: {
+      case STEP.ASK_SKILLS_FLOW: {
         const category = SKILL_CATEGORY_BY_STEP[step];
+        const choices = category === 'flow' ? orderedFlowChoices(starredModule) : SKILL_CATALOG[category];
         return (
           <Stack spacing={1.5} sx={{ maxWidth: 720, mx: 'auto' }}>
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
-              {SKILL_CATALOG[category].map((label) => (
+              {choices.map((label) => (
                 <Chip
                   key={label}
                   label={label}
@@ -1981,10 +2031,15 @@ export default function ChatCvScreen() {
       />
       {progress && (
         <Box className="no-print" sx={{ px: 2, pt: 1.25, pb: 0.75, borderBottom: '1px solid', borderColor: 'divider' }}>
-          <Stack direction="row" sx={{ justifyContent: 'space-between', mb: 0.5 }}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
             <Typography sx={{ fontSize: 12, color: 'text.secondary', fontWeight: 600 }}>
               Mise à jour du profil — {progress.index}/{progress.total} · {progress.label}
             </Typography>
+            {stepHistory.length > 0 && BACK_NAV_STEPS.has(step) && (
+              <Button size="small" onClick={handleGoBack} sx={{ minWidth: 0, py: 0.25 }}>
+                ◀ Précédent
+              </Button>
+            )}
           </Stack>
           <LinearProgress
             variant="determinate"
@@ -2022,7 +2077,6 @@ export default function ChatCvScreen() {
           profileUpdatedAt={profileUpdatedAt}
           onBack={() => setStep(STEP.DASHBOARD)}
           onStartUpdate={handleStartUpdate}
-          onSaveTitle={handleQuickEditTitle}
           onSaveSkills={handleQuickEditSkills}
           onSaveLanguages={handleQuickEditLanguages}
           onSaveFormations={handleQuickEditFormations}
@@ -2267,7 +2321,7 @@ function ConsultantDashboard({
   );
 }
 
-const SKILL_CATEGORY_LABELS = { module: 'Modules SAP', flow: 'Flux', technology: 'Technologies', methodology: 'Méthodologies' };
+const SKILL_CATEGORY_LABELS = { module: 'Modules SAP', flow: 'Flux' };
 
 // A single read section with an ✏️ affordance that swaps to a compact,
 // section-scoped edit form in place - "corrections ponctuelles" per the
@@ -2316,7 +2370,6 @@ function ProfileView({
   profileUpdatedAt,
   onBack,
   onStartUpdate,
-  onSaveTitle,
   onSaveSkills,
   onSaveLanguages,
   onSaveFormations,
@@ -2324,7 +2377,6 @@ function ProfileView({
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [snackbar, setSnackbar] = useState(null);
-  const [draftTitle, setDraftTitle] = useState(title);
   const [draftSkills, setDraftSkills] = useState(selectedSkills);
   const [draftStarred, setDraftStarred] = useState(starredModule);
   const [draftLanguages, setDraftLanguages] = useState(languages);
@@ -2334,7 +2386,7 @@ function ProfileView({
   const signals = [!!title, hasSkills, projects.length > 0, languages.length > 0, formations.length > 0];
   const completenessPct = Math.round((signals.filter(Boolean).length / signals.length) * 100);
   const missingLabels = [
-    !title && 'votre titre',
+    !title && 'votre module',
     !hasSkills && 'vos compétences',
     projects.length === 0 && 'vos projets',
     languages.length === 0 && 'vos langues',
@@ -2342,7 +2394,6 @@ function ProfileView({
   ].filter(Boolean);
 
   function startEdit(section) {
-    setDraftTitle(title);
     setDraftSkills(selectedSkills);
     setDraftStarred(starredModule);
     setDraftLanguages(languages);
@@ -2406,20 +2457,6 @@ function ProfileView({
         <Button variant="contained" onClick={onStartUpdate} sx={{ mb: 3 }}>
           Mettre à jour mon profil
         </Button>
-
-        <EditableSection
-          title="Titre"
-          editing={editing === 'title'}
-          onEdit={() => startEdit('title')}
-          onCancel={() => setEditing(null)}
-          onSave={() => save('title', () => onSaveTitle(draftTitle))}
-          saving={saving}
-          editForm={
-            <TextField value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)} size="small" fullWidth inputProps={{ maxLength: 255 }} />
-          }
-        >
-          <Typography sx={{ fontSize: 14 }}>{title || 'Non renseigné'}</Typography>
-        </EditableSection>
 
         <EditableSection
           title="Compétences"

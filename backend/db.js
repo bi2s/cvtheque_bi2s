@@ -86,6 +86,11 @@ async function initSchema() {
     await ensureColumn(conn, 'consultants', 'password_hash', 'VARCHAR(255) NULL');
     await ensureColumn(conn, 'consultants', 'profile_summary', 'TEXT NULL');
     await ensureColumn(conn, 'consultants', 'photo_path', 'VARCHAR(255) NULL');
+    // Job/org title (e.g. "Directeur de projet") - distinct from `title`,
+    // which now means the consultant's primary SAP module (e.g. "FI/CO").
+    // Only used for chef de projet/responsable/directeur-type profiles;
+    // admin-set, never asked in the consultant wizard.
+    await ensureColumn(conn, 'consultants', 'job_title', 'VARCHAR(255) NULL');
     await conn.query(`
       CREATE TABLE IF NOT EXISTS catalog_projects (
         id INT AUTO_INCREMENT PRIMARY KEY,

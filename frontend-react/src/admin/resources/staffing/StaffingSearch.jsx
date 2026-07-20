@@ -53,7 +53,7 @@ function ResultCard({ consultant }) {
             />
           </Stack>
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-            {consultant.title} {consultant.seniorityLevel ? `— ${seniorityLabel(consultant.seniorityLevel)}` : ''}
+            {consultant.jobTitle || consultant.title} {consultant.seniorityLevel ? `— ${seniorityLabel(consultant.seniorityLevel)}` : ''}
             {consultant.statusLabel ? ` — ${consultant.statusLabel}` : ''}
           </Typography>
           <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.75 }}>

@@ -4,8 +4,6 @@ import { genderizeRoleLabel, genderedConsultantLabel } from './genderize';
 const SKILL_SECTIONS = [
   { category: 'module', title: 'Modules SAP S/4HANA' },
   { category: 'flow', title: 'Flux de bout en bout' },
-  { category: 'technology', title: 'Technologies & UX' },
-  { category: 'methodology', title: 'Méthodologies & outils' },
 ];
 
 const STYLE = `
@@ -173,6 +171,7 @@ export default function CvPreview({ detail, photoUrl, featuredDocumentUrl }) {
   const {
     name,
     title,
+    jobTitle,
     gender,
     profileSummary,
     projects = [],
@@ -195,8 +194,8 @@ export default function CvPreview({ detail, photoUrl, featuredDocumentUrl }) {
     });
   }
 
+  const displayTitle = jobTitle || title;
   const skillsByCategory = (category) => skills.filter((s) => s.category === category);
-  const methodologyTags = skillsByCategory('methodology').map((s) => s.label);
   const starredModule = skillsByCategory('module').find((s) => s.starred)?.label;
   const ownModuleLabels = skillsByCategory('module').map((s) => s.label);
 
@@ -236,7 +235,7 @@ export default function CvPreview({ detail, photoUrl, featuredDocumentUrl }) {
             )}
             <div className="who">
               <div className="name">{name}</div>
-              <div className="role">{title}</div>
+              <div className="role">{displayTitle}</div>
             </div>
           </div>
 
@@ -288,14 +287,9 @@ export default function CvPreview({ detail, photoUrl, featuredDocumentUrl }) {
         <main className="main">
           <div className="main-head">
             <div className="headline">
-              <h1>{title}</h1>
+              <h1>{displayTitle}</h1>
               <h2>{starredModule ? `Expertise ${starredModule}` : 'SAP S/4HANA'}</h2>
               <div className="tags">
-                {methodologyTags.map((t) => (
-                  <span className="pill" key={t}>
-                    {t}
-                  </span>
-                ))}
                 <span className="pill">{projects.length} projet(s) S/4HANA</span>
               </div>
             </div>

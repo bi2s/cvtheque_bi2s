@@ -68,8 +68,6 @@ const STAGE_ORDER = ['Explore', 'Realize', 'Deploy', 'Run'];
 const SKILL_SECTIONS = [
   { category: 'module', title: 'MODULES SAP S/4HANA' },
   { category: 'flow', title: 'FLUX DE BOUT EN BOUT' },
-  { category: 'technology', title: 'TECHNOLOGIES' },
-  { category: 'methodology', title: 'MÉTHODOLOGIES & OUTILS' },
 ];
 const TRANSVERSAL_SKILLS = [
   "Animation d'ateliers métier (Fit-to-Standard, cadrage, conception)",
@@ -326,13 +324,14 @@ function addProfileSlide(pres, data, pageNum) {
     }
   }
 
-  const sectW = 2.95;
+  // A single full-width column (module above flow) now that only 2
+  // categories remain - same total 1.1-4.25 vertical span the old 2x2 grid
+  // used, just with the freed-up horizontal room given to each card.
+  const sectW = 6.15;
   const sectH = 1.5;
   const positions = [
     { x: 6.55, y: 1.1 },
-    { x: 9.75, y: 1.1 },
     { x: 6.55, y: 2.75 },
-    { x: 9.75, y: 2.75 },
   ];
   SKILL_SECTIONS.forEach((sec, i) => {
     const pos = positions[i];
