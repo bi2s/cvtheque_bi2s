@@ -17,11 +17,16 @@ import {
   Snackbar,
   Alert,
   LinearProgress,
+  Checkbox,
+  Collapse,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import LogoutIcon from '@mui/icons-material/Logout';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import SearchIcon from '@mui/icons-material/Search';
 import { API_BASE_URL, basicAuthHeader } from './api';
 import AppHeader from './AppHeader';
 import CvPreview from './CvPreview';
@@ -43,40 +48,77 @@ import { subscribeToPush, getPushSubscriptionStatus, pushSupported } from './pus
 // Basis/Technology and ABAP) - compiled from general SAP product knowledge,
 // not pulled from an official SAP source, so certifications too new/renamed
 // to be listed here still have the free-text "add missing" box below.
-const SAP_CERTIFICATIONS = [
-  // Sales (SD)
-  'SAP Certified Application Associate - SAP S/4HANA Sales',
-  'SAP Certified Application Associate - SAP S/4HANA Cloud, Public Edition - Sales',
-  // Sourcing & Procurement (MM)
-  'SAP Certified Application Associate - SAP S/4HANA Sourcing and Procurement',
-  'SAP Certified Application Associate - SAP S/4HANA Cloud, Public Edition - Sourcing and Procurement',
-  // Finance (FI/CO)
-  'SAP Certified Application Associate - SAP S/4HANA for Financial Accounting Associates',
-  'SAP Certified Application Associate - SAP S/4HANA for Management Accounting Associates',
-  'SAP Certified Application Associate - SAP S/4HANA Cloud, Public Edition - Finance',
-  'SAP Certified Application Associate - Central Finance in SAP S/4HANA',
-  // Manufacturing (PP)
-  'SAP Certified Application Associate - SAP S/4HANA Manufacturing - Production Planning',
-  'SAP Certified Application Associate - SAP S/4HANA Cloud, Public Edition - Manufacturing',
-  // HCM
-  'SAP Certified Application Associate - SAP HCM Payroll for SAP S/4HANA',
-  'SAP Certified Application Associate - SAP SuccessFactors Employee Central',
-  // Quality Management (QM)
-  'SAP Certified Application Associate - SAP S/4HANA Quality Management',
-  // Plant Maintenance (PM)
-  'SAP Certified Application Associate - SAP S/4HANA Asset Management',
-  // Warehouse (WM/EWM)
-  'SAP Certified Application Associate - SAP Extended Warehouse Management',
-  // Basis / Technology
-  'SAP Certified Technology Associate - SAP S/4HANA System Administration',
-  'SAP Certified Technology Associate - SAP BTP',
-  // ABAP
-  'SAP Certified Development Associate - ABAP with SAP NetWeaver',
-  'SAP Certified Development Associate - SAP S/4HANA Cloud ABAP for Cloud Developers',
-  // Cross / Cloud generalist
-  'SAP Certified Application Specialist - SAP S/4HANA Cloud',
-  'SAP Certified Associate - SAP Activate Project Manager',
+// Grouped by business domain so the certifications step can present them as
+// collapsible, searchable sections (refonte_selection_certifications_sap.html)
+// instead of one flat chip cloud.
+const CERTIFICATION_DOMAINS = [
+  {
+    name: 'Finance',
+    certs: [
+      'SAP Certified Application Associate - SAP S/4HANA for Financial Accounting Associates',
+      'SAP Certified Application Associate - SAP S/4HANA for Management Accounting Associates',
+      'SAP Certified Application Associate - SAP S/4HANA Cloud, Public Edition - Finance',
+      'SAP Certified Application Associate - Central Finance in SAP S/4HANA',
+    ],
+  },
+  {
+    name: 'Vente & distribution',
+    certs: [
+      'SAP Certified Application Associate - SAP S/4HANA Sales',
+      'SAP Certified Application Associate - SAP S/4HANA Cloud, Public Edition - Sales',
+    ],
+  },
+  {
+    name: 'Achats & Ariba',
+    certs: [
+      'SAP Certified Application Associate - SAP S/4HANA Sourcing and Procurement',
+      'SAP Certified Application Associate - SAP S/4HANA Cloud, Public Edition - Sourcing and Procurement',
+    ],
+  },
+  {
+    name: 'Production & logistique',
+    certs: [
+      'SAP Certified Application Associate - SAP S/4HANA Manufacturing - Production Planning',
+      'SAP Certified Application Associate - SAP S/4HANA Cloud, Public Edition - Manufacturing',
+      'SAP Certified Application Associate - SAP S/4HANA Quality Management',
+      'SAP Certified Application Associate - SAP S/4HANA Asset Management',
+      'SAP Certified Application Associate - SAP Extended Warehouse Management',
+    ],
+  },
+  {
+    name: 'Ressources humaines',
+    certs: [
+      'SAP Certified Application Associate - SAP HCM Payroll for SAP S/4HANA',
+      'SAP Certified Application Associate - SAP SuccessFactors Employee Central',
+    ],
+  },
+  {
+    name: 'Technologie & développement',
+    certs: [
+      'SAP Certified Technology Associate - SAP S/4HANA System Administration',
+      'SAP Certified Technology Associate - SAP BTP',
+      'SAP Certified Development Associate - ABAP with SAP NetWeaver',
+      'SAP Certified Development Associate - SAP S/4HANA Cloud ABAP for Cloud Developers',
+    ],
+  },
+  {
+    name: 'Généraliste / Cloud',
+    certs: [
+      'SAP Certified Application Specialist - SAP S/4HANA Cloud',
+      'SAP Certified Associate - SAP Activate Project Manager',
+    ],
+  },
 ];
+const SAP_CERTIFICATIONS = CERTIFICATION_DOMAINS.flatMap((d) => d.certs);
+
+// Small level pill next to each certification name - derived from the name
+// itself rather than a new per-cert metadata field, matching the mockup's
+// two badge styles (outlined "Associate" vs filled "Cloud"/"Specialist").
+function certBadge(name) {
+  if (name.includes('Cloud')) return { label: 'Cloud', bgcolor: '#E6F1FB', color: '#0C447C' };
+  if (name.includes('Specialist')) return { label: 'Specialist', bgcolor: '#FDF0DC', color: '#8A5A00' };
+  return { label: 'Associate', outlined: true };
+}
 
 const SKILL_CATALOG = {
   module: ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'],
@@ -1895,57 +1937,17 @@ export default function ChatCvScreen() {
             onNo={() => handleMoreFormations(false)}
           />
         );
-      case STEP.ASK_CERTIFICATIONS: {
-        const customCerts = [...selectedCerts].filter((c) => !SAP_CERTIFICATIONS.includes(c));
+      case STEP.ASK_CERTIFICATIONS:
         return (
-          <Stack spacing={1.5} sx={{ maxWidth: 720, mx: 'auto' }}>
-            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
-              {SAP_CERTIFICATIONS.map((cert) => (
-                <Chip
-                  key={cert}
-                  label={cert}
-                  clickable
-                  onClick={() => toggleCert(cert)}
-                  color={selectedCerts.has(cert) ? 'primary' : 'default'}
-                  variant={selectedCerts.has(cert) ? 'filled' : 'outlined'}
-                  sx={{ fontSize: 12.5 }}
-                />
-              ))}
-              {customCerts.map((cert) => (
-                <Chip
-                  key={cert}
-                  label={cert}
-                  color="primary"
-                  onDelete={() => toggleCert(cert)}
-                  sx={{ fontSize: 12.5 }}
-                />
-              ))}
-            </Stack>
-            <Stack direction="row" spacing={1}>
-              <TextField
-                placeholder="Certification absente de la liste ?"
-                value={customCertInput}
-                onChange={(e) => setCustomCertInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addCustomCert();
-                  }
-                }}
-                size="small"
-                fullWidth
-                inputProps={{ maxLength: 500 }}
-              />
-              <Button variant="outlined" onClick={addCustomCert} disabled={!customCertInput.trim()}>
-                Ajouter
-              </Button>
-            </Stack>
-            <Button variant="contained" onClick={handleCertificationsValidated} sx={{ alignSelf: 'flex-start' }}>
-              Continuer
-            </Button>
-          </Stack>
+          <CertificationsStep
+            selectedCerts={selectedCerts}
+            onToggle={toggleCert}
+            customCertInput={customCertInput}
+            setCustomCertInput={setCustomCertInput}
+            onAddCustom={addCustomCert}
+            onValidate={handleCertificationsValidated}
+          />
         );
-      }
       case STEP.ASK_CERT_DATE:
         return <DateRow value={textInput} onChange={setTextInput} onSubmit={handleCertDateSubmitted} />;
       case STEP.ASK_CERT_REFERENCE:
@@ -2322,6 +2324,201 @@ function ConsultantDashboard({
 }
 
 const SKILL_CATEGORY_LABELS = { module: 'Modules SAP', flow: 'Flux' };
+
+const CERTS_SHOWN_BY_DEFAULT = 4;
+
+function CertBadge({ cert }) {
+  const badge = certBadge(cert);
+  if (badge.outlined) {
+    return (
+      <Box
+        component="span"
+        sx={{
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 10,
+          fontSize: 11,
+          px: 1,
+          color: 'text.disabled',
+          flexShrink: 0,
+        }}
+      >
+        {badge.label}
+      </Box>
+    );
+  }
+  return (
+    <Box
+      component="span"
+      sx={{ bgcolor: badge.bgcolor, color: badge.color, borderRadius: 10, fontSize: 11, px: 1, flexShrink: 0 }}
+    >
+      {badge.label}
+    </Box>
+  );
+}
+
+// Search + domain-grouped, collapsible certifications picker
+// (refonte_selection_certifications_sap.html) - replaces a flat chip cloud
+// that stopped scaling once SAP_CERTIFICATIONS grew past a handful of
+// entries. Matches force their domain open (same "matches force-expand"
+// idea as ProjectTree.jsx's own search, reimplemented locally since the
+// underlying data shape is unrelated).
+function CertificationsStep({ selectedCerts, onToggle, customCertInput, setCustomCertInput, onAddCustom, onValidate }) {
+  const [search, setSearch] = useState('');
+  const [expandedDomains, setExpandedDomains] = useState(() => new Set([CERTIFICATION_DOMAINS[0].name]));
+  const [expandedShowMore, setExpandedShowMore] = useState(() => new Set());
+
+  const query = search.trim().toLowerCase();
+
+  function toggleDomain(name) {
+    setExpandedDomains((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  function toggleShowMore(name) {
+    setExpandedShowMore((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  return (
+    <Stack spacing={1.5} sx={{ maxWidth: 720, mx: 'auto', width: '100%' }}>
+      <TextField
+        placeholder="Rechercher : finance, sales, ariba..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        size="small"
+        fullWidth
+        InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ color: 'text.disabled', mr: 1 }} /> }}
+      />
+
+      {(selectedCerts.size > 0) && (
+        <Box sx={{ bgcolor: 'action.hover', borderRadius: 2, px: 1.75, py: 1.25 }}>
+          <Typography sx={{ fontSize: 12, color: 'text.disabled', mb: 0.75 }}>
+            Vos sélections · {selectedCerts.size}
+          </Typography>
+          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+            {[...selectedCerts].map((cert) => (
+              <Chip
+                key={cert}
+                label={cert}
+                size="small"
+                onDelete={() => onToggle(cert)}
+                sx={{ bgcolor: '#E1F5EE', color: '#085041', fontSize: 12 }}
+              />
+            ))}
+          </Stack>
+        </Box>
+      )}
+
+      {CERTIFICATION_DOMAINS.map((domain) => {
+        const domainNameMatches = query && domain.name.toLowerCase().includes(query);
+        const visibleCerts =
+          query && !domainNameMatches
+            ? domain.certs.filter((c) => c.toLowerCase().includes(query))
+            : domain.certs;
+        if (query && visibleCerts.length === 0) return null;
+
+        const isExpanded = query ? true : expandedDomains.has(domain.name);
+        const showAll = query || expandedShowMore.has(domain.name);
+        const shownCerts = showAll ? visibleCerts : visibleCerts.slice(0, CERTS_SHOWN_BY_DEFAULT);
+        const hiddenCount = visibleCerts.length - shownCerts.length;
+        const selectedCount = domain.certs.filter((c) => selectedCerts.has(c)).length;
+
+        return (
+          <Box key={domain.name} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+            <Box
+              onClick={() => toggleDomain(domain.name)}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                px: 1.75,
+                py: 1.25,
+                bgcolor: isExpanded ? 'action.hover' : 'transparent',
+                cursor: 'pointer',
+              }}
+            >
+              {isExpanded ? (
+                <ExpandMoreIcon fontSize="small" color="action" />
+              ) : (
+                <ChevronRightIcon fontSize="small" color="action" />
+              )}
+              <Typography sx={{ fontSize: 13.5, fontWeight: 600 }}>{domain.name}</Typography>
+              <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
+                {domain.certs.length} certification{domain.certs.length > 1 ? 's' : ''}
+                {selectedCount > 0 ? ` · ${selectedCount} sélectionnée${selectedCount > 1 ? 's' : ''}` : ''}
+              </Typography>
+            </Box>
+            <Collapse in={isExpanded}>
+              <Box sx={{ px: 1.75 }}>
+                {shownCerts.map((cert) => (
+                  <Box
+                    key={cert}
+                    onClick={() => onToggle(cert)}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      py: 0.5,
+                      cursor: 'pointer',
+                      borderTop: '1px solid',
+                      borderColor: 'divider',
+                      '&:first-of-type': { borderTop: 'none' },
+                    }}
+                  >
+                    <Checkbox size="small" checked={selectedCerts.has(cert)} sx={{ p: 0.5 }} />
+                    <Typography sx={{ fontSize: 13, flex: 1 }}>{cert}</Typography>
+                    <CertBadge cert={cert} />
+                  </Box>
+                ))}
+                {hiddenCount > 0 && (
+                  <Typography
+                    onClick={() => toggleShowMore(domain.name)}
+                    sx={{ fontSize: 12, color: 'secondary.dark', fontWeight: 600, py: 1, cursor: 'pointer' }}
+                  >
+                    Voir {hiddenCount} de plus
+                  </Typography>
+                )}
+              </Box>
+            </Collapse>
+          </Box>
+        );
+      })}
+
+      <Stack direction="row" spacing={1}>
+        <TextField
+          placeholder="Certification absente de la liste ?"
+          value={customCertInput}
+          onChange={(e) => setCustomCertInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              onAddCustom();
+            }
+          }}
+          size="small"
+          fullWidth
+          inputProps={{ maxLength: 500 }}
+        />
+        <Button variant="outlined" onClick={onAddCustom} disabled={!customCertInput.trim()}>
+          Ajouter
+        </Button>
+      </Stack>
+
+      <Button variant="contained" onClick={onValidate} sx={{ alignSelf: 'flex-start' }}>
+        Continuer
+      </Button>
+    </Stack>
+  );
+}
 
 // A single read section with an ✏️ affordance that swaps to a compact,
 // section-scoped edit form in place - "corrections ponctuelles" per the
