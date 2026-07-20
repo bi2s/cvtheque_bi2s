@@ -23,6 +23,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import { isDescendant } from './useProjectTree';
 import ProjectTaskChecklist from './ProjectTaskChecklist';
+import { useCloseProjectDrawer } from './ProjectFormDrawer';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
 
@@ -70,6 +71,19 @@ function FormSection({ title, children }) {
       </Typography>
       <Stack spacing={1.5}>{children}</Stack>
     </Box>
+  );
+}
+
+// Replaces the old 2-column CSS grid for the field pairs still worth
+// keeping side-by-side now that the form lives in a 420px drawer -
+// minWidth:0 matters here specifically because it didn't with the grid:
+// flex items default to min-width:auto, so a field's intrinsic content
+// width could otherwise force the row wider than the drawer.
+function FieldRow({ children }) {
+  return (
+    <Stack direction="row" spacing={1.75} sx={{ width: '100%', '& > *': { flex: 1, minWidth: 0 } }}>
+      {children}
+    </Stack>
   );
 }
 
@@ -365,6 +379,7 @@ function DocumentsSection() {
 
 export default function ProjectForm(props) {
   const record = useRecordContext();
+  const close = useCloseProjectDrawer();
   const [moduleChoices, setModuleChoices] = useState([]);
 
   useEffect(() => {
@@ -377,38 +392,36 @@ export default function ProjectForm(props) {
   const hypercareSectionDefaultOpen = !!(record?.hypercareStartDate || record?.hypercareEndDate);
 
   return (
-    <SimpleForm toolbar={false} {...props}>
+    <SimpleForm toolbar={false} sx={{ p: 0 }} {...props}>
       <LegacyModulesSync moduleChoices={moduleChoices} />
 
       <FormSection title="① Qui & quoi">
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-          <TextInput source="client" label="Projet" validate={required()} fullWidth />
-          <SelectInput
-            source="missionType"
-            label="Type de mission"
-            choices={MISSION_TYPES}
-            defaultValue="Intégration"
-            validate={required()}
-            fullWidth
-          />
-        </Box>
+        <TextInput source="client" label="Projet" validate={required()} fullWidth />
+        <SelectInput
+          source="missionType"
+          label="Type de mission"
+          choices={MISSION_TYPES}
+          defaultValue="Intégration"
+          validate={required()}
+          fullWidth
+        />
         <ReferentialChipInput choices={moduleChoices} />
       </FormSection>
 
       <FormSection title="② Contexte">
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+        <FieldRow>
           <TextInput source="sector" label="Secteur d'activité" fullWidth />
           <TextInput source="country" label="Pays" fullWidth />
-          <SelectInput source="projectType" label="Type de projet" choices={PROJECT_TYPES} fullWidth />
-          <SelectInput source="status" label="Statut" choices={PROJECT_STATUSES} fullWidth />
-          <SelectInput
-            source="experienceType"
-            label="Type d'expérience (pour le choix des phases côté consultant)"
-            choices={EXPERIENCE_TYPES}
-            fullWidth
-          />
-          <TechnologiesInput />
-        </Box>
+        </FieldRow>
+        <SelectInput source="projectType" label="Type de projet" choices={PROJECT_TYPES} fullWidth />
+        <SelectInput source="status" label="Statut" choices={PROJECT_STATUSES} fullWidth />
+        <SelectInput
+          source="experienceType"
+          label="Type d'expérience (pour le choix des phases côté consultant)"
+          choices={EXPERIENCE_TYPES}
+          fullWidth
+        />
+        <TechnologiesInput />
       </FormSection>
 
       <CollapsibleSection title="③ Projet parent & description" defaultOpen={parentSectionDefaultOpen}>
@@ -417,30 +430,33 @@ export default function ProjectForm(props) {
       </CollapsibleSection>
 
       <FormSection title="④ Cycle de vie">
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+        <FieldRow>
           <DateInput source="startDate" label="Date de démarrage" />
           <DateInput source="realizationStartDate" label="Date de début de réalisation" />
+        </FieldRow>
+        <FieldRow>
           <DateInput source="goLiveDate" label="Date de Go-Live" />
           <DateInput source="closureDate" label="Date de clôture" />
-        </Box>
+        </FieldRow>
         <CollapsibleSection title="Fenêtre Hypercare (début / fin)" defaultOpen={hypercareSectionDefaultOpen}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+          <FieldRow>
             <DateInput source="hypercareStartDate" label="Date de début Hypercare" />
             <DateInput source="hypercareEndDate" label="Date de fin Hypercare" />
-          </Box>
+          </FieldRow>
         </CollapsibleSection>
         <EndDateField />
       </FormSection>
 
       <FormSection title="⑤ Encadrement">
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-          <TextInput source="projectManager" label="Chef de projet" fullWidth />
-          <TextInput source="sponsor" label="Sponsor" fullWidth />
-        </Box>
+        <TextInput source="projectManager" label="Chef de projet" fullWidth />
+        <TextInput source="sponsor" label="Sponsor" fullWidth />
       </FormSection>
 
-      <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 1.5, display: 'flex', justifyContent: 'flex-end' }}>
-        <SaveButton icon={<CheckIcon />} label={record?.id ? 'Enregistrer les modifications' : 'Créer le projet'} />
+      <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <SaveButton icon={<CheckIcon />} label={record?.id ? 'Enregistrer les modifications' : 'Créer le projet'} fullWidth />
+        <Button variant="text" fullWidth onClick={close}>
+          Annuler
+        </Button>
       </Box>
 
       <DocumentsSection />
