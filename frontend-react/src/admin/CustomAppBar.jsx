@@ -15,6 +15,7 @@ import {
   Divider,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
@@ -27,16 +28,32 @@ import { findBreadcrumb } from './CustomMenu';
 import { API_BASE_URL } from '../api';
 import { getAuthHeader } from './authHeader';
 
+// Plain browser-history back (navigate(-1)), not a per-resource "return to
+// list" - one consistent affordance works the same everywhere (a list, a
+// show page, an edit page, a wizard step) without each page needing its
+// own back-target logic. Hidden on the dashboard itself, since there's
+// nothing "back" of the app's own entry point to go to.
 function Breadcrumb() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const crumb = findBreadcrumb(pathname);
-  if (!crumb) return <Box sx={{ flex: 1 }} />;
+  const isDashboard = pathname === '/admin' || pathname === '/admin/';
+
   return (
-    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, flex: 1, minWidth: 0 }}>
-      <Typography sx={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{crumb.itemLabel}</Typography>
-      <Typography sx={{ fontSize: 12, color: 'text.disabled', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {crumb.groupLabel} / {crumb.itemLabel}
-      </Typography>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
+      {!isDashboard && (
+        <IconButton size="small" onClick={() => navigate(-1)} aria-label="Retour">
+          <ArrowBackIcon fontSize="small" />
+        </IconButton>
+      )}
+      {crumb && (
+        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{crumb.itemLabel}</Typography>
+          <Typography sx={{ fontSize: 12, color: 'text.disabled', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {crumb.groupLabel} / {crumb.itemLabel}
+          </Typography>
+        </Box>
+      )}
     </Box>
   );
 }
