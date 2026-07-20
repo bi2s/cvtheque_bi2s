@@ -90,6 +90,7 @@ const CONFIG_GROUPS = [
     items: [
       { to: '/admin/projectReferentials', label: 'Référentiels', icon: TuneOutlinedIcon, secondary: true },
       { to: '/admin/taskLibrary', label: 'Bibliothèque de tâches', icon: ChecklistOutlinedIcon, secondary: true },
+      { to: '/admin/employees', label: 'Employés', icon: PeopleOutlineIcon, secondary: true },
       { to: '/admin/scopeAdmin', label: 'Rôles & périmètres', icon: AdminPanelSettingsOutlinedIcon, secondary: true },
     ],
   },

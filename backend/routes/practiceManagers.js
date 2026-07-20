@@ -153,7 +153,7 @@ module.exports = function buildPracticeManagersRouter({
   // already exposes this path for the ATS "responsable" dropdown - extended
   // there to also include role/email rather than duplicating the route here)
   router.put('/admins/:id/role', requireAdmin, async (req, res) => {
-    if (!['admin', 'rh', 'manager', 'pmo', 'responsable_mission', 'chef_projet'].includes(req.body.role)) {
+    if (!['admin', 'rh', 'manager', 'pmo', 'responsable_mission', 'chef_projet', 'office_manager', 'commercial'].includes(req.body.role)) {
       return res.status(400).json({ detail: 'Rôle invalide.' });
     }
     const [result] = await pool.query('UPDATE admins SET role = ? WHERE id = ?', [req.body.role, req.params.id]);
@@ -168,7 +168,7 @@ module.exports = function buildPracticeManagersRouter({
   router.post('/admins', requireAdmin, async (req, res) => {
     const username = (req.body.username || '').trim();
     const password = req.body.password || '';
-    const role = ['admin', 'rh', 'manager', 'pmo', 'responsable_mission', 'chef_projet'].includes(req.body.role)
+    const role = ['admin', 'rh', 'manager', 'pmo', 'responsable_mission', 'chef_projet', 'office_manager', 'commercial'].includes(req.body.role)
       ? req.body.role
       : 'admin';
     const email = req.body.email || null;

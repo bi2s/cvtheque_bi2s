@@ -161,6 +161,43 @@ async function requireAdminOrManager(req, res, next) {
   next();
 }
 
+// Authenticate-only, no role allowlist - any row in `admins` is a valid
+// admin account by definition. Used solely by GET /api/admin/me, the
+// login-probe endpoint every role (including ones with no other route
+// access at all, like office_manager/commercial) must be able to reach to
+// find out who they are - actual feature access is still gated per-route
+// by requireAdmin/requireAdminOrRh/requireAdminOrPmo/requireAdminOrManager
+// elsewhere. Fixes a real bug this uncovered: 'pmo' wasn't in
+// requireAdminOrManager's allowlist above, so a pmo-role account could
+// never log in at all despite pmoResources() existing for it.
+async function requireAnyAdmin(req, res, next) {
+  const creds = parseBasicAuth(req);
+  if (!creds) {
+    res.set('WWW-Authenticate', 'Basic');
+    return res.status(401).json({ detail: 'Identifiants admin invalides' });
+  }
+
+  const [[admin]] = await pool.query('SELECT id, password_hash, role, consultant_id FROM admins WHERE username = ?', [
+    creds.username,
+  ]);
+  const valid = await bcrypt.compare(creds.password, admin ? admin.password_hash : DUMMY_HASH);
+  if (!admin || !valid) {
+    res.set('WWW-Authenticate', 'Basic');
+    return res.status(401).json({ detail: 'Identifiants admin invalides' });
+  }
+
+  let moduleIds = [];
+  if (admin.role === 'manager') {
+    const [rows] = await pool.query('SELECT sap_module_id FROM practice_manager_modules WHERE admin_id = ?', [
+      admin.id,
+    ]);
+    moduleIds = rows.map((r) => r.sap_module_id);
+  }
+
+  req.admin = { id: admin.id, username: creds.username, role: admin.role, moduleIds, consultantId: admin.consultant_id };
+  next();
+}
+
 // Consultant's current module ids, resolved from consultant_skills
 // (category='module') against the sap_modules referential - reused by every
 // practice-manager-scoped route to decide access without duplicating this
@@ -264,6 +301,7 @@ module.exports = {
   requireAdminOrRh,
   requireAdminOrPmo,
   requireAdminOrManager,
+  requireAnyAdmin,
   requireConsultantOrOwnAdmin,
   requireConsultant,
   seedAdminFromEnv,

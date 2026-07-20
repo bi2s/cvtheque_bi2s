@@ -16,6 +16,7 @@ import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined';
 import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
+import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
 import authProvider from './authProvider';
 import dataProvider from './dataProvider';
 import i18nProvider from './i18nProvider';
@@ -43,6 +44,8 @@ import HrDashboard from './resources/hrDashboard/HrDashboard';
 import AlertsCenter from './resources/alerts/AlertsCenter';
 import StaffingSearch from './resources/staffing/StaffingSearch';
 import ScopeAdmin from './resources/practiceManagers/ScopeAdmin';
+import EmployeesList from './resources/practiceManagers/EmployeesList';
+import StaffWelcome from './resources/practiceManagers/StaffWelcome';
 import MyConsultantProfile from './resources/practiceManagers/MyConsultantProfile';
 import StaffingPlanning from './resources/practiceManagers/StaffingPlanning';
 import RfpProposalList from './resources/rfp/RfpProposalList';
@@ -82,6 +85,15 @@ function managerResources() {
       options={{ label: 'Planning' }}
     />,
   ];
+}
+
+// office_manager/commercial: plain staff accounts with no app access yet
+// beyond logging in (confirmed with the user - expand once real day-to-day
+// needs are known). A single minimal page rather than falling through to
+// fullResources() below, which would otherwise silently hand them full
+// admin access the moment their role string doesn't match anything else.
+function staffResources() {
+  return [<Resource key="staffWelcome" name="staffWelcome" list={StaffWelcome} icon={HomeOutlinedIcon} options={{ label: 'Accueil' }} />];
 }
 
 // 'responsable_mission'/'chef_projet' are scoped to Planning only, and only
@@ -280,6 +292,15 @@ function fullResources(role) {
     />,
     role === 'admin' && (
       <Resource
+        key="employees"
+        name="employees"
+        list={EmployeesList}
+        icon={PeopleOutlineIcon}
+        options={{ label: 'Employés' }}
+      />
+    ),
+    role === 'admin' && (
+      <Resource
         key="scopeAdmin"
         name="scopeAdmin"
         list={ScopeAdmin}
@@ -318,6 +339,7 @@ export default function AdminApp() {
         if (permissions?.role === 'rh') return rhResources();
         if (permissions?.role === 'pmo') return pmoResources();
         if (['responsable_mission', 'chef_projet'].includes(permissions?.role)) return missionRoleResources();
+        if (['office_manager', 'commercial'].includes(permissions?.role)) return staffResources();
         return fullResources(permissions?.role);
       }}
     </Admin>

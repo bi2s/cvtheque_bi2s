@@ -27,18 +27,29 @@ import { getAuthHeader } from '../../authHeader';
 // scopes (PMO: broad Projets + Appels d'offres access; Chef de projet:
 // read-only on their own missions in Planning) - labels spelled out fully
 // to avoid the two being confused for the same thing in this dropdown.
-const ROLES = [
+// office_manager/commercial are plain staff accounts (see EmployeesList.jsx)
+// with no app access yet beyond logging in - AdminApp.jsx's staffResources()
+// is their whole dispatch, deliberately minimal until real needs are known.
+export const ROLES = [
   { value: 'admin', label: 'Administrateur' },
   { value: 'rh', label: 'RH' },
   { value: 'manager', label: 'Responsable de module' },
   { value: 'pmo', label: 'PMO (Projets & Appels d\'offres)' },
   { value: 'responsable_mission', label: 'Responsable de mission (Planning)' },
   { value: 'chef_projet', label: 'Chef de projet (Planning)' },
+  { value: 'office_manager', label: 'Office Manager' },
+  { value: 'commercial', label: 'Commercial' },
 ];
 
-function CreateAdminDialog({ open, onClose, onCreated, consultants }) {
+// STAFF_ROLES: the non-consultant, non-operationally-scoped roles
+// EmployeesList.jsx manages - manager/pmo/responsable_mission/chef_projet
+// stay out, they're tied to modules/projects rather than being general
+// staff accounts.
+export const STAFF_ROLES = ROLES.filter((r) => ['rh', 'office_manager', 'commercial'].includes(r.value));
+
+export function CreateAdminDialog({ open, onClose, onCreated, consultants, roles = ROLES, defaultRole = 'admin' }) {
   const notify = useNotify();
-  const [form, setForm] = useState({ username: '', password: '', role: 'admin', email: '', consultantId: '' });
+  const [form, setForm] = useState({ username: '', password: '', role: defaultRole, email: '', consultantId: '' });
   const [saving, setSaving] = useState(false);
 
   async function submit() {
@@ -54,7 +65,7 @@ function CreateAdminDialog({ open, onClose, onCreated, consultants }) {
         notify('custom.server_error', { type: 'error', messageArgs: { detail: body.detail || 'Échec' } });
         return;
       }
-      setForm({ username: '', password: '', role: 'admin', email: '', consultantId: '' });
+      setForm({ username: '', password: '', role: defaultRole, email: '', consultantId: '' });
       onCreated();
       onClose();
     } finally {
@@ -91,7 +102,7 @@ function CreateAdminDialog({ open, onClose, onCreated, consultants }) {
             onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
             fullWidth
           >
-            {ROLES.map((r) => (
+            {roles.map((r) => (
               <MenuItem key={r.value} value={r.value}>
                 {r.label}
               </MenuItem>
@@ -132,7 +143,7 @@ function CreateAdminDialog({ open, onClose, onCreated, consultants }) {
   );
 }
 
-function ResetAdminPasswordDialog({ admin, onClose, onSaved }) {
+export function ResetAdminPasswordDialog({ admin, onClose, onSaved }) {
   const notify = useNotify();
   const [password, setPassword] = useState('');
   const [saving, setSaving] = useState(false);

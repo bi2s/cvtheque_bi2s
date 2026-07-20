@@ -19,6 +19,7 @@ const {
   requireAdminOrRh,
   requireAdminOrPmo,
   requireAdminOrManager,
+  requireAnyAdmin,
   requireConsultantOrOwnAdmin,
   requireConsultant,
   seedAdminFromEnv,
@@ -2607,7 +2608,7 @@ app.use('/api/admin', buildRfpRouter({ pool, requireAdmin: requireAdminOrPmo }))
 app.use('/api/admin', buildAdministrativeTrackingRouter({ pool, requireAdmin }));
 app.use('/api/push', buildPushRouter({ pool, requireAdminOrRh, requireConsultant }));
 
-app.get('/api/admin/me', requireAdminOrManager, (req, res) => {
+app.get('/api/admin/me', requireAnyAdmin, (req, res) => {
   res.json({
     id: req.admin.id,
     username: req.admin.username,
