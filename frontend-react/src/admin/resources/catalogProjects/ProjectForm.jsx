@@ -199,6 +199,141 @@ function LegacyModulesSync({ moduleChoices }) {
   return null;
 }
 
+// Pill-style step progress for the create-project wizard (edit mode keeps
+// the existing single-scroll layout below unchanged - this is create-only).
+// A step is clickable once step 1's required fields are filled, since
+// there's nothing after step 1 that gates step 2/3 - visiting them early is
+// harmless, only leaving step 1 empty would produce a doomed save.
+function StepPills({ activeStep, setActiveStep, step1Valid }) {
+  const steps = ["L'essentiel", 'Contexte', 'Dates & équipe'];
+  return (
+    <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }} useFlexGap>
+      {steps.map((label, i) => {
+        const isActive = i === activeStep;
+        const isDone = i < activeStep;
+        const clickable = i === 0 || step1Valid;
+        return (
+          <Chip
+            key={label}
+            size="small"
+            clickable={clickable}
+            onClick={clickable ? () => setActiveStep(i) : undefined}
+            icon={isDone ? <CheckIcon fontSize="small" /> : undefined}
+            label={isDone ? `${i + 1}` : `${i + 1} · ${label}`}
+            sx={
+              isActive
+                ? { bgcolor: 'secondary.light', color: 'secondary.dark', fontWeight: 600 }
+                : { bgcolor: 'action.hover', color: isDone ? 'text.secondary' : 'text.disabled', cursor: clickable ? 'pointer' : 'default' }
+            }
+          />
+        );
+      })}
+    </Stack>
+  );
+}
+
+// Fields stay mounted across steps (just display:none'd) rather than
+// conditionally rendered, so react-hook-form never sees them unmount -
+// switching steps must never lose what was already typed.
+function CreateProjectWizard({ close, moduleChoices, parentSectionDefaultOpen }) {
+  const [activeStep, setActiveStep] = useState(0);
+  const [client, missionType] = useWatch({ name: ['client', 'missionType'] });
+  const step1Valid = !!(client && client.trim() && missionType);
+
+  return (
+    <>
+      <StepPills activeStep={activeStep} setActiveStep={setActiveStep} step1Valid={step1Valid} />
+
+      <Box sx={{ display: activeStep === 0 ? 'block' : 'none' }}>
+        <Stack spacing={1.5}>
+          <TextInput source="client" label="Nom du projet" validate={required()} fullWidth />
+          <SelectInput
+            source="missionType"
+            label="Type de mission"
+            choices={MISSION_TYPES}
+            defaultValue="Intégration"
+            validate={required()}
+            fullWidth
+          />
+          <ReferentialChipInput choices={moduleChoices} />
+        </Stack>
+        <CollapsibleSection title="Projet parent & description" defaultOpen={parentSectionDefaultOpen}>
+          <ParentIdInput />
+          <TextInput source="description" label="Description de la mission" multiline rows={3} fullWidth />
+        </CollapsibleSection>
+      </Box>
+
+      <Box sx={{ display: activeStep === 1 ? 'block' : 'none' }}>
+        <Stack spacing={1.5}>
+          <FieldRow>
+            <TextInput source="sector" label="Secteur d'activité" fullWidth />
+            <TextInput source="country" label="Pays" fullWidth />
+          </FieldRow>
+          <SelectInput source="projectType" label="Type de projet" choices={PROJECT_TYPES} fullWidth />
+          <SelectInput source="status" label="Statut" choices={PROJECT_STATUSES} fullWidth />
+          <SelectInput
+            source="experienceType"
+            label="Type d'expérience (pour le choix des phases côté consultant)"
+            choices={EXPERIENCE_TYPES}
+            fullWidth
+          />
+          <TechnologiesInput />
+        </Stack>
+      </Box>
+
+      <Box sx={{ display: activeStep === 2 ? 'block' : 'none' }}>
+        <Stack spacing={1.5}>
+          <FieldRow>
+            <TextInput source="projectManager" label="Chef de projet" fullWidth />
+            <TextInput source="sponsor" label="Sponsor" fullWidth />
+          </FieldRow>
+        </Stack>
+        <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 1.5, mt: 1.5 }}>
+          <Typography sx={{ fontSize: 12, color: 'text.disabled', textTransform: 'uppercase', letterSpacing: '0.04em', mb: 1.25 }}>
+            Cycle de vie
+          </Typography>
+          <Stack spacing={1.5}>
+            <FieldRow>
+              <DateInput source="startDate" label="Date de démarrage" />
+              <DateInput source="realizationStartDate" label="Date de début de réalisation" />
+            </FieldRow>
+            <FieldRow>
+              <DateInput source="goLiveDate" label="Date de Go-Live" />
+              <DateInput source="closureDate" label="Date de clôture" />
+            </FieldRow>
+          </Stack>
+          <CollapsibleSection title="Fenêtre Hypercare (début / fin)" defaultOpen={false}>
+            <FieldRow>
+              <DateInput source="hypercareStartDate" label="Date de début Hypercare" />
+              <DateInput source="hypercareEndDate" label="Date de fin Hypercare" />
+            </FieldRow>
+          </CollapsibleSection>
+          <EndDateField />
+        </Box>
+      </Box>
+
+      <Stack direction="row" spacing={1.5} sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 1.5, mt: 1.5 }}>
+        {activeStep > 0 ? (
+          <Button variant="text" onClick={() => setActiveStep((s) => s - 1)}>
+            Précédent
+          </Button>
+        ) : (
+          <Button variant="text" onClick={close}>
+            Annuler
+          </Button>
+        )}
+        {activeStep < 2 ? (
+          <Button variant="contained" sx={{ ml: 'auto' }} disabled={activeStep === 0 && !step1Valid} onClick={() => setActiveStep((s) => s + 1)}>
+            Suivant
+          </Button>
+        ) : (
+          <SaveButton icon={<CheckIcon />} label="Créer le projet" sx={{ ml: 'auto' }} />
+        )}
+      </Stack>
+    </>
+  );
+}
+
 function computeEndDatePreview(goLiveDate, hypercareEndDate) {
   if (hypercareEndDate) return hypercareEndDate;
   if (goLiveDate) {
@@ -390,6 +525,15 @@ export default function ProjectForm(props) {
 
   const parentSectionDefaultOpen = !!(record?.parentId || record?.description || props.defaultValues?.parentId);
   const hypercareSectionDefaultOpen = !!(record?.hypercareStartDate || record?.hypercareEndDate);
+
+  if (!record?.id) {
+    return (
+      <SimpleForm toolbar={false} sx={{ p: 0 }} {...props}>
+        <LegacyModulesSync moduleChoices={moduleChoices} />
+        <CreateProjectWizard close={close} moduleChoices={moduleChoices} parentSectionDefaultOpen={parentSectionDefaultOpen} />
+      </SimpleForm>
+    );
+  }
 
   return (
     <SimpleForm toolbar={false} sx={{ p: 0 }} {...props}>
