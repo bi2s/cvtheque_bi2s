@@ -733,6 +733,18 @@ async function initSchema() {
       }
     }
 
+    // Archive-instead-of-delete for every referential still in use elsewhere
+    // (Référentiels page) - a value with real usage no longer gets hard-
+    // deleted (some of these are ON DELETE CASCADE downstream, e.g.
+    // task_library.sap_module_id, which would otherwise silently wipe
+    // unrelated rows). NULL = active; set = hidden from new-entry pickers
+    // but still shown (and restorable) on the admin referentials list.
+    await ensureColumn(conn, 'sap_modules', 'archived_at', 'DATETIME NULL');
+    await ensureColumn(conn, 'consultant_roles', 'archived_at', 'DATETIME NULL');
+    await ensureColumn(conn, 'mission_types', 'archived_at', 'DATETIME NULL');
+    await ensureColumn(conn, 'consultant_statuses', 'archived_at', 'DATETIME NULL');
+    await ensureColumn(conn, 'departure_reasons', 'archived_at', 'DATETIME NULL');
+
     await conn.query(`
       CREATE TABLE IF NOT EXISTS consultant_departures (
         id INT AUTO_INCREMENT PRIMARY KEY,

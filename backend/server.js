@@ -600,17 +600,17 @@ app.post('/api/consultant/me/correction', requireConsultantOrOwnAdmin, async (re
 // chips - same data as the admin CRUD endpoints in routes/consultantReferentials.js
 // and routes/projectReferentials.js, just consultant-scoped and read-only.
 app.get('/api/consultant/mission-types', requireConsultantOrOwnAdmin, async (req, res) => {
-  const [rows] = await pool.query('SELECT id, label FROM mission_types ORDER BY sort_order');
+  const [rows] = await pool.query('SELECT id, label FROM mission_types WHERE archived_at IS NULL ORDER BY sort_order');
   res.json(rows);
 });
 
 app.get('/api/consultant/sap-modules', requireConsultantOrOwnAdmin, async (req, res) => {
-  const [rows] = await pool.query('SELECT id, code, label FROM sap_modules ORDER BY sort_order');
+  const [rows] = await pool.query('SELECT id, code, label FROM sap_modules WHERE archived_at IS NULL ORDER BY sort_order');
   res.json(rows);
 });
 
 app.get('/api/consultant/consultant-roles', requireConsultantOrOwnAdmin, async (req, res) => {
-  const [rows] = await pool.query('SELECT id, label FROM consultant_roles ORDER BY sort_order');
+  const [rows] = await pool.query('SELECT id, label FROM consultant_roles WHERE archived_at IS NULL ORDER BY sort_order');
   res.json(rows);
 });
 

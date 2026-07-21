@@ -6,8 +6,28 @@ module.exports = function buildConsultantReferentialsRouter({ pool, requireAdmin
   const router = express.Router();
 
   router.get('/mission-types', requireAdmin, async (req, res) => {
-    const [rows] = await pool.query('SELECT * FROM mission_types ORDER BY sort_order');
-    res.json(rows.map((r) => ({ id: r.id, label: r.label, sortOrder: r.sort_order })));
+    const where = req.query.includeArchived ? '' : 'WHERE mt.archived_at IS NULL';
+    const [rows] = await pool.query(`
+      SELECT mt.*,
+        (
+          (SELECT COUNT(*) FROM task_library WHERE mission_type_id = mt.id) +
+          (SELECT COUNT(*) FROM consultant_mission_types WHERE mission_type_id = mt.id) +
+          (SELECT COUNT(*) FROM catalog_projects WHERE mission_type = mt.label)
+        ) AS ref_count
+      FROM mission_types mt
+      ${where}
+      ORDER BY mt.sort_order
+    `);
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        label: r.label,
+        sortOrder: r.sort_order,
+        archivedAt: r.archived_at,
+        refCount: r.ref_count,
+        inUse: r.ref_count > 0,
+      }))
+    );
   });
 
   router.post('/mission-types', requireAdmin, async (req, res) => {
@@ -41,10 +61,30 @@ module.exports = function buildConsultantReferentialsRouter({ pool, requireAdmin
     res.json({ ok: true });
   });
 
-  router.delete('/mission-types/:id', requireAdmin, async (req, res) => {
-    const [result] = await pool.query('DELETE FROM mission_types WHERE id = ?', [req.params.id]);
+  router.put('/mission-types/:id/restore', requireAdmin, async (req, res) => {
+    const [result] = await pool.query('UPDATE mission_types SET archived_at = NULL WHERE id = ?', [req.params.id]);
     if (result.affectedRows === 0) return res.status(404).json({ detail: 'Type de mission introuvable' });
     res.json({ ok: true });
+  });
+
+  router.delete('/mission-types/:id', requireAdmin, async (req, res) => {
+    const id = req.params.id;
+    const [[mt]] = await pool.query('SELECT label FROM mission_types WHERE id = ?', [id]);
+    if (!mt) return res.status(404).json({ detail: 'Type de mission introuvable' });
+    const [[{ used }]] = await pool.query(
+      `SELECT (
+        (SELECT COUNT(*) FROM task_library WHERE mission_type_id = ?) +
+        (SELECT COUNT(*) FROM consultant_mission_types WHERE mission_type_id = ?) +
+        (SELECT COUNT(*) FROM catalog_projects WHERE mission_type = ?)
+      ) AS used`,
+      [id, id, mt.label]
+    );
+    if (used > 0) {
+      await pool.query('UPDATE mission_types SET archived_at = NOW() WHERE id = ?', [id]);
+      return res.json({ ok: true, archived: true });
+    }
+    await pool.query('DELETE FROM mission_types WHERE id = ?', [id]);
+    res.json({ ok: true, archived: false });
   });
 
   function mapTaskLibraryRow(r) {

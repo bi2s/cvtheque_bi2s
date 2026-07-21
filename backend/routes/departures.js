@@ -38,7 +38,13 @@ module.exports = function buildDeparturesRouter({ pool, requireHrOrAdmin, notify
 
   // --- Referentials: consultant statuses ---
   router.get('/consultant-statuses', requireHrOrAdmin, async (req, res) => {
-    const [rows] = await pool.query('SELECT * FROM consultant_statuses ORDER BY sort_order');
+    const where = req.query.includeArchived ? '' : 'WHERE cs.archived_at IS NULL';
+    const [rows] = await pool.query(`
+      SELECT cs.*, (SELECT COUNT(*) FROM consultants WHERE status_id = cs.id) AS ref_count
+      FROM consultant_statuses cs
+      ${where}
+      ORDER BY cs.sort_order
+    `);
     res.json(
       rows.map((r) => ({
         id: r.id,
@@ -46,6 +52,9 @@ module.exports = function buildDeparturesRouter({ pool, requireHrOrAdmin, notify
         sortOrder: r.sort_order,
         isDeparture: !!r.is_departure,
         isDefault: !!r.is_default,
+        archivedAt: r.archived_at,
+        refCount: r.ref_count,
+        inUse: r.ref_count > 0,
       }))
     );
   });
@@ -84,24 +93,56 @@ module.exports = function buildDeparturesRouter({ pool, requireHrOrAdmin, notify
     res.json({ ok: true });
   });
 
-  router.delete('/consultant-statuses/:id', requireHrOrAdmin, async (req, res) => {
-    const [[{ count }]] = await pool.query('SELECT COUNT(*) AS count FROM consultants WHERE status_id = ?', [
+  router.put('/consultant-statuses/:id/restore', requireHrOrAdmin, async (req, res) => {
+    const [result] = await pool.query('UPDATE consultant_statuses SET archived_at = NULL WHERE id = ?', [
       req.params.id,
     ]);
-    if (count > 0) {
-      return res.status(400).json({
-        detail: `${count} consultant(s) ont ce statut. Changez leur statut avant de le supprimer.`,
-      });
-    }
-    const [result] = await pool.query('DELETE FROM consultant_statuses WHERE id = ?', [req.params.id]);
     if (result.affectedRows === 0) return res.status(404).json({ detail: 'Statut introuvable' });
     res.json({ ok: true });
   });
 
+  router.delete('/consultant-statuses/:id', requireHrOrAdmin, async (req, res) => {
+    const id = req.params.id;
+    const [[status]] = await pool.query('SELECT is_default, is_departure FROM consultant_statuses WHERE id = ?', [id]);
+    if (!status) return res.status(404).json({ detail: 'Statut introuvable' });
+    // The default/"is_departure" flag is a singleton auto-lookup elsewhere
+    // (backend/routes/departures.js's own declare/validate-departure flow) -
+    // archiving the one row carrying it would make that lookup silently
+    // return nothing, so this stays a hard block rather than an archive.
+    if (status.is_default) {
+      return res.status(400).json({ detail: 'Ce statut est le statut par défaut - désignez-en un autre avant de le retirer.' });
+    }
+    if (status.is_departure) {
+      return res.status(400).json({ detail: 'Ce statut marque un départ - désignez-en un autre avant de le retirer.' });
+    }
+    const [[{ count }]] = await pool.query('SELECT COUNT(*) AS count FROM consultants WHERE status_id = ?', [id]);
+    if (count > 0) {
+      await pool.query('UPDATE consultant_statuses SET archived_at = NOW() WHERE id = ?', [id]);
+      return res.json({ ok: true, archived: true });
+    }
+    await pool.query('DELETE FROM consultant_statuses WHERE id = ?', [id]);
+    res.json({ ok: true, archived: false });
+  });
+
   // --- Referentials: departure reasons ---
   router.get('/departure-reasons', requireHrOrAdmin, async (req, res) => {
-    const [rows] = await pool.query('SELECT * FROM departure_reasons ORDER BY sort_order');
-    res.json(rows.map((r) => ({ id: r.id, label: r.label, sortOrder: r.sort_order })));
+    const where = req.query.includeArchived ? '' : 'WHERE dr.archived_at IS NULL';
+    const [rows] = await pool.query(`
+      SELECT dr.*, (SELECT COUNT(*) FROM consultant_departures WHERE reason_id = dr.id) AS ref_count
+      FROM departure_reasons dr
+      ${where}
+      ORDER BY dr.sort_order
+    `);
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        label: r.label,
+        sortOrder: r.sort_order,
+        archivedAt: r.archived_at,
+        refCount: r.ref_count,
+        inUse: r.ref_count > 0,
+      }))
+    );
   });
 
   router.post('/departure-reasons', requireHrOrAdmin, async (req, res) => {
@@ -138,18 +179,26 @@ module.exports = function buildDeparturesRouter({ pool, requireHrOrAdmin, notify
     res.json({ ok: true });
   });
 
-  router.delete('/departure-reasons/:id', requireHrOrAdmin, async (req, res) => {
-    const [[{ count }]] = await pool.query('SELECT COUNT(*) AS count FROM consultant_departures WHERE reason_id = ?', [
+  router.put('/departure-reasons/:id/restore', requireHrOrAdmin, async (req, res) => {
+    const [result] = await pool.query('UPDATE departure_reasons SET archived_at = NULL WHERE id = ?', [
       req.params.id,
     ]);
-    if (count > 0) {
-      return res.status(400).json({
-        detail: `${count} départ(s) référence(nt) ce motif. Il ne peut pas être supprimé.`,
-      });
-    }
-    const [result] = await pool.query('DELETE FROM departure_reasons WHERE id = ?', [req.params.id]);
     if (result.affectedRows === 0) return res.status(404).json({ detail: 'Motif introuvable' });
     res.json({ ok: true });
+  });
+
+  router.delete('/departure-reasons/:id', requireHrOrAdmin, async (req, res) => {
+    const id = req.params.id;
+    const [[{ count }]] = await pool.query('SELECT COUNT(*) AS count FROM consultant_departures WHERE reason_id = ?', [
+      id,
+    ]);
+    if (count > 0) {
+      await pool.query('UPDATE departure_reasons SET archived_at = NOW() WHERE id = ?', [id]);
+      return res.json({ ok: true, archived: true });
+    }
+    const [result] = await pool.query('DELETE FROM departure_reasons WHERE id = ?', [id]);
+    if (result.affectedRows === 0) return res.status(404).json({ detail: 'Motif introuvable' });
+    res.json({ ok: true, archived: false });
   });
 
   // --- Departures ---
