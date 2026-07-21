@@ -47,6 +47,7 @@ const { computeAlerts, getAlertSettings } = buildAlertsRouter;
 const buildStaffingRouter = require('./routes/staffing');
 const buildPracticeManagersRouter = require('./routes/practiceManagers');
 const buildRfpRouter = require('./routes/rfp');
+const buildProjectPlanningRouter = require('./routes/projectPlanning');
 const buildAdministrativeTrackingRouter = require('./routes/administrativeTracking');
 const buildPushRouter = require('./routes/push');
 const { pushToAdminsAndRh, pushToConsultant } = buildPushRouter;
@@ -2664,6 +2665,7 @@ if (RFP_MODULE_ENABLED) {
     res.status(404).json({ detail: 'Module désactivé.' });
   });
 }
+app.use('/api/admin', buildProjectPlanningRouter({ pool, requireAdmin: requireAdminOrPmo }));
 app.use('/api/admin', buildAdministrativeTrackingRouter({ pool, requireAdmin }));
 app.use('/api/push', buildPushRouter({ pool, requireAdminOrRh, requireConsultant }));
 

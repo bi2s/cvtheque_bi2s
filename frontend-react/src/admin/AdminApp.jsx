@@ -30,6 +30,7 @@ import ConsultantCreate from './resources/consultants/ConsultantCreate';
 import ProjectList from './resources/catalogProjects/ProjectList';
 import ProjectEdit from './resources/catalogProjects/ProjectEdit';
 import ProjectCreate from './resources/catalogProjects/ProjectCreate';
+import ProjectPlanningPage from './resources/catalogProjects/planning/ProjectPlanningPage';
 import ChangeRequestList from './resources/changeRequests/ChangeRequestList';
 import ChangeRequestShow from './resources/changeRequests/ChangeRequestShow';
 import CandidateList from './resources/candidates/CandidateList';
@@ -182,6 +183,9 @@ function pmoResources() {
       icon={WorkOutlineIcon}
       options={{ label: 'Catalogue Projets' }}
     />,
+    <CustomRoutes key="projectPlanningRoute">
+      <Route path="/catalogProjects/:id/planning" element={<ProjectPlanningPage />} />
+    </CustomRoutes>,
     ...(RFP_MODULE_ENABLED
       ? [
           <Resource key="rfp" name="rfp" list={RfpProposalList} icon={DescriptionOutlinedIcon} options={{ label: 'Appels d\'offres' }} />,
@@ -234,6 +238,9 @@ function fullResources(role) {
       icon={WorkOutlineIcon}
       options={{ label: 'Catalogue Projets' }}
     />,
+    <CustomRoutes key="projectPlanningRouteFull">
+      <Route path="/catalogProjects/:id/planning" element={<ProjectPlanningPage />} />
+    </CustomRoutes>,
     <Resource
       key="changeRequests"
       name="changeRequests"

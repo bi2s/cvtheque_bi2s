@@ -77,6 +77,7 @@ export default function ProjectTreeNode({ node, depth, tree, expanded, onToggleE
           onClose={() => setMenuAnchor(null)}
           onEdit={goEdit}
           onAddChild={goCreateChild}
+          onOpenPlanning={() => navigate(`/admin/catalogProjects/${node.id}/planning`)}
           node={node}
           descendantCount={descendantCount}
           refresh={refresh}
@@ -160,6 +161,7 @@ export default function ProjectTreeNode({ node, depth, tree, expanded, onToggleE
           onClose={() => setMenuAnchor(null)}
           onEdit={goEdit}
           onAddChild={goCreateChild}
+          onOpenPlanning={() => navigate(`/admin/catalogProjects/${node.id}/planning`)}
           node={node}
           descendantCount={descendantCount}
           refresh={refresh}
@@ -193,7 +195,7 @@ export default function ProjectTreeNode({ node, depth, tree, expanded, onToggleE
   );
 }
 
-function NodeMenu({ anchorEl, onClose, onEdit, onAddChild, node, descendantCount, refresh }) {
+function NodeMenu({ anchorEl, onClose, onEdit, onAddChild, onOpenPlanning, node, descendantCount, refresh }) {
   return (
     <Menu anchorEl={anchorEl} open={!!anchorEl} onClose={onClose} onClick={(e) => e.stopPropagation()}>
       <MenuItem
@@ -203,6 +205,14 @@ function NodeMenu({ anchorEl, onClose, onEdit, onAddChild, node, descendantCount
         }}
       >
         Éditer
+      </MenuItem>
+      <MenuItem
+        onClick={() => {
+          onClose();
+          onOpenPlanning();
+        }}
+      >
+        Planning du projet
       </MenuItem>
       <MenuItem
         onClick={() => {

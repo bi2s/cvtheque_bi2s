@@ -165,6 +165,90 @@ async function initSchema() {
         FOREIGN KEY (project_id) REFERENCES catalog_projects(id) ON DELETE CASCADE
       )
     `);
+
+    // --- Project planning: WBS, jalons, livrables ---
+    // A real hierarchical plan (phase -> task, SAP-Activate-shaped), distinct
+    // from the flat catalog_project_tasks checklist above (kept as-is, still
+    // used elsewhere). item_type='phase' rows have parent_id NULL; tasks nest
+    // under a phase (or another task). wbs_code ("1", "1.1") is server-owned,
+    // recomputed on insert/reorder/delete rather than client-maintained, to
+    // avoid stale numbering under concurrent edits. planned_*/confirmed_* are
+    // both live, independently-editable columns on the same row (not two
+    // rows) - status is an explicit PM-set fact ('terminé' is asserted, not
+    // inferred from today > planned_end_date), matching the design decision
+    // that baseline/reference snapshots (a separate, deferred concept) are
+    // the only thing that needs to stay fixed while these keep moving.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS catalog_project_wbs_items (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        project_id INT NOT NULL,
+        parent_id INT NULL,
+        item_type VARCHAR(20) NOT NULL DEFAULT 'task',
+        wbs_code VARCHAR(20) NOT NULL,
+        label VARCHAR(255) NOT NULL,
+        assignee_consultant_id INT NULL,
+        planned_start_date DATE NULL,
+        planned_end_date DATE NULL,
+        planned_effort_days DECIMAL(6,1) NULL,
+        confirmed_start_date DATE NULL,
+        confirmed_end_date DATE NULL,
+        confirmed_effort_days DECIMAL(6,1) NULL,
+        progress_pct TINYINT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'not_started',
+        sort_order INT NOT NULL DEFAULT 0,
+        FOREIGN KEY (project_id) REFERENCES catalog_projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (parent_id) REFERENCES catalog_project_wbs_items(id) ON DELETE CASCADE,
+        FOREIGN KEY (assignee_consultant_id) REFERENCES consultants(id) ON DELETE SET NULL
+      )
+    `);
+
+    // Independent from WBS items (richer, typed, billing-aware) - wbs_item_id
+    // is an optional phase link purely for grouping/placement, not a
+    // dependency graph. "à risque" carries a PM judgment + freeform reason
+    // (status_note) that date math alone can't produce.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS catalog_project_milestones (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        project_id INT NOT NULL,
+        wbs_item_id INT NULL,
+        label VARCHAR(255) NOT NULL,
+        milestone_type VARCHAR(20) NOT NULL,
+        billing_pct TINYINT NULL,
+        planned_date DATE NULL,
+        confirmed_date DATE NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'a_venir',
+        status_note TEXT NULL,
+        sort_order INT NOT NULL DEFAULT 0,
+        FOREIGN KEY (project_id) REFERENCES catalog_projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (wbs_item_id) REFERENCES catalog_project_wbs_items(id) ON DELETE SET NULL
+      )
+    `);
+
+    // Reuses the catalog_project_documents file-attachment shape
+    // (file_path/original_name) rather than inventing a new upload pattern.
+    // "en_retard" is derived from status+due_date, not stored.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS catalog_project_deliverables (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        project_id INT NOT NULL,
+        wbs_item_id INT NULL,
+        title VARCHAR(255) NOT NULL,
+        version INT NOT NULL DEFAULT 1,
+        status VARCHAR(20) NOT NULL DEFAULT 'a_produire',
+        due_date DATE NULL,
+        submitted_at DATETIME NULL,
+        validated_at DATETIME NULL,
+        owner_admin_id INT NULL,
+        file_path VARCHAR(255) NULL,
+        original_name VARCHAR(255) NULL,
+        sort_order INT NOT NULL DEFAULT 0,
+        FOREIGN KEY (project_id) REFERENCES catalog_projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (wbs_item_id) REFERENCES catalog_project_wbs_items(id) ON DELETE SET NULL
+      )
+    `);
+    // owner_admin_id's FK is added separately, further down, once the
+    // admins table exists (it's created later in this function).
+
     await conn.query(`
       CREATE TABLE IF NOT EXISTS consultant_projects (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -252,6 +336,12 @@ async function initSchema() {
         password_hash VARCHAR(255) NOT NULL
       )
     `);
+    await ensureForeignKey(
+      conn,
+      'catalog_project_deliverables',
+      'fk_deliverables_owner_admin',
+      'FOREIGN KEY (owner_admin_id) REFERENCES admins(id) ON DELETE SET NULL'
+    );
     // Backs both the consultant-invite flow (purpose='invite', a brand new
     // account with no password_hash yet) and "mot de passe oublié"
     // (purpose='reset', an existing account). Same mechanism either way: a
