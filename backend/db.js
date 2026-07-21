@@ -52,6 +52,25 @@ async function ensureForeignKey(conn, table, constraintName, definition) {
 // an existing table's constraints. Drops and recreates the constraint (same
 // name) rather than requiring a fresh migration name, so it's safe to run
 // unconditionally on every boot.
+// Drops any single-column UNIQUE index on `column` (leaves PRIMARY and any
+// composite index untouched) - used when a column that started out globally
+// unique needs to allow duplicates going forward (e.g. rfp_boilerplate_sections
+// .section_key, once multiple mission-type variants started sharing a key).
+// Idempotent: finds nothing to drop once the first boot has run.
+async function ensureNoUniqueConstraint(conn, table, column) {
+  const [rows] = await conn.query(
+    `SELECT DISTINCT s.INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS s
+     WHERE s.TABLE_SCHEMA = DATABASE() AND s.TABLE_NAME = ? AND s.COLUMN_NAME = ? AND s.NON_UNIQUE = 0
+       AND s.INDEX_NAME != 'PRIMARY'
+       AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS s2
+            WHERE s2.TABLE_SCHEMA = s.TABLE_SCHEMA AND s2.TABLE_NAME = s.TABLE_NAME AND s2.INDEX_NAME = s.INDEX_NAME) = 1`,
+    [table, column]
+  );
+  for (const { INDEX_NAME } of rows) {
+    await conn.query(`ALTER TABLE ${table} DROP INDEX ${INDEX_NAME}`);
+  }
+}
+
 async function ensureCascadeDelete(conn, table, column) {
   const [rows] = await conn.query(
     `SELECT kcu.CONSTRAINT_NAME AS name, kcu.REFERENCED_TABLE_NAME AS refTable,
@@ -1016,6 +1035,18 @@ async function initSchema() {
     // stage to match, so the two never disagree.
     await ensureColumn(conn, 'rfp_proposals', 'deadline', 'DATE NULL');
     await ensureColumn(conn, 'rfp_proposals', 'stage', "VARCHAR(30) NOT NULL DEFAULT 'en_redaction'");
+    // mission_type_id: which boilerplate-section variant to prefer at export
+    // (see rfp_boilerplate_sections below). client_name: the client's name,
+    // fed into a proposal's {client} merge variable at export - nullable,
+    // most proposals are still fine with the generic default section text.
+    await ensureColumn(conn, 'rfp_proposals', 'mission_type_id', 'INT NULL');
+    await ensureColumn(conn, 'rfp_proposals', 'client_name', 'VARCHAR(255) NULL');
+    await ensureForeignKey(
+      conn,
+      'rfp_proposals',
+      'fk_rfp_proposals_mission_type',
+      'FOREIGN KEY (mission_type_id) REFERENCES mission_types(id) ON DELETE SET NULL'
+    );
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS rfp_proposal_consultants (
@@ -1067,6 +1098,56 @@ async function initSchema() {
         );
       }
     }
+    // Variants: multiple rows can now share a section_key, one per
+    // mission_type_id (NULL = the default/base variant, used whenever the
+    // proposal's own mission type has no dedicated override). The old
+    // single-column UNIQUE on section_key predates variants and must go
+    // first, or a second row with the same key can never be inserted.
+    await ensureNoUniqueConstraint(conn, 'rfp_boilerplate_sections', 'section_key');
+    await ensureColumn(conn, 'rfp_boilerplate_sections', 'mission_type_id', 'INT NULL');
+    await ensureForeignKey(
+      conn,
+      'rfp_boilerplate_sections',
+      'fk_rfp_boilerplate_sections_mission_type',
+      'FOREIGN KEY (mission_type_id) REFERENCES mission_types(id) ON DELETE CASCADE'
+    );
+    // updated_at/updated_by: who last touched the text, for the "Modifiée il
+    // y a X par Y" line. last_reviewed_at: bumped on every save too, but
+    // tracked separately so a future "mark reviewed without editing" action
+    // (not built yet) has somewhere to write without implying a content
+    // change. manual_only: excluded from a proposal's auto-inserted section
+    // set at export (e.g. commercial terms that belong in a separate annex).
+    await ensureColumn(conn, 'rfp_boilerplate_sections', 'updated_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+    await ensureColumn(conn, 'rfp_boilerplate_sections', 'updated_by_admin_id', 'INT NULL');
+    await ensureColumn(conn, 'rfp_boilerplate_sections', 'last_reviewed_at', 'DATETIME NULL');
+    await ensureColumn(conn, 'rfp_boilerplate_sections', 'manual_only', 'TINYINT(1) NOT NULL DEFAULT 0');
+    await ensureForeignKey(
+      conn,
+      'rfp_boilerplate_sections',
+      'fk_rfp_boilerplate_sections_updated_by',
+      'FOREIGN KEY (updated_by_admin_id) REFERENCES admins(id) ON DELETE SET NULL'
+    );
+    // Backfill so pre-existing rows don't all show up as stale the moment
+    // this ships - treat them as reviewed as of their last content edit.
+    await conn.query(
+      'UPDATE rfp_boilerplate_sections SET last_reviewed_at = COALESCE(last_reviewed_at, updated_at, NOW()) WHERE last_reviewed_at IS NULL'
+    );
+
+    // Which proposals a given boilerplate section variant actually ended up
+    // in at export time - drives "utilisée dans N propositions". Upserted
+    // per export rather than per edit, so re-exporting the same proposal
+    // doesn't inflate the count, and a section only counts once it's really
+    // been used, not just created.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS rfp_boilerplate_section_usage (
+        section_id INT NOT NULL,
+        proposal_id INT NOT NULL,
+        used_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (section_id, proposal_id),
+        FOREIGN KEY (section_id) REFERENCES rfp_boilerplate_sections(id) ON DELETE CASCADE,
+        FOREIGN KEY (proposal_id) REFERENCES rfp_proposals(id) ON DELETE CASCADE
+      )
+    `);
 
     // --- Consultant follow-ups ---
     // A manual reminder/note an admin attaches to a consultant (e.g. "check

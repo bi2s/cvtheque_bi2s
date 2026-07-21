@@ -525,9 +525,11 @@ function ProgressStrip({ proposal, consultants, versions, missingCount, tab, set
   );
 }
 
-function HeaderEditForm({ proposal, onClose, onSaved }) {
+function HeaderEditForm({ proposal, missionTypes, onClose, onSaved }) {
   const [title, setTitle] = useState(proposal.title);
   const [deadline, setDeadline] = useState(proposal.deadline || '');
+  const [missionTypeId, setMissionTypeId] = useState(proposal.missionTypeId || '');
+  const [clientName, setClientName] = useState(proposal.clientName || '');
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -537,7 +539,12 @@ function HeaderEditForm({ proposal, onClose, onSaved }) {
       await fetch(`${API_BASE_URL}/api/admin/rfp-proposals/${proposal.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: getAuthHeader() },
-        body: JSON.stringify({ title: title.trim(), deadline: deadline || null }),
+        body: JSON.stringify({
+          title: title.trim(),
+          deadline: deadline || null,
+          missionTypeId: missionTypeId || null,
+          clientName: clientName.trim() || null,
+        }),
       });
       onSaved();
       onClose();
@@ -547,8 +554,15 @@ function HeaderEditForm({ proposal, onClose, onSaved }) {
   }
 
   return (
-    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
-      <TextField size="small" value={title} onChange={(e) => setTitle(e.target.value)} sx={{ width: 320 }} />
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1, flexWrap: 'wrap' }} useFlexGap>
+      <TextField size="small" label="Titre" value={title} onChange={(e) => setTitle(e.target.value)} sx={{ width: 260 }} />
+      <TextField
+        size="small"
+        label="Client"
+        value={clientName}
+        onChange={(e) => setClientName(e.target.value)}
+        sx={{ width: 180 }}
+      />
       <TextField
         size="small"
         type="date"
@@ -558,6 +572,21 @@ function HeaderEditForm({ proposal, onClose, onSaved }) {
         InputLabelProps={{ shrink: true }}
         sx={{ width: 160 }}
       />
+      <TextField
+        select
+        size="small"
+        label="Type de mission"
+        value={missionTypeId}
+        onChange={(e) => setMissionTypeId(e.target.value)}
+        sx={{ width: 180 }}
+      >
+        <MenuItem value="">—</MenuItem>
+        {missionTypes.map((mt) => (
+          <MenuItem key={mt.id} value={mt.id}>
+            {mt.label}
+          </MenuItem>
+        ))}
+      </TextField>
       <Button size="small" variant="contained" onClick={save} disabled={saving || !title.trim()}>
         Enregistrer
       </Button>
@@ -575,8 +604,15 @@ export default function RfpWizard() {
   const [consultants, setConsultants] = useState([]);
   const [versions, setVersions] = useState(null);
   const [complianceRows, setComplianceRows] = useState([]);
+  const [missionTypes, setMissionTypes] = useState([]);
   const [tab, setTab] = useState(0);
   const [editingHeader, setEditingHeader] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/admin/mission-types`, { headers: { Authorization: getAuthHeader() } })
+      .then((r) => r.json())
+      .then(setMissionTypes);
+  }, []);
 
   function load() {
     fetch(`${API_BASE_URL}/api/admin/rfp-proposals/${id}`, { headers: { Authorization: getAuthHeader() } })
@@ -632,7 +668,7 @@ export default function RfpWizard() {
       </Button>
 
       {editingHeader ? (
-        <HeaderEditForm proposal={proposal} onClose={() => setEditingHeader(false)} onSaved={load} />
+        <HeaderEditForm proposal={proposal} missionTypes={missionTypes} onClose={() => setEditingHeader(false)} onSaved={load} />
       ) : (
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 1, flexWrap: 'wrap' }} useFlexGap>
           <Typography variant="h6" sx={{ fontWeight: 700 }}>
@@ -641,6 +677,7 @@ export default function RfpWizard() {
           <IconButton size="small" onClick={() => setEditingHeader(true)}>
             <EditOutlinedIcon fontSize="small" />
           </IconButton>
+          {proposal.clientName && <Chip size="small" variant="outlined" label={proposal.clientName} />}
           {proposal.deadline && (
             <Chip
               size="small"

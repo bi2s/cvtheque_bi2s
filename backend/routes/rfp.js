@@ -31,9 +31,34 @@ function mapProposalRow(r) {
     outcomeNote: r.outcome_note,
     deadline: r.deadline,
     stage: r.stage,
+    missionTypeId: r.mission_type_id,
+    clientName: r.client_name,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
+}
+
+// Picks, per section family, the row matching the proposal's mission type if
+// one exists, else the family's base (mission_type_id NULL) row; drops
+// manual_only families entirely (never auto-inserted into an export).
+function resolveBoilerplateForProposal(rows, missionTypeId) {
+  const byKey = new Map();
+  for (const r of rows) {
+    if (!byKey.has(r.section_key)) byKey.set(r.section_key, []);
+    byKey.get(r.section_key).push(r);
+  }
+  const resolved = [];
+  for (const variants of byKey.values()) {
+    const base = variants.find((v) => v.mission_type_id === null);
+    if (!base || base.manual_only) continue;
+    const match = (missionTypeId != null && variants.find((v) => v.mission_type_id === missionTypeId)) || base;
+    resolved.push(match);
+  }
+  return resolved.sort((a, b) => a.sort_order - b.sort_order);
+}
+
+function applyMergeVariables(content, { nbConsultants, client }) {
+  return content.replace(/\{nb_consultants\}/g, String(nbConsultants)).replace(/\{client\}/g, client || '');
 }
 
 // Same DI-factory pattern as routes/departures.js. Mounted under /api/admin.
@@ -41,41 +66,126 @@ module.exports = function buildRfpRouter({ pool, requireAdmin }) {
   const router = express.Router();
 
   // --- Boilerplate sections (admin-editable once, reused by every proposal) ---
+  // A "family" is every row sharing a section_key: one base row
+  // (mission_type_id NULL) plus optional per-mission-type variants. The
+  // frontend groups this flat list by sectionKey itself - variants share
+  // their base row's sort_order (reordering only ever moves a whole family).
+  function slugifySectionKey(title) {
+    const stripped = title
+      .toLowerCase()
+      .normalize('NFD')
+      .split('')
+      .filter((ch) => {
+        const code = ch.codePointAt(0);
+        return !(code >= 0x0300 && code <= 0x036f);
+      })
+      .join('');
+    const base = stripped.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+    return `${base || 'section'}_${Date.now().toString(36)}`;
+  }
+
   router.get('/rfp-boilerplate-sections', requireAdmin, async (req, res) => {
-    const [rows] = await pool.query('SELECT * FROM rfp_boilerplate_sections ORDER BY sort_order');
-    res.json(rows.map((r) => ({ id: r.id, sectionKey: r.section_key, title: r.title, content: r.content, sortOrder: r.sort_order })));
+    const [rows] = await pool.query(`
+      SELECT s.*, mt.label AS mission_type_label, a.username AS updated_by_username,
+        (SELECT COUNT(DISTINCT proposal_id) FROM rfp_boilerplate_section_usage WHERE section_id = s.id) AS usage_count
+      FROM rfp_boilerplate_sections s
+      LEFT JOIN mission_types mt ON mt.id = s.mission_type_id
+      LEFT JOIN admins a ON a.id = s.updated_by_admin_id
+      ORDER BY s.sort_order, s.mission_type_id IS NULL DESC, mt.label
+    `);
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        sectionKey: r.section_key,
+        title: r.title,
+        content: r.content,
+        sortOrder: r.sort_order,
+        missionTypeId: r.mission_type_id,
+        missionTypeLabel: r.mission_type_label,
+        manualOnly: !!r.manual_only,
+        updatedAt: r.updated_at,
+        updatedByUsername: r.updated_by_username,
+        lastReviewedAt: r.last_reviewed_at,
+        usageCount: r.usage_count,
+      }))
+    );
   });
 
+  // Creates a new family (its base/default row).
   router.post('/rfp-boilerplate-sections', requireAdmin, async (req, res) => {
-    const { sectionKey, title, content } = req.body;
-    if (!sectionKey || !title) return res.status(400).json({ detail: 'sectionKey et title requis.' });
+    const title = (req.body.title || '').trim();
+    const content = req.body.content || '';
+    if (!title) return res.status(400).json({ detail: 'Titre requis.' });
     const [[{ nextOrder }]] = await pool.query('SELECT COALESCE(MAX(sort_order), -1) + 1 AS nextOrder FROM rfp_boilerplate_sections');
-    try {
-      const [result] = await pool.query(
-        'INSERT INTO rfp_boilerplate_sections (section_key, title, content, sort_order) VALUES (?, ?, ?, ?)',
-        [sectionKey, title, content || '', nextOrder]
-      );
-      res.json({ id: result.insertId });
-    } catch (err) {
-      if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ detail: 'Cette clé de section existe déjà.' });
-      throw err;
-    }
+    const sectionKey = slugifySectionKey(title);
+    const [result] = await pool.query(
+      'INSERT INTO rfp_boilerplate_sections (section_key, title, content, sort_order, manual_only, updated_by_admin_id, last_reviewed_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+      [sectionKey, title, content, nextOrder, req.body.manualOnly ? 1 : 0, req.admin.id]
+    );
+    res.json({ id: result.insertId });
   });
 
-  router.put('/rfp-boilerplate-sections/:id', requireAdmin, async (req, res) => {
-    const { title, content } = req.body;
-    const [result] = await pool.query('UPDATE rfp_boilerplate_sections SET title = ?, content = ? WHERE id = ?', [
-      title,
-      content || '',
-      req.params.id,
+  // Adds a mission-type-specific variant to an existing family, seeded from
+  // the base row's title/content (title stays family-wide, content diverges).
+  router.post('/rfp-boilerplate-sections/family/:sectionKey/variants', requireAdmin, async (req, res) => {
+    const missionTypeId = Number(req.body.missionTypeId) || null;
+    if (!missionTypeId) return res.status(400).json({ detail: 'Type de mission requis.' });
+    const [[base]] = await pool.query('SELECT * FROM rfp_boilerplate_sections WHERE section_key = ? AND mission_type_id IS NULL', [
+      req.params.sectionKey,
     ]);
-    if (result.affectedRows === 0) return res.status(404).json({ detail: 'Section introuvable' });
+    if (!base) return res.status(404).json({ detail: 'Section introuvable' });
+    const [[existing]] = await pool.query(
+      'SELECT id FROM rfp_boilerplate_sections WHERE section_key = ? AND mission_type_id = ?',
+      [req.params.sectionKey, missionTypeId]
+    );
+    if (existing) return res.status(400).json({ detail: 'Une variante existe déjà pour ce type de mission.' });
+    const [result] = await pool.query(
+      'INSERT INTO rfp_boilerplate_sections (section_key, title, content, sort_order, mission_type_id, updated_by_admin_id, last_reviewed_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+      [req.params.sectionKey, base.title, req.body.content || base.content, base.sort_order, missionTypeId, req.admin.id]
+    );
+    res.json({ id: result.insertId });
+  });
+
+  router.put('/rfp-boilerplate-sections/family/:sectionKey/position', requireAdmin, async (req, res) => {
+    const { sortOrder } = req.body;
+    await pool.query('UPDATE rfp_boilerplate_sections SET sort_order = ? WHERE section_key = ?', [sortOrder, req.params.sectionKey]);
+    res.json({ ok: true });
+  });
+
+  // Content always editable; title/manualOnly are family-wide and only take
+  // effect when editing the base row (a variant's own title/manualOnly are
+  // ignored - the family's base row is the source of truth for both).
+  router.put('/rfp-boilerplate-sections/:id', requireAdmin, async (req, res) => {
+    const [[row]] = await pool.query('SELECT mission_type_id FROM rfp_boilerplate_sections WHERE id = ?', [req.params.id]);
+    if (!row) return res.status(404).json({ detail: 'Section introuvable' });
+    const fields = ['content = ?', 'updated_by_admin_id = ?', 'last_reviewed_at = NOW()'];
+    const params = [req.body.content || '', req.admin.id];
+    if (row.mission_type_id === null) {
+      const title = (req.body.title || '').trim();
+      if (!title) return res.status(400).json({ detail: 'Titre requis.' });
+      fields.push('title = ?', 'manual_only = ?');
+      params.push(title, req.body.manualOnly ? 1 : 0);
+    }
+    params.push(req.params.id);
+    await pool.query(`UPDATE rfp_boilerplate_sections SET ${fields.join(', ')} WHERE id = ?`, params);
     res.json({ ok: true });
   });
 
   router.delete('/rfp-boilerplate-sections/:id', requireAdmin, async (req, res) => {
-    const [result] = await pool.query('DELETE FROM rfp_boilerplate_sections WHERE id = ?', [req.params.id]);
-    if (result.affectedRows === 0) return res.status(404).json({ detail: 'Section introuvable' });
+    const [[row]] = await pool.query('SELECT section_key, mission_type_id FROM rfp_boilerplate_sections WHERE id = ?', [
+      req.params.id,
+    ]);
+    if (!row) return res.status(404).json({ detail: 'Section introuvable' });
+    if (row.mission_type_id === null) {
+      const [[{ variantCount }]] = await pool.query(
+        'SELECT COUNT(*) AS variantCount FROM rfp_boilerplate_sections WHERE section_key = ? AND mission_type_id IS NOT NULL',
+        [row.section_key]
+      );
+      if (variantCount > 0) {
+        return res.status(400).json({ detail: 'Supprimez d’abord les variantes de cette section.' });
+      }
+    }
+    await pool.query('DELETE FROM rfp_boilerplate_sections WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
   });
 
@@ -120,18 +230,19 @@ module.exports = function buildRfpRouter({ pool, requireAdmin }) {
     res.json({ id: result.insertId });
   });
 
-  // Title/deadline only - status/stage/outcome each have their own
-  // dedicated routes below since they carry side effects (stage↔outcome
-  // sync, status flipping on upload) a generic PATCH-everything endpoint
-  // would make easy to bypass by accident.
+  // Title/deadline/mission type/client only - status/stage/outcome each have
+  // their own dedicated routes below since they carry side effects
+  // (stage↔outcome sync, status flipping on upload) a generic
+  // PATCH-everything endpoint would make easy to bypass by accident.
+  // missionTypeId picks which boilerplate-section variant an export prefers;
+  // clientName feeds the {client} merge variable.
   router.put('/rfp-proposals/:id', requireAdmin, async (req, res) => {
     const title = (req.body.title || '').trim();
     if (!title) return res.status(400).json({ detail: 'Titre requis.' });
-    const [result] = await pool.query('UPDATE rfp_proposals SET title = ?, deadline = ? WHERE id = ?', [
-      title,
-      req.body.deadline || null,
-      req.params.id,
-    ]);
+    const [result] = await pool.query(
+      'UPDATE rfp_proposals SET title = ?, deadline = ?, mission_type_id = ?, client_name = ? WHERE id = ?',
+      [title, req.body.deadline || null, req.body.missionTypeId || null, (req.body.clientName || '').trim() || null, req.params.id]
+    );
     if (result.affectedRows === 0) return res.status(404).json({ detail: 'Proposition introuvable' });
     res.json({ ok: true });
   });
@@ -449,8 +560,19 @@ module.exports = function buildRfpRouter({ pool, requireAdmin }) {
       certifications: certsByConsultant.get(c.id) || [],
     }));
 
-    const [boilerplateRows] = await pool.query('SELECT * FROM rfp_boilerplate_sections ORDER BY sort_order');
-    const boilerplateSections = boilerplateRows.map((r) => ({ sectionKey: r.section_key, content: r.content }));
+    const [boilerplateRows] = await pool.query('SELECT * FROM rfp_boilerplate_sections');
+    const resolvedSections = resolveBoilerplateForProposal(boilerplateRows, proposal.mission_type_id);
+    const boilerplateSections = resolvedSections.map((r) => ({
+      sectionKey: r.section_key,
+      title: r.title,
+      content: applyMergeVariables(r.content, { nbConsultants: consultants.length, client: proposal.client_name }),
+    }));
+    if (resolvedSections.length > 0) {
+      await pool.query(
+        'INSERT INTO rfp_boilerplate_section_usage (section_id, proposal_id) VALUES ? ON DUPLICATE KEY UPDATE used_at = NOW()',
+        [resolvedSections.map((r) => [r.id, proposal.id])]
+      );
+    }
 
     const extracted = parseJsonColumn(proposal.extracted_data) || {};
 

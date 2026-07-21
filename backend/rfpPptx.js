@@ -280,6 +280,25 @@ async function generateRfpPptx(proposal) {
     { title: 'PRÉSENTATION DE BI2S', body: boilerplateByKey.get('company_presentation')?.content },
   ]);
 
+  // Sections types (Référentiels & config > Sections types RFP) beyond the 6
+  // keys above have no dedicated slide slot - a fixed two-card-per-slide
+  // deck can't reserve space for an admin-defined, open-ended list, so any
+  // extra ones an admin creates are rendered here instead, two per slide, in
+  // the same order the library lists them.
+  const FIXED_SECTION_KEYS = new Set([
+    'methodology',
+    'governance',
+    'quality_assurance',
+    'security_confidentiality',
+    'commercial_conditions',
+    'company_presentation',
+  ]);
+  const extraSections = proposal.boilerplateSections.filter((s) => !FIXED_SECTION_KEYS.has(s.sectionKey));
+  for (let i = 0; i < extraSections.length; i += 2) {
+    const pair = extraSections.slice(i, i + 2).map((s) => ({ title: (s.title || '').toUpperCase(), body: s.content }));
+    addTwoCardSlide(pres, proposal, page++, 'SECTIONS COMPLÉMENTAIRES', pair);
+  }
+
   addTwoCardSlide(pres, proposal, page++, 'OFFRE FINANCIÈRE & CRITÈRES D\'ÉVALUATION', [
     { title: 'OFFRE FINANCIÈRE', body: proposal.financialOfferText || 'À compléter manuellement.' },
     { title: "CRITÈRES D'ÉVALUATION", body: sections.evaluationCriteria || "Non détectés automatiquement - à compléter." },

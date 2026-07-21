@@ -12,7 +12,9 @@ module.exports = function buildConsultantReferentialsRouter({ pool, requireAdmin
         (
           (SELECT COUNT(*) FROM task_library WHERE mission_type_id = mt.id) +
           (SELECT COUNT(*) FROM consultant_mission_types WHERE mission_type_id = mt.id) +
-          (SELECT COUNT(*) FROM catalog_projects WHERE mission_type = mt.label)
+          (SELECT COUNT(*) FROM catalog_projects WHERE mission_type = mt.label) +
+          (SELECT COUNT(*) FROM rfp_boilerplate_sections WHERE mission_type_id = mt.id) +
+          (SELECT COUNT(*) FROM rfp_proposals WHERE mission_type_id = mt.id)
         ) AS ref_count
       FROM mission_types mt
       ${where}
@@ -75,9 +77,11 @@ module.exports = function buildConsultantReferentialsRouter({ pool, requireAdmin
       `SELECT (
         (SELECT COUNT(*) FROM task_library WHERE mission_type_id = ?) +
         (SELECT COUNT(*) FROM consultant_mission_types WHERE mission_type_id = ?) +
-        (SELECT COUNT(*) FROM catalog_projects WHERE mission_type = ?)
+        (SELECT COUNT(*) FROM catalog_projects WHERE mission_type = ?) +
+        (SELECT COUNT(*) FROM rfp_boilerplate_sections WHERE mission_type_id = ?) +
+        (SELECT COUNT(*) FROM rfp_proposals WHERE mission_type_id = ?)
       ) AS used`,
-      [id, id, mt.label]
+      [id, id, mt.label, id, id]
     );
     if (used > 0) {
       await pool.query('UPDATE mission_types SET archived_at = NOW() WHERE id = ?', [id]);
