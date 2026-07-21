@@ -441,6 +441,10 @@ export default function ChatCvScreen() {
   });
   const [hasPhoto, setHasPhoto] = useState(false);
   const [photoUrl, setPhotoUrl] = useState(null);
+  const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [correctionField, setCorrectionField] = useState('');
+  const [correctionNote, setCorrectionNote] = useState('');
+  const [correctionSending, setCorrectionSending] = useState(false);
   const [profileUpdatedAt, setProfileUpdatedAt] = useState(null);
   const [pendingRequest, setPendingRequest] = useState(null);
   const [lastRejection, setLastRejection] = useState(null);
@@ -860,18 +864,39 @@ export default function ChatCvScreen() {
     botSay('Sélectionnez vos modules SAP, puis validez.');
   }
 
-  // Prénom/nom/e-mail/téléphone/adresse/nationalité are admin-managed
-  // fields (backend-enforced too - the wizard never submits them), so
-  // there's no in-chat edit path to send the consultant to here. "Corriger"
-  // still needs to do something meaningful rather than just repeat the
-  // static disclaimer, so it surfaces the same guidance as an explicit bot
-  // response before letting the rest of the update continue - not a dead
-  // end, just an honest one given who actually owns this data.
+  // Prénom/nom/e-mail/téléphone/adresse/nationalité/titre/module are
+  // admin-managed fields (backend-enforced too - the wizard never submits
+  // them), so there's no in-chat edit path to change them directly. Instead
+  // "Corriger" opens a small inline form (field + free-text note) that
+  // posts to /api/consultant/me/correction - a flag for an admin to act on,
+  // not a proposed value like the change_requests flow used elsewhere.
   function handlePersonalInfoCorrect() {
     userSay('Une correction est nécessaire');
-    botSay(
-      "Ces informations sont gérées par un administrateur - contactez-le pour les corriger. Continuons la mise à jour du reste de votre profil."
-    );
+    setCorrectionOpen(true);
+  }
+
+  async function submitCorrection() {
+    if (!correctionField || !correctionNote.trim() || correctionSending) return;
+    setCorrectionSending(true);
+    try {
+      const authHeader = basicAuthHeader(credentials.username, credentials.password);
+      await fetch(`${API_BASE_URL}/api/consultant/me/correction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: authHeader },
+        body: JSON.stringify({ field: correctionField, note: correctionNote.trim() }),
+      });
+    } catch {
+      // Best-effort notification - not letting a delivery hiccup block the
+      // rest of the profile update, same tolerance as other non-critical
+      // side effects in this wizard (e.g. loadTaskLibraryReferentials).
+    } finally {
+      setCorrectionSending(false);
+    }
+    userSay(`${correctionField} : ${correctionNote.trim()}`);
+    setCorrectionOpen(false);
+    setCorrectionField('');
+    setCorrectionNote('');
+    botSay('Demande transmise. Continuons la mise à jour du reste de votre profil.');
     setStep(STEP.ASK_SKILLS_MODULE);
     botSay('Sélectionnez vos modules SAP, puis validez.');
   }
@@ -1546,36 +1571,91 @@ export default function ChatCvScreen() {
             <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>
               Ces informations sont gérées par un administrateur.
             </Typography>
-            <Stack direction="row" spacing={1.5}>
-              <Button
-                variant="contained"
-                startIcon={<CheckCircleOutlineIcon fontSize="small" />}
-                onClick={handlePersonalInfoContinue}
-              >
-                C'est à jour
-              </Button>
-              <Button
-                variant="outlined"
-                color="inherit"
-                startIcon={<EditOutlinedIcon fontSize="small" />}
-                onClick={handlePersonalInfoCorrect}
-              >
-                Corriger
-              </Button>
-            </Stack>
+            {correctionOpen ? (
+              <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+                <Typography sx={{ fontSize: 13, mb: 1.25 }}>Indiquez-la, je la transmets à votre administrateur :</Typography>
+                <Stack direction="row" spacing={1} sx={{ mb: 1.25 }}>
+                  <TextField
+                    select
+                    size="small"
+                    value={correctionField}
+                    onChange={(e) => setCorrectionField(e.target.value)}
+                    sx={{ minWidth: 170 }}
+                    SelectProps={{ displayEmpty: true }}
+                  >
+                    <MenuItem value="" disabled>
+                      Quel champ ?
+                    </MenuItem>
+                    {[
+                      'Nom / prénom',
+                      'E-mail',
+                      'Téléphone',
+                      'Adresse',
+                      'Nationalité',
+                      'Titre',
+                      'Module',
+                      "Niveau d'expérience",
+                    ].map((f) => (
+                      <MenuItem key={f} value={f}>
+                        {f}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    size="small"
+                    fullWidth
+                    placeholder="Ce qui devrait figurer…"
+                    value={correctionNote}
+                    onChange={(e) => setCorrectionNote(e.target.value)}
+                  />
+                </Stack>
+                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    onClick={submitCorrection}
+                    disabled={!correctionField || !correctionNote.trim() || correctionSending}
+                  >
+                    Envoyer la demande
+                  </Button>
+                  <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
+                    Votre admin la verra dans ses notifications — vous serez notifiée.
+                  </Typography>
+                </Stack>
+              </Paper>
+            ) : (
+              <Stack direction="row" spacing={1.5}>
+                <Button
+                  variant="contained"
+                  startIcon={<CheckCircleOutlineIcon fontSize="small" />}
+                  onClick={handlePersonalInfoContinue}
+                >
+                  C'est à jour
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="inherit"
+                  startIcon={<EditOutlinedIcon fontSize="small" />}
+                  onClick={handlePersonalInfoCorrect}
+                >
+                  Corriger
+                </Button>
+              </Stack>
+            )}
           </Stack>
         );
       case STEP.ASK_SKILLS_MODULE:
       case STEP.ASK_SKILLS_FLOW: {
         const category = SKILL_CATEGORY_BY_STEP[step];
         const choices = category === 'flow' ? orderedFlowChoices(starredModule) : SKILL_CATALOG[category];
+        const selectedCount = selectedSkills[category].size;
         return (
           <Stack spacing={1.5} sx={{ maxWidth: 720, mx: 'auto' }}>
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
               {choices.map((label) => (
                 <Chip
                   key={label}
-                  label={label}
+                  label={category === 'module' && label === starredModule ? `${label} · actuel` : label}
                   clickable
                   onClick={() => toggleSkill(category, label)}
                   color={selectedSkills[category].has(label) ? 'primary' : 'default'}
@@ -1584,7 +1664,9 @@ export default function ChatCvScreen() {
               ))}
             </Stack>
             <Button variant="contained" onClick={() => handleSkillsStepValidated(category)} sx={{ alignSelf: 'flex-start' }}>
-              Valider
+              {category === 'module' && selectedCount > 0
+                ? `Continuer avec ${selectedCount} module${selectedCount > 1 ? 's' : ''} →`
+                : 'Valider'}
             </Button>
           </Stack>
         );
@@ -2055,11 +2137,21 @@ export default function ChatCvScreen() {
               </Button>
             )}
           </Stack>
-          <LinearProgress
-            variant="determinate"
-            value={(progress.index / progress.total) * 100}
-            sx={{ height: 4, borderRadius: 99 }}
-          />
+          <Stack direction="row" spacing={0.75}>
+            {Array.from({ length: progress.total }, (_, i) => (
+              <Box
+                key={i}
+                sx={{
+                  flex: 1,
+                  height: 4,
+                  borderRadius: 99,
+                  bgcolor: i < progress.index ? 'secondary.main' : 'action.hover',
+                  border: i < progress.index ? 'none' : '1px solid',
+                  borderColor: 'divider',
+                }}
+              />
+            ))}
+          </Stack>
         </Box>
       )}
       {isDashboard ? (

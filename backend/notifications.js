@@ -128,6 +128,18 @@ function notifyNewChangeRequest(consultantName, changeRequestId) {
   });
 }
 
+// A consultant flagging that an admin-managed field (name/module/seniority/
+// contact info) is wrong on their record - distinct from notifyNewChangeRequest,
+// which is a structured before/after diff of consultant-editable fields. This
+// is just a free-text note pointing an admin at the profile to fix by hand.
+function notifyProfileCorrection(consultantId, consultantName, fieldLabel, note) {
+  return notifyAdmins({
+    subject: `CVthèque : correction demandée - ${consultantName}`,
+    summary: `${consultantName} signale un problème sur "${fieldLabel}" : ${note}`,
+    link: `${FRONTEND_URL}/admin/consultants/${consultantId}/show`,
+  });
+}
+
 function notifyDeparture(consultantName) {
   return notifyAdmins({
     subject: `CVthèque : départ validé - ${consultantName}`,
@@ -170,6 +182,7 @@ function notifyCredentialLink(email, name, { purpose, token }) {
 module.exports = {
   notifyAdmins,
   notifyNewChangeRequest,
+  notifyProfileCorrection,
   notifyDeparture,
   notifyConsultantDecision,
   notifyCredentialLink,

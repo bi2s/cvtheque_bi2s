@@ -30,6 +30,7 @@ const {
 const { buildBreadcrumb, isDescendant } = require('./projectTree');
 const {
   notifyNewChangeRequest,
+  notifyProfileCorrection,
   notifyDeparture,
   notifyAdmins,
   notifyModuleManagers,
@@ -574,6 +575,25 @@ app.get('/api/consultant/me', requireConsultantOrOwnAdmin, async (req, res) => {
         ? { id: latestRequest.id, reason: latestRequest.rejection_reason, submittedAt: latestRequest.submitted_at }
         : null,
   });
+});
+
+// A free-text flag on an admin-managed field ("my seniority is wrong"),
+// not a proposed value - unlike change_requests (a structured before/after
+// diff of consultant-editable fields), there's nothing here for an admin to
+// approve/reject, just a note pointing them at the profile to fix by hand.
+app.post('/api/consultant/me/correction', requireConsultantOrOwnAdmin, async (req, res) => {
+  const field = (req.body.field || '').trim();
+  const note = (req.body.note || '').trim();
+  if (!field || !note) return res.status(400).json({ detail: 'Champ et description requis' });
+
+  const consultant = await fetchConsultantDetail(req.consultant.id);
+  await pool.query('INSERT INTO profile_corrections (consultant_id, field_label, note) VALUES (?, ?, ?)', [
+    req.consultant.id,
+    field,
+    note,
+  ]);
+  notifyProfileCorrection(req.consultant.id, consultant.name, field, note).catch(() => {});
+  res.json({ ok: true });
 });
 
 // Read-only referential access for the CV wizard's task-library suggestion

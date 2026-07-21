@@ -267,6 +267,22 @@ async function initSchema() {
         FOREIGN KEY (consultant_id) REFERENCES consultants(id) ON DELETE CASCADE
       )
     `);
+
+    // A consultant flagging an admin-managed field as wrong - free text, no
+    // approve/reject workflow like change_requests above (nothing structured
+    // to approve), just a note + notifyProfileCorrection pointing an admin
+    // at the profile. No admin-facing list view yet, deliberately - the
+    // email/Teams notification is the only surface for now.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS profile_corrections (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        consultant_id INT NOT NULL,
+        field_label VARCHAR(100) NOT NULL,
+        note TEXT NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (consultant_id) REFERENCES consultants(id) ON DELETE CASCADE
+      )
+    `);
     await ensureForeignKey(
       conn,
       'change_requests',
