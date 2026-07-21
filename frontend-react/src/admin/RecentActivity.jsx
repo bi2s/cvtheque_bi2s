@@ -18,6 +18,7 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { API_BASE_URL } from '../api';
 import { getAuthHeader } from './authHeader';
 import formatRelativeDate from './formatRelativeDate';
+import { STATUS_OK } from '../theme';
 
 // The subject of each sentence matters: "X a été rejetée" reads as if the
 // person herself was rejected, not her submitted update - approved/edited/
@@ -233,7 +234,7 @@ export default function RecentActivity() {
                         fontSize: 11,
                         fontWeight: 600,
                         ...(group.action === 'approved'
-                          ? { bgcolor: '#E1F5EE', color: '#085041' }
+                          ? { bgcolor: STATUS_OK.bg, color: STATUS_OK.main }
                           : { bgcolor: 'action.hover', color: 'text.secondary' }),
                       }}
                     >

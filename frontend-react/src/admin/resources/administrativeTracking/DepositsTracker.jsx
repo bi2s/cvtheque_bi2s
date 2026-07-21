@@ -34,6 +34,7 @@ import { getAuthHeader } from '../../authHeader';
 import { StatCard } from '../../DashboardCards';
 import DepositFormDialog from './DepositFormDialog';
 import RecordDocumentsDialog from './RecordDocumentsDialog';
+import { STATUS_DANGER } from '../../../theme';
 import {
   DEPOSIT_TYPES,
   DEPOSIT_STATUS_LABELS,
@@ -52,8 +53,8 @@ const PENDING_STATUSES = ['a_preparer', 'a_relancer'];
 const RECENT_DEPOSITS_SHOWN = 5;
 
 const URGENCY_CARD_STYLES = {
-  overdue: { bg: '#FAECE7', border: '#F0C9B8', label: '#712B13', sub: '#993C1D' },
-  soon: { bg: '#FAECE7', border: '#F0C9B8', label: '#712B13', sub: '#993C1D' },
+  overdue: { bg: STATUS_DANGER.bg, border: '#F0C9B8', label: STATUS_DANGER.main, sub: '#993C1D' },
+  soon: { bg: STATUS_DANGER.bg, border: '#F0C9B8', label: STATUS_DANGER.main, sub: '#993C1D' },
 };
 
 function dateBadge(iso) {

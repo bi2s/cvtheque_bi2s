@@ -9,6 +9,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import AddIcon from '@mui/icons-material/Add';
 import WarningAmberIcon from '@mui/icons-material/WarningAmberOutlined';
 import { isActiveStatus, isIncomplete } from './useProjectTree';
+import { STATUS_OK } from '../../../theme';
 
 function shortDate(iso) {
   if (!iso) return null;
@@ -121,7 +122,7 @@ export default function ProjectTreeNode({ node, depth, tree, expanded, onToggleE
               label={isActiveStatus(node.status) ? 'Actif' : node.status}
               sx={
                 isActiveStatus(node.status)
-                  ? { bgcolor: '#E1F5EE', color: '#085041', height: 18, fontSize: 10.5, fontWeight: 600 }
+                  ? { bgcolor: STATUS_OK.bg, color: STATUS_OK.main, height: 18, fontSize: 10.5, fontWeight: 600 }
                   : { height: 18, fontSize: 10.5 }
               }
             />

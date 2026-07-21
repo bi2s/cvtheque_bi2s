@@ -16,6 +16,7 @@ import UploadFileIcon from '@mui/icons-material/UploadFileOutlined';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
 import { dueUrgency, URGENCY_COLORS } from '../administrativeTracking/administrativeTrackingShared';
+import { STATUS_OK, STATUS_WARN, STATUS_DANGER, STATUS_INFO } from '../../../theme';
 
 const STAGE_LABELS = {
   en_redaction: 'En rédaction',
@@ -26,10 +27,10 @@ const STAGE_LABELS = {
 };
 const STAGE_STYLES = {
   en_redaction: { bgcolor: 'action.hover', color: 'text.secondary' },
-  demarree: { bgcolor: '#E6F1FB', color: '#0C447C' },
-  attente_reponse: { bgcolor: '#FAEEDA', color: '#633806' },
-  gagnee: { bgcolor: '#E1F5EE', color: '#085041' },
-  perdue: { bgcolor: '#FAECE7', color: '#712B13' },
+  demarree: { bgcolor: STATUS_INFO.bg, color: STATUS_INFO.main },
+  attente_reponse: { bgcolor: STATUS_WARN.bg, color: STATUS_WARN.main },
+  gagnee: { bgcolor: STATUS_OK.bg, color: STATUS_OK.main },
+  perdue: { bgcolor: STATUS_DANGER.bg, color: STATUS_DANGER.main },
 };
 const TERMINAL_STAGES = ['gagnee', 'perdue'];
 
@@ -62,14 +63,14 @@ function ProposalRow({ p, onClick }) {
   return (
     <TableRow
       hover
-      sx={{ cursor: 'pointer', bgcolor: urgency === 'overdue' || urgency === 'soon' ? '#FAECE7' : undefined }}
+      sx={{ cursor: 'pointer', bgcolor: urgency === 'overdue' || urgency === 'soon' ? STATUS_DANGER.bg : undefined }}
       onClick={onClick}
     >
       <TableCell>
-        <Typography sx={{ fontWeight: 600, fontSize: 14, color: urgency === 'soon' || urgency === 'overdue' ? '#4A1B0C' : 'text.primary' }}>
+        <Typography sx={{ fontWeight: 600, fontSize: 14, color: urgency === 'soon' || urgency === 'overdue' ? STATUS_DANGER.main : 'text.primary' }}>
           {p.title}
         </Typography>
-        <Typography sx={{ fontSize: 12, color: urgency === 'soon' || urgency === 'overdue' ? '#712B13' : 'text.disabled' }}>
+        <Typography sx={{ fontSize: 12, color: urgency === 'soon' || urgency === 'overdue' ? STATUS_DANGER.main : 'text.disabled' }}>
           {[budget, p.createdByUsername].filter(Boolean).join(' · ')}
         </Typography>
       </TableCell>

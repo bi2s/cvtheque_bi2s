@@ -25,6 +25,7 @@ import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined
 import { useNotify } from 'react-admin';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
+import { STATUS_OK, STATUS_WARN } from '../../../theme';
 
 const STALE_MONTHS = 12;
 const TOKEN_RE = /\{[a-z_]+\}/g;
@@ -346,7 +347,7 @@ export default function RfpBoilerplateAdmin() {
           Bibliothèque de sections
         </Typography>
         {staleCount > 0 && (
-          <Chip size="small" label={`${staleCount} à réviser`} sx={{ bgcolor: '#FAEEDA', color: '#633806' }} />
+          <Chip size="small" label={`${staleCount} à réviser`} sx={{ bgcolor: STATUS_WARN.bg, color: STATUS_WARN.main }} />
         )}
         <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)} sx={{ ml: 'auto' }}>
           Nouvelle section
@@ -381,10 +382,10 @@ export default function RfpBoilerplateAdmin() {
                       <Chip
                         size="small"
                         label={`À réviser${staleMonths !== Infinity ? ` — ${staleMonths} mois` : ''}`}
-                        sx={{ bgcolor: '#FAEEDA', color: '#633806' }}
+                        sx={{ bgcolor: STATUS_WARN.bg, color: STATUS_WARN.main }}
                       />
                     ) : (
-                      <Chip size="small" label="À jour" sx={{ bgcolor: '#E1F5EE', color: '#085041' }} />
+                      <Chip size="small" label="À jour" sx={{ bgcolor: STATUS_OK.bg, color: STATUS_OK.main }} />
                     )}
                     {family.variants.length > 0 && (
                       <Chip

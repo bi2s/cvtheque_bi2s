@@ -35,6 +35,7 @@ import ScoreBreakdown from '../staffing/ScoreBreakdown';
 import { SENIORITY_LEVELS as SENIORITY_CHOICES, seniorityLabel } from '../../seniorityLabels';
 import { dueUrgency, URGENCY_COLORS } from '../administrativeTracking/administrativeTrackingShared';
 import formatRelativeDate from '../../formatRelativeDate';
+import { STATUS_DANGER } from '../../../theme';
 
 const MODULE_CHOICES = ['SD', 'MM', 'FI', 'CO', 'PP', 'HCM', 'QM', 'PM', 'WM/EWM', 'ABAP/BASIS'];
 const COMPLIANCE_LABELS = { satisfied: 'Satisfait', missing: 'Manquant' };
@@ -516,7 +517,7 @@ function ProgressStrip({ proposal, consultants, versions, missingCount, tab, set
             )}
             <Typography sx={{ fontSize: 12, fontWeight: i === tab ? 700 : 500 }}>{s.label}</Typography>
             {s.badge && (
-              <Typography sx={{ fontSize: 11, bgcolor: '#FAECE7', color: '#712B13', px: 0.75, borderRadius: 5 }}>{s.badge}</Typography>
+              <Typography sx={{ fontSize: 11, bgcolor: STATUS_DANGER.bg, color: STATUS_DANGER.main, px: 0.75, borderRadius: 5 }}>{s.badge}</Typography>
             )}
           </Stack>
         </Stack>
@@ -682,7 +683,7 @@ export default function RfpWizard() {
             <Chip
               size="small"
               label={`Remise : ${new Date(proposal.deadline).toLocaleDateString('fr-FR')}`}
-              sx={urgency ? { bgcolor: '#FAECE7', color: '#712B13', fontWeight: 500 } : undefined}
+              sx={urgency ? { bgcolor: STATUS_DANGER.bg, color: STATUS_DANGER.main, fontWeight: 500 } : undefined}
             />
           )}
           <TextField select size="small" value={proposal.stage} onChange={(e) => setStage(e.target.value)} sx={{ width: 160 }}>

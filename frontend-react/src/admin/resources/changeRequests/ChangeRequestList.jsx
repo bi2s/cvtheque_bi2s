@@ -5,6 +5,7 @@ import { Box, Stack, Paper, Typography, Chip, Avatar, Button } from '@mui/materi
 import formatRelativeDate from '../../formatRelativeDate';
 import ApproveButton from './ApproveButton';
 import RejectDialog from './RejectDialog';
+import { STATUS_OK, STATUS_WARN, STATUS_DANGER, STATUS_INFO } from '../../../theme';
 
 const STATUS_LABELS = {
   pending: 'En attente',
@@ -25,9 +26,9 @@ const STATUS_COLORS = {
 const OLD_PENDING_DAYS = 3;
 
 const CHANGE_CHIP_STYLES = {
-  addition: { bgcolor: '#E1F5EE', color: '#085041' },
-  removal: { bgcolor: '#FAECE7', color: '#712B13' },
-  change: { bgcolor: '#E6F1FB', color: '#0C447C' },
+  addition: { bgcolor: STATUS_OK.bg, color: STATUS_OK.main },
+  removal: { bgcolor: STATUS_DANGER.bg, color: STATUS_DANGER.main },
+  change: { bgcolor: STATUS_INFO.bg, color: STATUS_INFO.main },
 };
 
 const AVATAR_PALETTE = ['#1C4B5F', '#1FB5A3', '#D9A441', '#E17F94', '#8B7CF6', '#2E7284', '#2ACCB4', '#5E7278'];
@@ -58,7 +59,7 @@ function PendingRow({ record }) {
             <Typography sx={{ fontWeight: 600, fontSize: 14 }}>{record.consultantName}</Typography>
             <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>{formatRelativeDate(record.submittedAt)}</Typography>
             {isOld && (
-              <Chip size="small" label="Ancien · à traiter" sx={{ bgcolor: '#FAECE7', color: '#712B13', fontSize: 11, height: 20 }} />
+              <Chip size="small" label="Ancien · à traiter" sx={{ bgcolor: STATUS_DANGER.bg, color: STATUS_DANGER.main, fontSize: 11, height: 20 }} />
             )}
           </Stack>
           <Typography sx={{ fontSize: 13, color: 'text.secondary', my: 0.5 }}>
@@ -119,7 +120,7 @@ function ValidationsQueue({ showHistory, setShowHistory }) {
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
         <Typography sx={{ fontWeight: 600, fontSize: 14 }}>{showHistory ? 'Historique des validations' : 'Validations en attente'}</Typography>
         {!showHistory && pendingCount > 0 && (
-          <Chip size="small" label={pendingCount} sx={{ bgcolor: '#FAEEDA', color: '#633806', fontWeight: 700 }} />
+          <Chip size="small" label={pendingCount} sx={{ bgcolor: STATUS_WARN.bg, color: STATUS_WARN.main, fontWeight: 700 }} />
         )}
         <Typography
           onClick={() => setShowHistory((s) => !s)}

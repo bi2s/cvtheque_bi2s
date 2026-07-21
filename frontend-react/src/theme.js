@@ -11,12 +11,16 @@ export const BRAND_TEAL = '#1FB5A3';
 // series that need more than two colors (bar/pie breakdowns).
 export const chartPalette = ['#1C4B5F', '#1FB5A3', '#2E7284', '#2ACCB4', '#153A4B', '#6FE6D0', '#5A94A3', '#188E93'];
 
-// Semantic status trio (load/occupancy badges, approval states, etc.) - the
-// single source of truth reused by StaffingPlanning's occupationTier() and
-// ConsultantList's availability badge instead of each hardcoding its own hex.
-export const STATUS_OK = { main: '#1E9E6A', bg: '#E4F5EE' };
-export const STATUS_WARN = { main: '#C77D1B', bg: '#FBF0DD' };
-export const STATUS_DANGER = { main: '#C0392B', bg: '#FBE9E7' };
+// Semantic status quartet (load/occupancy badges, approval states, deadline
+// urgency, RFP/candidate stages, etc.) - the single source of truth for any
+// bg+text color pair meaning "this record is ok/needs attention/is
+// overdue-or-wrong/is informational", reused across the admin app instead of
+// each page hardcoding its own hex pair (several had each independently
+// converged on near-identical but not-quite-matching shades).
+export const STATUS_OK = { main: '#085041', bg: '#E1F5EE' };
+export const STATUS_WARN = { main: '#633806', bg: '#FAEEDA' };
+export const STATUS_DANGER = { main: '#712B13', bg: '#FAECE7' };
+export const STATUS_INFO = { main: '#0C447C', bg: '#E6F1FB' };
 
 const theme = createTheme({
   palette: {

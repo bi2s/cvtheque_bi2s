@@ -44,6 +44,7 @@ import {
 } from './experienceTemplate';
 import { genderedConsultantLabel } from './genderize';
 import { subscribeToPush, getPushSubscriptionStatus, pushSupported } from './pushClient';
+import { STATUS_OK, STATUS_WARN, STATUS_DANGER, STATUS_INFO } from './theme';
 
 // A comprehensive list of real SAP S/4HANA certifications (on-premise and
 // Cloud editions, across the modules SKILL_CATALOG.module covers, plus
@@ -117,7 +118,7 @@ const SAP_CERTIFICATIONS = CERTIFICATION_DOMAINS.flatMap((d) => d.certs);
 // itself rather than a new per-cert metadata field, matching the mockup's
 // two badge styles (outlined "Associate" vs filled "Cloud"/"Specialist").
 function certBadge(name) {
-  if (name.includes('Cloud')) return { label: 'Cloud', bgcolor: '#E6F1FB', color: '#0C447C' };
+  if (name.includes('Cloud')) return { label: 'Cloud', bgcolor: STATUS_INFO.bg, color: STATUS_INFO.main };
   if (name.includes('Specialist')) return { label: 'Specialist', bgcolor: '#FDF0DC', color: '#8A5A00' };
   return { label: 'Associate', outlined: true };
 }
@@ -2543,7 +2544,7 @@ function CertificationsStep({ selectedCerts, onToggle, customCertInput, setCusto
                 label={cert}
                 size="small"
                 onDelete={() => onToggle(cert)}
-                sx={{ bgcolor: '#E1F5EE', color: '#085041', fontSize: 12 }}
+                sx={{ bgcolor: STATUS_OK.bg, color: STATUS_OK.main, fontSize: 12 }}
               />
             ))}
           </Stack>
@@ -2697,10 +2698,10 @@ function certExpiryStatus(cert) {
   const today = new Date().toISOString().slice(0, 10);
   const in60Days = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
   if (cert.expiryDate < today) {
-    return { label: `Expirée depuis ${formatMonthYear(cert.expiryDate)}`, color: '#791F1F', bg: '#FCEBEB' };
+    return { label: `Expirée depuis ${formatMonthYear(cert.expiryDate)}`, color: STATUS_DANGER.main, bg: STATUS_DANGER.bg };
   }
   if (cert.expiryDate < in60Days) {
-    return { label: `Expire le ${formatMonthYear(cert.expiryDate)}`, color: '#854F0B', bg: '#FCF3E3' };
+    return { label: `Expire le ${formatMonthYear(cert.expiryDate)}`, color: STATUS_WARN.main, bg: STATUS_WARN.bg };
   }
   return null;
 }
@@ -2923,11 +2924,11 @@ function ProfileView({
             <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
               Certifications SAP ({certifications.length})
             </Typography>
-            {certifications.some((c) => certExpiryStatus(c)?.color === '#791F1F') && (
+            {certifications.some((c) => certExpiryStatus(c)?.color === STATUS_DANGER.main) && (
               <Chip
                 size="small"
-                label={`${certifications.filter((c) => certExpiryStatus(c)?.color === '#791F1F').length} expirée(s)`}
-                sx={{ bgcolor: '#FCEBEB', color: '#791F1F', ml: 1, fontWeight: 600 }}
+                label={`${certifications.filter((c) => certExpiryStatus(c)?.color === STATUS_DANGER.main).length} expirée(s)`}
+                sx={{ bgcolor: STATUS_DANGER.bg, color: STATUS_DANGER.main, ml: 1, fontWeight: 600 }}
               />
             )}
             <Button size="small" onClick={onStartUpdate} sx={{ ml: 'auto', minWidth: 0 }}>
@@ -2940,14 +2941,14 @@ function ProfileView({
             <Stack spacing={1.25}>
               {certifications.map((cert) => {
                 const expiry = certExpiryStatus(cert);
-                const expired = expiry?.color === '#791F1F';
+                const expired = expiry?.color === STATUS_DANGER.main;
                 return (
                   <Box
                     key={cert.id}
                     sx={{
                       border: '1px solid',
                       borderColor: expired ? '#F7C1C1' : 'divider',
-                      bgcolor: expired ? '#FCEBEB22' : 'transparent',
+                      bgcolor: expired ? `${STATUS_DANGER.bg}22` : 'transparent',
                       borderRadius: 2,
                       p: 1.5,
                     }}

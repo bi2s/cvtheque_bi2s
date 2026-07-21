@@ -30,6 +30,7 @@ import { useNotify } from 'react-admin';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
 import ConvertToConsultantButton from './ConvertToConsultantButton';
+import { STATUS_OK, STATUS_WARN, STATUS_DANGER } from '../../../theme';
 
 const STATUS_LABELS = { active: 'Actif', rejected: 'Refusé', withdrawn: 'Retiré' };
 
@@ -175,7 +176,7 @@ function CandidateCard({ candidate, refuseStageId, isDraggingAny, onReload }) {
         mb: 1,
         borderRadius: 2,
         cursor: isDragging ? 'grabbing' : 'pointer',
-        bgcolor: candidate.isTerminalSuccess ? '#E1F5EE' : 'background.paper',
+        bgcolor: candidate.isTerminalSuccess ? STATUS_OK.bg : 'background.paper',
         opacity: isDragging ? 0.4 : 1,
         '&:hover': { borderColor: 'primary.main' },
       }}
@@ -183,7 +184,7 @@ function CandidateCard({ candidate, refuseStageId, isDraggingAny, onReload }) {
       {...listeners}
     >
       <Stack direction="row" sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <Typography sx={{ fontSize: 13, fontWeight: 600, color: candidate.isTerminalSuccess ? '#04342C' : 'text.primary' }}>
+        <Typography sx={{ fontSize: 13, fontWeight: 600, color: candidate.isTerminalSuccess ? STATUS_OK.main : 'text.primary' }}>
           {candidate.firstName} {candidate.lastName}
         </Typography>
         {!candidate.isTerminalSuccess && candidate.status !== 'rejected' && (
@@ -199,7 +200,7 @@ function CandidateCard({ candidate, refuseStageId, isDraggingAny, onReload }) {
           </IconButton>
         )}
       </Stack>
-      <Typography sx={{ fontSize: 11, color: candidate.isTerminalSuccess ? '#085041' : 'text.secondary', my: 0.25 }}>
+      <Typography sx={{ fontSize: 11, color: candidate.isTerminalSuccess ? STATUS_OK.main : 'text.secondary', my: 0.25 }}>
         {[candidate.desiredPosition, seniority].filter(Boolean).join(' · ')}
       </Typography>
       {candidate.isTerminalSuccess ? (
@@ -212,7 +213,7 @@ function CandidateCard({ candidate, refuseStageId, isDraggingAny, onReload }) {
         </Typography>
       ) : (
         days != null && (
-          <Typography sx={{ fontSize: 11, color: urgent ? '#993C1D' : stale ? '#854F0B' : 'text.disabled' }}>
+          <Typography sx={{ fontSize: 11, color: urgent ? STATUS_DANGER.main : stale ? STATUS_WARN.main : 'text.disabled' }}>
             {days === 0 ? "aujourd'hui" : `${days} j sans action`}
           </Typography>
         )

@@ -16,6 +16,7 @@ import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import AddIcon from '@mui/icons-material/Add';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
+import { STATUS_INFO } from '../../../theme';
 
 const EMPTY_ITEM = { label: '', missionTypeId: '', roleId: '', sapModuleId: '' };
 const UNGROUPED_KEY = '__none__';
@@ -47,7 +48,7 @@ function DimensionBadge({ value, choices, allLabel }) {
   }
   const label = choices.find((c) => c.id === value)?.label || '?';
   return (
-    <Box component="span" sx={{ bgcolor: '#E6F1FB', color: '#0C447C', fontSize: 11, px: 1, borderRadius: 5, fontWeight: 500 }}>
+    <Box component="span" sx={{ bgcolor: STATUS_INFO.bg, color: STATUS_INFO.main, fontSize: 11, px: 1, borderRadius: 5, fontWeight: 500 }}>
       {label}
     </Box>
   );
