@@ -1,5 +1,6 @@
 const pptxgen = require('pptxgenjs');
 const path = require('path');
+const { Jimp } = require('jimp');
 
 // Mirrors frontend-react/src/genderize.js - kept as a small duplicate
 // rather than a shared module since frontend/backend have no shared JS
@@ -205,7 +206,7 @@ function primaryModuleLabel(data) {
   return data.projects[0]?.modules?.[0] || null;
 }
 
-function addTitleSlide(pres, data, photoPath) {
+async function addTitleSlide(pres, data, photoPath) {
   const slide = pres.addSlide();
   slide.addImage({ path: GRADIENT_BG, x: 0, y: 0, w: 13.33, h: 7.5 });
   const logoH = 0.72;
@@ -255,7 +256,18 @@ function addTitleSlide(pres, data, photoPath) {
   });
 
   if (photoPath) {
-    slide.addImage({ path: photoPath, x: 10.4, y: 4.9, w: 1.9, h: 1.9, rounding: true });
+    // pptxgenjs's own sizing.cover can't do this: its crop math relies on
+    // a browser-only Image object to read the source photo's dimensions,
+    // which is never available in this Node server - it silently falls
+    // back to a zero crop, stretching whatever aspect ratio the uploaded
+    // photo has (rarely square) to exactly fill this 1.9x1.9 box and
+    // warping faces. Cropping the photo to a real square ourselves first
+    // (same effect as the reference deck's own source-rectangle crop)
+    // sidesteps that entirely - the square then needs no sizing option.
+    const squarePhoto = await Jimp.read(photoPath);
+    squarePhoto.cover({ w: 600, h: 600 });
+    const photoDataUri = await squarePhoto.getBase64('image/jpeg');
+    slide.addImage({ data: photoDataUri, x: 10.4, y: 4.9, w: 1.9, h: 1.9, rounding: true });
   }
 }
 
@@ -690,7 +702,7 @@ async function generatePptx(data, outputPath, { photoPath, featuredDocumentPath 
   pres.defineLayout({ name: 'BI2S', width: 13.33, height: 7.5 });
   pres.layout = 'BI2S';
 
-  addTitleSlide(pres, data, photoPath);
+  await addTitleSlide(pres, data, photoPath);
   addProfileSlide(pres, data, 2);
   const experienceSlideCount = addExperienceSlides(pres, data, 3);
   addFormationSlide(pres, data, 3 + experienceSlideCount, featuredDocumentPath);
