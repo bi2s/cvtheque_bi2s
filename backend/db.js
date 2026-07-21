@@ -353,6 +353,11 @@ async function initSchema() {
     // an industry sector like Banque/Télécom depending on the candidate),
     // so this stays open text rather than guessing a taxonomy.
     await ensureColumn(conn, 'candidates', 'domain', 'VARCHAR(255) NULL');
+    // Set alongside rejection_reason only when the target stage is
+    // is_terminal_failure - 'vivier' (keep in the talent pool, may be
+    // reconsidered for a future role) vs 'definitif' (closed for good).
+    // NULL for every non-rejected candidate.
+    await ensureColumn(conn, 'candidates', 'rejection_type', 'VARCHAR(20) NULL');
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS candidate_skills (

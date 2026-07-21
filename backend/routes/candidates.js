@@ -63,6 +63,8 @@ function mapCandidateRow(r) {
     isTerminalSuccess: !!r.is_terminal_success,
     status: r.status,
     rejectionReason: r.rejection_reason,
+    rejectionType: r.rejection_type,
+    stageEnteredAt: r.stage_entered_at,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -437,7 +439,10 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
 
   router.get('/candidates', requireAdmin, async (req, res) => {
     const [rows] = await pool.query(
-      `SELECT c.*, ps.name AS stage_name, ps.is_terminal_success FROM candidates c
+      `SELECT c.*, ps.name AS stage_name, ps.is_terminal_success,
+              (SELECT MAX(csh.entered_at) FROM candidate_stage_history csh
+               WHERE csh.candidate_id = c.id AND csh.exited_at IS NULL) AS stage_entered_at
+       FROM candidates c
        LEFT JOIN pipeline_stages ps ON ps.id = c.current_stage_id
        ORDER BY c.created_at DESC`
     );
@@ -600,6 +605,7 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
     const stageId = Number(req.body.stageId);
     const comment = req.body.comment || null;
     const rejectionReason = req.body.rejectionReason || null;
+    const rejectionType = req.body.rejectionType === 'vivier' ? 'vivier' : 'definitif';
     if (!isPositiveInt(stageId)) return res.status(400).json({ detail: 'Étape invalide.' });
 
     const conn = await pool.getConnection();
@@ -625,12 +631,16 @@ module.exports = function buildCandidatesRouter({ pool, requireAdmin, requireAdm
       );
 
       const newStatus = stage.is_terminal_failure ? 'rejected' : 'active';
-      await conn.query('UPDATE candidates SET current_stage_id = ?, status = ?, rejection_reason = ? WHERE id = ?', [
-        stageId,
-        newStatus,
-        stage.is_terminal_failure ? rejectionReason : null,
-        id,
-      ]);
+      await conn.query(
+        'UPDATE candidates SET current_stage_id = ?, status = ?, rejection_reason = ?, rejection_type = ? WHERE id = ?',
+        [
+          stageId,
+          newStatus,
+          stage.is_terminal_failure ? rejectionReason : null,
+          stage.is_terminal_failure ? rejectionType : null,
+          id,
+        ]
+      );
 
       await insertCandidateAudit(conn, {
         candidateId: id,
