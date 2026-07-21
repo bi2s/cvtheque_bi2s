@@ -249,7 +249,7 @@ function CandidateCard({ candidate, refuseStageId, isDraggingAny, onReload }) {
 function Column({ stage, candidates, refuseStageId, isDraggingAny, onReload }) {
   const { setNodeRef, isOver } = useDroppable({ id: `stage-${stage.id}`, disabled: stage.isTerminalFailure });
   return (
-    <Box sx={{ width: 220, flexShrink: 0 }}>
+    <Box sx={{ flex: '1 1 220px', minWidth: 220, maxWidth: 320 }}>
       <Typography
         sx={{
           fontSize: 11,

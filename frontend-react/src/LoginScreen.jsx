@@ -68,10 +68,6 @@ export default function LoginScreen({ onAdminSuccess, onConsultantSuccess }) {
             <Typography sx={{ fontSize: 21, fontWeight: 500, color: '#fff', lineHeight: 1.35, mb: 1 }}>
               Plateforme d&rsquo;opérations internes
             </Typography>
-            <Typography sx={{ fontSize: 13, color: '#D6F2EA', lineHeight: 1.6 }}>
-              CVthèque, staffing, projets et appels d&rsquo;offres SAP. Votre espace s&rsquo;ouvre
-              selon votre profil — consultant ou administrateur.
-            </Typography>
           </Box>
 
           <Typography
