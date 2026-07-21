@@ -26,6 +26,54 @@ function countBusinessDays(start, end) {
 // created/edited is itself Support, none of its overlaps are ever
 // conflicts; otherwise any existing Support assignment is dropped from the
 // conflict list before it's returned.
+// Same fallback chain as computeEndDate() in server.js (duplicated rather
+// than imported - server.js requires this route file, so importing back
+// from here would be circular; both are small and unlikely to drift).
+function computeProjectEndDate({ endDate, hypercareEndDate, goLiveDate }) {
+  if (endDate) return endDate;
+  if (hypercareEndDate) return hypercareEndDate;
+  if (goLiveDate) {
+    const [y, m, d] = goLiveDate.split('-').map(Number);
+    const totalMonths = m - 1 + 2;
+    const newYear = y + Math.floor(totalMonths / 12);
+    const newMonth = (totalMonths % 12) + 1;
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${newYear}-${pad(newMonth)}-${pad(d)}`;
+  }
+  return null;
+}
+
+// A project's "active window" is [start_date, resolved end_date] - either
+// bound is null when the project simply hasn't set that date yet, in which
+// case that side is left unconstrained (an ongoing project with no known
+// end isn't "inactive" just because end_date is blank).
+async function projectActiveWindow(pool, projectId) {
+  const [[project]] = await pool.query(
+    'SELECT start_date, end_date, hypercare_end_date, go_live_date FROM catalog_projects WHERE id = ?',
+    [projectId]
+  );
+  if (!project) return null;
+  return {
+    startDate: project.start_date,
+    endDate: computeProjectEndDate({
+      endDate: project.end_date,
+      hypercareEndDate: project.hypercare_end_date,
+      goLiveDate: project.go_live_date,
+    }),
+  };
+}
+
+// "Un consultant ne peut pas être affecté à un projet pour une période
+// durant laquelle le projet n'était pas actif" - the assignment's own
+// [startDate, endDate] must fall entirely inside the project's active
+// window computed above.
+function assignmentOutsideProjectWindow(window, startDate, endDate) {
+  if (!window) return false;
+  if (window.startDate && startDate < window.startDate) return true;
+  if (window.endDate && endDate > window.endDate) return true;
+  return false;
+}
+
 async function findRelevantConflicts(pool, { consultantId, projectId, startDate, endDate, excludeId }) {
   const [[newProject]] = await pool.query('SELECT mission_type FROM catalog_projects WHERE id = ?', [projectId]);
   if (newProject?.mission_type === 'Support') return [];
@@ -716,6 +764,12 @@ module.exports = function buildPracticeManagersRouter({
     if (!(await assertConsultantInScope(req, consultantId))) {
       return res.status(403).json({ detail: 'Ce consultant est hors de votre périmètre.' });
     }
+    const activeWindow = await projectActiveWindow(pool, projectId);
+    if (assignmentOutsideProjectWindow(activeWindow, startDate, endDate)) {
+      return res.status(400).json({
+        detail: `Le projet n'était actif que du ${activeWindow.startDate || '…'} au ${activeWindow.endDate || '…'} - l'affectation doit rester dans cette période.`,
+      });
+    }
 
     // Non-blocking: a manager may deliberately log a short overlapping trip
     // (e.g. a one-day client visit during another mission), so this warns
@@ -786,6 +840,12 @@ module.exports = function buildPracticeManagersRouter({
     }
     if (!(await assertConsultantInScope(req, consultantId))) {
       return res.status(403).json({ detail: 'Ce consultant est hors de votre périmètre.' });
+    }
+    const activeWindow = await projectActiveWindow(pool, projectId);
+    if (assignmentOutsideProjectWindow(activeWindow, startDate, endDate)) {
+      return res.status(400).json({
+        detail: `Le projet n'était actif que du ${activeWindow.startDate || '…'} au ${activeWindow.endDate || '…'} - l'affectation doit rester dans cette période.`,
+      });
     }
 
     // Same non-blocking overlap warning as create (Support-excluded, see

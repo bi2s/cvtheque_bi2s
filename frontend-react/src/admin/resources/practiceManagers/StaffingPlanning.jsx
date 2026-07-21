@@ -94,6 +94,34 @@ export function occupationTier(pct) {
   return { color: STATUS_OK.main, bg: STATUS_OK.bg, label: 'Charge normale' };
 }
 
+// Same fallback chain as backend/server.js's computeEndDate() /
+// backend/routes/practiceManagers.js's computeProjectEndDate() - mirrored
+// here (not imported, this is a separate frontend/backend boundary) so the
+// "affectation hors période active" check can run before submit instead of
+// only surfacing as a 400 after the round-trip.
+function resolveProjectEndDate(project) {
+  if (project.endDate) return project.endDate;
+  if (project.hypercareEndDate) return project.hypercareEndDate;
+  if (project.goLiveDate) {
+    const [y, m, d] = project.goLiveDate.split('-').map(Number);
+    const totalMonths = m - 1 + 2;
+    const newYear = y + Math.floor(totalMonths / 12);
+    const newMonth = (totalMonths % 12) + 1;
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${newYear}-${pad(newMonth)}-${pad(d)}`;
+  }
+  return null;
+}
+
+function assignmentOutsideProjectWindow(project, startDate, endDate) {
+  if (!project) return false;
+  const windowStart = project.startDate;
+  const windowEnd = resolveProjectEndDate(project);
+  if (windowStart && startDate < windowStart) return true;
+  if (windowEnd && endDate > windowEnd) return true;
+  return false;
+}
+
 const EMPTY_FORM = {
   consultantId: '',
   projectId: '',
@@ -374,6 +402,8 @@ export default function StaffingPlanning() {
     ? 'Renseignez les dates de début et de fin.'
     : form.endDate < form.startDate
     ? 'La date de fin doit être postérieure ou égale à la date de début.'
+    : assignmentOutsideProjectWindow(projects.find((p) => p.id === form.projectId), form.startDate, form.endDate)
+    ? "L'affectation doit rester dans la période active du projet."
     : form.mileage !== '' && Number(form.mileage) < 0
     ? 'Le kilométrage ne peut pas être négatif.'
     : null;
