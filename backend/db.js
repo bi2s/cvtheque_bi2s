@@ -1090,11 +1090,32 @@ async function initSchema() {
     // consultant tapering off mid-mission gets a second, lower-%, assignment
     // row for the new period, same as adjusting dates already works today.
     await ensureColumn(conn, 'staffing_assignments', 'status', "VARCHAR(20) NOT NULL DEFAULT 'confirme'");
+    // VARCHAR(20) was fine for 'previsionnel'/'confirme' but silently
+    // truncated 'en_attente_validation' (22 chars) down to 20 - widen to a
+    // safe margin now that a third, longer status value exists.
+    await conn.query("ALTER TABLE staffing_assignments MODIFY COLUMN status VARCHAR(30) NOT NULL DEFAULT 'confirme'");
     // Plain (signed) TINYINT tops out at 127 - silently clamped a genuine
     // 130% overload down to 127 the first time this was tested. UNSIGNED
     // (0-255) comfortably covers any realistic stacked-mission percentage.
     await ensureColumn(conn, 'staffing_assignments', 'allocation_pct', 'TINYINT UNSIGNED NOT NULL DEFAULT 100');
     await conn.query('ALTER TABLE staffing_assignments MODIFY COLUMN allocation_pct TINYINT UNSIGNED NOT NULL DEFAULT 100');
+    // Confirmé is a two-step workflow, not a flag an admin sets unilaterally:
+    // the consultant confirms their own assignment first (status moves
+    // 'previsionnel' -> 'en_attente_validation'), then an admin/manager
+    // validates it (-> 'confirme', stamped with who/when). Admins can still
+    // override status directly (e.g. backfilling historical data) - in that
+    // case validated_by_admin_id/validated_at are stamped by the same PUT
+    // that sets status='confirme', treating a direct admin edit as an
+    // implicit validation.
+    await ensureColumn(conn, 'staffing_assignments', 'consultant_confirmed_at', 'DATETIME NULL');
+    await ensureColumn(conn, 'staffing_assignments', 'validated_by_admin_id', 'INT NULL');
+    await ensureColumn(conn, 'staffing_assignments', 'validated_at', 'DATETIME NULL');
+    await ensureForeignKey(
+      conn,
+      'staffing_assignments',
+      'fk_staffing_validated_by',
+      'FOREIGN KEY (validated_by_admin_id) REFERENCES admins(id) ON DELETE SET NULL'
+    );
 
     // The dashed "?" unstaffed-role placeholder row on the capacity grid -
     // deliberately not assignment_requests (which always names a specific

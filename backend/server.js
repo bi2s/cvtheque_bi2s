@@ -32,6 +32,7 @@ const { buildBreadcrumb, isDescendant } = require('./projectTree');
 const {
   notifyNewChangeRequest,
   notifyProfileCorrection,
+  notifyAssignmentConfirmed,
   notifyDeparture,
   notifyAdmins,
   notifyModuleManagers,
@@ -600,6 +601,53 @@ app.post('/api/consultant/me/correction', requireConsultantOrOwnAdmin, async (re
     note,
   ]);
   notifyProfileCorrection(req.consultant.id, consultant.name, field, note).catch(() => {});
+  res.json({ ok: true });
+});
+
+// A consultant's own upcoming/current staffing assignments, plus the
+// confirm action that starts the "Confirmé" workflow: consultant confirms
+// (here) -> admin validates (PUT /api/admin/staffing-assignments/:id/validate)
+// -> status becomes 'confirme'. Read-only for the consultant beyond that one
+// action - dates/allocation/etc. stay admin/manager-editable only.
+app.get('/api/consultant/me/assignments', requireConsultantOrOwnAdmin, async (req, res) => {
+  const [rows] = await pool.query(
+    `SELECT sa.*, p.client AS project_client
+     FROM staffing_assignments sa
+     LEFT JOIN catalog_projects p ON p.id = sa.project_id
+     WHERE sa.consultant_id = ?
+     ORDER BY sa.start_date DESC`,
+    [req.consultant.id]
+  );
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      projectClient: r.project_client,
+      startDate: r.start_date,
+      endDate: r.end_date,
+      allocationPct: r.allocation_pct,
+      status: r.status,
+      consultantConfirmedAt: r.consultant_confirmed_at,
+      validatedAt: r.validated_at,
+    }))
+  );
+});
+
+app.post('/api/consultant/me/assignments/:id/confirm', requireConsultantOrOwnAdmin, async (req, res) => {
+  const [[assignment]] = await pool.query(
+    `SELECT sa.*, p.client AS project_client FROM staffing_assignments sa
+     LEFT JOIN catalog_projects p ON p.id = sa.project_id
+     WHERE sa.id = ? AND sa.consultant_id = ?`,
+    [req.params.id, req.consultant.id]
+  );
+  if (!assignment) return res.status(404).json({ detail: 'Affectation introuvable' });
+  if (assignment.status !== 'previsionnel') {
+    return res.status(400).json({ detail: 'Cette affectation a déjà été confirmée.' });
+  }
+  await pool.query(
+    "UPDATE staffing_assignments SET status = 'en_attente_validation', consultant_confirmed_at = NOW() WHERE id = ?",
+    [req.params.id]
+  );
+  notifyAssignmentConfirmed(req.consultant.id, req.consultant.name, assignment.project_client || 'un projet').catch(() => {});
   res.json({ ok: true });
 });
 

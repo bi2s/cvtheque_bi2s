@@ -186,6 +186,10 @@ function mapStaffingAssignmentRow(r) {
     createdAt: r.created_at,
     status: r.status,
     allocationPct: r.allocation_pct,
+    consultantConfirmedAt: r.consultant_confirmed_at,
+    validatedByAdminId: r.validated_by_admin_id,
+    validatedByUsername: r.validated_by_username,
+    validatedAt: r.validated_at,
   };
 }
 
@@ -759,6 +763,17 @@ module.exports = function buildPracticeManagersRouter({
   // access across every consultant's assignments.
   const MISSION_ROLES = ['responsable_mission'];
 
+  // Confirmé is normally reached via consultant-confirms -> admin-validates
+  // (see PUT .../:id/validate below and the consultant-facing confirm route
+  // in server.js), but an admin/manager can still set status directly here
+  // (e.g. backfilling historical data) - in that case, resolving to
+  // 'confirme' stamps validated_by/validated_at as if that write were the
+  // validation act itself.
+  const VALID_ASSIGNMENT_STATUSES = ['previsionnel', 'en_attente_validation', 'confirme'];
+  function resolveAssignmentStatus(status) {
+    return VALID_ASSIGNMENT_STATUSES.includes(status) ? status : 'confirme';
+  }
+
   router.post('/staffing-assignments', requireAdminOrManager, async (req, res) => {
     if (MISSION_ROLES.includes(req.admin.role)) {
       return res.status(403).json({ detail: 'Accès en lecture seule.' });
@@ -806,12 +821,13 @@ module.exports = function buildPracticeManagersRouter({
     // findRelevantConflicts).
     const conflicts = await findRelevantConflicts(pool, { consultantId, projectId, startDate, endDate });
 
+    const resolvedStatus = resolveAssignmentStatus(status);
     const [result] = await pool.query(
       `INSERT INTO staffing_assignments
          (consultant_id, project_id, start_date, end_date, days_count, location, region, travel_mode,
           mileage, mission_responsible_admin_id, project_manager_admin_id, comment, created_by_admin_id,
-          status, allocation_pct)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          status, allocation_pct, validated_by_admin_id, validated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         consultantId,
         projectId,
@@ -826,8 +842,10 @@ module.exports = function buildPracticeManagersRouter({
         projectManagerAdminId || null,
         comment || null,
         req.admin.id,
-        status === 'previsionnel' ? 'previsionnel' : 'confirme',
+        resolvedStatus,
         allocationPct || 100,
+        resolvedStatus === 'confirme' ? req.admin.id : null,
+        resolvedStatus === 'confirme' ? new Date() : null,
       ]
     );
     res.json({
@@ -891,11 +909,13 @@ module.exports = function buildPracticeManagersRouter({
       excludeId: req.params.id,
     });
 
+    const resolvedStatus = resolveAssignmentStatus(status);
     const [result] = await pool.query(
       `UPDATE staffing_assignments SET
          consultant_id = ?, project_id = ?, start_date = ?, end_date = ?, days_count = ?, location = ?,
          region = ?, travel_mode = ?, mileage = ?, mission_responsible_admin_id = ?,
-         project_manager_admin_id = ?, comment = ?, status = ?, allocation_pct = ?
+         project_manager_admin_id = ?, comment = ?, status = ?, allocation_pct = ?,
+         validated_by_admin_id = ?, validated_at = ?
        WHERE id = ?`,
       [
         consultantId,
@@ -910,8 +930,10 @@ module.exports = function buildPracticeManagersRouter({
         missionResponsibleAdminId || null,
         projectManagerAdminId || null,
         comment || null,
-        status === 'previsionnel' ? 'previsionnel' : 'confirme',
+        resolvedStatus,
         allocationPct || 100,
+        resolvedStatus === 'confirme' ? req.admin.id : null,
+        resolvedStatus === 'confirme' ? new Date() : null,
         req.params.id,
       ]
     );
@@ -927,17 +949,40 @@ module.exports = function buildPracticeManagersRouter({
     });
   });
 
+  // One-click validation of a consultant-confirmed assignment - the normal
+  // path to 'confirme' (vs. the full edit form's direct-override path
+  // above). Requires the consultant to have confirmed first, so this can't
+  // be used to silently rubber-stamp something nobody has actually agreed
+  // to yet.
+  router.put('/staffing-assignments/:id/validate', requireAdminOrManager, async (req, res) => {
+    if (MISSION_ROLES.includes(req.admin.role)) {
+      return res.status(403).json({ detail: 'Accès en lecture seule.' });
+    }
+    const [[assignment]] = await pool.query('SELECT status FROM staffing_assignments WHERE id = ?', [req.params.id]);
+    if (!assignment) return res.status(404).json({ detail: 'Affectation introuvable' });
+    if (assignment.status !== 'en_attente_validation') {
+      return res.status(400).json({ detail: "Cette affectation n'est pas en attente de validation." });
+    }
+    await pool.query(
+      "UPDATE staffing_assignments SET status = 'confirme', validated_by_admin_id = ?, validated_at = NOW() WHERE id = ?",
+      [req.admin.id, req.params.id]
+    );
+    res.json({ ok: true });
+  });
+
   router.get('/staffing-assignments', requireAdminOrManager, async (req, res) => {
     const [rows] = await pool.query(
       `SELECT sa.*, c.name AS consultant_name, p.client AS project_client, p.mission_type AS project_mission_type,
               a.username AS created_by_username,
-              mr.username AS mission_responsible_username, pm.username AS project_manager_username
+              mr.username AS mission_responsible_username, pm.username AS project_manager_username,
+              v.username AS validated_by_username
        FROM staffing_assignments sa
        JOIN consultants c ON c.id = sa.consultant_id
        LEFT JOIN catalog_projects p ON p.id = sa.project_id
        LEFT JOIN admins a ON a.id = sa.created_by_admin_id
        LEFT JOIN admins mr ON mr.id = sa.mission_responsible_admin_id
        LEFT JOIN admins pm ON pm.id = sa.project_manager_admin_id
+       LEFT JOIN admins v ON v.id = sa.validated_by_admin_id
        ORDER BY sa.start_date DESC, sa.id DESC`
     );
     let mapped = rows.map(mapStaffingAssignmentRow);
@@ -995,8 +1040,10 @@ module.exports = function buildPracticeManagersRouter({
   // Plan de charge - weekly allocation grid, global across all projects (a
   // consultant overloaded by summing two DIFFERENT projects is exactly the
   // scenario this needs to catch, which a per-project view alone couldn't).
-  // mode='confirme' only counts sa.status='confirme' rows; mode='previsionnel'
-  // counts both 'previsionnel' and 'confirme' (the broader forecast view).
+  // mode='confirme' only counts sa.status='confirme' rows (locked-in only -
+  // an assignment awaiting admin validation isn't locked in yet); mode=
+  // 'previsionnel' counts 'previsionnel', 'en_attente_validation' and
+  // 'confirme' (the broader forecast view).
   // Read-only - reachable by PMO too (requireAdminOrManagerOrPmoRead), unlike
   // every other route in this file.
   router.get('/staffing-capacity', requireAdminOrManagerOrPmoRead, async (req, res) => {
@@ -1014,7 +1061,7 @@ module.exports = function buildPracticeManagersRouter({
       weeks.push({ label: isoWeekLabel(start), start: toIsoDate(start), end: toIsoDate(end) });
     }
 
-    const statuses = mode === 'confirme' ? ['confirme'] : ['previsionnel', 'confirme'];
+    const statuses = mode === 'confirme' ? ['confirme'] : ['previsionnel', 'en_attente_validation', 'confirme'];
     const params = [weeks[weeks.length - 1].end, weeks[0].start, statuses];
     let projectClause = '';
     if (projectId) {

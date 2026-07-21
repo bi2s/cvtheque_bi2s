@@ -140,6 +140,14 @@ function notifyProfileCorrection(consultantId, consultantName, fieldLabel, note)
   });
 }
 
+function notifyAssignmentConfirmed(consultantId, consultantName, projectLabel) {
+  return notifyAdmins({
+    subject: `CVthèque : affectation confirmée - ${consultantName}`,
+    summary: `${consultantName} a confirmé son affectation sur ${projectLabel} - en attente de validation.`,
+    link: `${FRONTEND_URL}/admin/staffingPlanning`,
+  });
+}
+
 function notifyDeparture(consultantName) {
   return notifyAdmins({
     subject: `CVthèque : départ validé - ${consultantName}`,
@@ -183,6 +191,7 @@ module.exports = {
   notifyAdmins,
   notifyNewChangeRequest,
   notifyProfileCorrection,
+  notifyAssignmentConfirmed,
   notifyDeparture,
   notifyConsultantDecision,
   notifyCredentialLink,

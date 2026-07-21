@@ -2300,6 +2300,116 @@ function ConsultantPushButton({ credentials }) {
   );
 }
 
+// Statut labels/colors mirror StaffingPlanning.jsx's assignmentStatusInfo on
+// the admin side (kept as a separate copy - this file and the admin bundle
+// don't share components) so a consultant sees the same amber/green/blue
+// vocabulary an admin does for the same three states.
+function assignmentStatusChip(status) {
+  if (status === 'confirme') return { label: 'Confirmé', bgcolor: STATUS_OK.bg, color: STATUS_OK.main };
+  if (status === 'en_attente_validation') {
+    return { label: 'En attente de validation', bgcolor: STATUS_WARN.bg, color: STATUS_WARN.main };
+  }
+  return { label: 'Prévisionnel', bgcolor: STATUS_INFO.bg, color: STATUS_INFO.main };
+}
+
+// Self-fetching, like ConsultantPushButton above - the assignment list and
+// its confirm action are self-contained enough not to need threading fetch
+// state through ChatCvScreen's already-large top-level state, and hides
+// itself entirely for the common case (a consultant with no staffing
+// assignments at all) rather than showing a permanent empty section.
+function MyAssignmentsSection({ credentials }) {
+  const [assignments, setAssignments] = useState(null);
+  const [confirmingId, setConfirmingId] = useState(null);
+  const [error, setError] = useState(null);
+
+  function loadAssignments() {
+    fetch(`${API_BASE_URL}/api/consultant/me/assignments`, {
+      headers: { Authorization: basicAuthHeader(credentials.username, credentials.password) },
+    })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setAssignments)
+      .catch(() => setAssignments([]));
+  }
+
+  useEffect(() => {
+    loadAssignments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!assignments || assignments.length === 0) return null;
+
+  async function handleConfirm(id) {
+    setConfirmingId(id);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/consultant/me/assignments/${id}/confirm`, {
+        method: 'POST',
+        headers: { Authorization: basicAuthHeader(credentials.username, credentials.password) },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.detail || 'Une erreur est survenue.');
+      } else {
+        loadAssignments();
+      }
+    } catch {
+      setError('Une erreur est survenue.');
+    } finally {
+      setConfirmingId(null);
+    }
+  }
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, mb: 3 }}>
+      <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
+        Mes affectations
+      </Typography>
+      <Stack spacing={1.5} sx={{ mt: 1.5 }}>
+        {assignments.map((a, i) => {
+          const chip = assignmentStatusChip(a.status);
+          return (
+            <Box
+              key={a.id}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 1.5,
+                pb: 1.5,
+                borderBottom: i < assignments.length - 1 ? '1px solid' : 'none',
+                borderColor: 'divider',
+              }}
+            >
+              <Box>
+                <Typography sx={{ fontSize: 13.5, fontWeight: 600 }}>{a.projectClient || 'Projet'}</Typography>
+                <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
+                  {new Date(a.startDate).toLocaleDateString('fr-FR')} → {new Date(a.endDate).toLocaleDateString('fr-FR')}
+                  {a.allocationPct != null ? ` · ${a.allocationPct}%` : ''}
+                </Typography>
+              </Box>
+              {a.status === 'previsionnel' ? (
+                <Button
+                  size="small"
+                  variant="contained"
+                  onClick={() => handleConfirm(a.id)}
+                  disabled={confirmingId === a.id}
+                >
+                  {confirmingId === a.id ? 'Confirmation...' : 'Confirmer'}
+                </Button>
+              ) : (
+                <Chip size="small" label={chip.label} sx={{ bgcolor: chip.bgcolor, color: chip.color, fontWeight: 600 }} />
+              )}
+            </Box>
+          );
+        })}
+      </Stack>
+      {error && (
+        <Typography sx={{ fontSize: 12.5, color: 'error.main', mt: 1.5 }}>{error}</Typography>
+      )}
+    </Paper>
+  );
+}
+
 function ConsultantDashboard({
   name,
   title,
@@ -2374,6 +2484,8 @@ function ConsultantDashboard({
             </Typography>
           </Paper>
         )}
+
+        <MyAssignmentsSection credentials={credentials} />
 
         <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: 'wrap', mb: 1.5 }}>
           <Button variant="contained" onClick={onStartUpdate}>

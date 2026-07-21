@@ -26,6 +26,7 @@ import {
   ToggleButton,
 } from '@mui/material';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
@@ -38,7 +39,7 @@ import ViewListOutlinedIcon from '@mui/icons-material/ViewListOutlined';
 import { useNotify, usePermissions } from 'react-admin';
 import { API_BASE_URL } from '../../../api';
 import { getAuthHeader } from '../../authHeader';
-import { STATUS_OK, STATUS_WARN, STATUS_DANGER } from '../../../theme';
+import { STATUS_OK, STATUS_WARN, STATUS_DANGER, STATUS_INFO } from '../../../theme';
 
 // Jours worked is derived from the Du/Au range (business days, Mon-Fri) -
 // not typed in, since it's fully determined by the two dates already on
@@ -92,6 +93,19 @@ export function occupationTier(pct) {
   if (pct > 100) return { color: STATUS_DANGER.main, bg: STATUS_DANGER.bg, label: 'Suraffecté' };
   if (pct >= 70) return { color: STATUS_WARN.main, bg: STATUS_WARN.bg, label: 'Charge élevée' };
   return { color: STATUS_OK.main, bg: STATUS_OK.bg, label: 'Charge normale' };
+}
+
+// Confirmé is a two-step workflow (consultant confirms -> admin validates),
+// so it gets a third state between Prévisionnel and Confirmé: 'info' blue
+// for the plain forecast, 'warn' amber for "needs an admin action now",
+// 'ok' green once actually locked in - same semantic-token convention as
+// occupationTier above.
+function assignmentStatusInfo(status) {
+  if (status === 'confirme') return { label: 'Confirmé', color: STATUS_OK.main, bg: STATUS_OK.bg };
+  if (status === 'en_attente_validation') {
+    return { label: 'En attente de validation', color: STATUS_WARN.main, bg: STATUS_WARN.bg };
+  }
+  return { label: 'Prévisionnel', color: STATUS_INFO.main, bg: STATUS_INFO.bg };
 }
 
 // Same fallback chain as backend/server.js's computeEndDate() /
@@ -482,6 +496,24 @@ export default function StaffingPlanning() {
     load();
   }
 
+  // One-click validation for a consultant-confirmed assignment - distinct
+  // from editing the Statut dropdown by hand, and specifically guards (via
+  // the backend's own check) against "validating" something the consultant
+  // never actually confirmed.
+  async function validateAssignment(id) {
+    const res = await fetch(`${API_BASE_URL}/api/admin/staffing-assignments/${id}/validate`, {
+      method: 'PUT',
+      headers: { Authorization: getAuthHeader() },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      notify(body.detail || 'Échec de la validation', { type: 'error' });
+      return;
+    }
+    notify('Affectation validée.', { type: 'success' });
+    load();
+  }
+
   const isManager = permissions?.role === 'manager';
   // chef_projet also manages the planning (create/edit/delete), same as a
   // manager - only responsable_mission stays read-only ("consulter").
@@ -664,6 +696,7 @@ export default function StaffingPlanning() {
                   fullWidth
                 >
                   <MenuItem value="confirme">Confirmé</MenuItem>
+                  <MenuItem value="en_attente_validation">En attente de validation</MenuItem>
                   <MenuItem value="previsionnel">Prévisionnel</MenuItem>
                 </TextField>
               </Stack>
@@ -950,6 +983,7 @@ export default function StaffingPlanning() {
                     Occupation
                   </TableSortLabel>
                 </TableCell>
+                <TableCell>Statut</TableCell>
                 <TableCell>Emplacement</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
@@ -999,10 +1033,29 @@ export default function StaffingPlanning() {
                           '—'
                         )}
                       </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const statusInfo = assignmentStatusInfo(a.status);
+                          return (
+                            <Chip
+                              size="small"
+                              label={statusInfo.label}
+                              sx={{ bgcolor: statusInfo.bg, color: statusInfo.color, fontWeight: 600 }}
+                            />
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell>{a.location === 'sur_site' ? 'Sur site' : a.location === 'a_distance' ? 'À distance' : '—'}</TableCell>
                       <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                         {!isMissionRole && (
                           <>
+                            {a.status === 'en_attente_validation' && (
+                              <Tooltip title="Valider l'affectation">
+                                <IconButton size="small" onClick={() => validateAssignment(a.id)}>
+                                  <CheckCircleOutlineIcon fontSize="small" color="success" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
                             <IconButton size="small" onClick={() => startEdit(a)}>
                               <EditOutlinedIcon fontSize="small" />
                             </IconButton>
@@ -1014,7 +1067,7 @@ export default function StaffingPlanning() {
                       </TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell colSpan={8} sx={{ py: 0, borderBottom: expanded ? undefined : 'none' }}>
+                      <TableCell colSpan={9} sx={{ py: 0, borderBottom: expanded ? undefined : 'none' }}>
                         <Collapse in={expanded} timeout="auto" unmountOnExit>
                           <Box sx={{ py: 1.5, px: 2, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                             <Box>
@@ -1044,6 +1097,20 @@ export default function StaffingPlanning() {
                             <Box>
                               <Typography sx={{ fontSize: 11, color: 'text.disabled', fontWeight: 700 }}>CRÉÉ PAR</Typography>
                               <Typography sx={{ fontSize: 13 }}>{a.createdByUsername || '—'}</Typography>
+                            </Box>
+                            <Box>
+                              <Typography sx={{ fontSize: 11, color: 'text.disabled', fontWeight: 700 }}>CONFIRMÉ PAR LE CONSULTANT LE</Typography>
+                              <Typography sx={{ fontSize: 13 }}>
+                                {a.consultantConfirmedAt ? new Date(a.consultantConfirmedAt).toLocaleString('fr-FR') : '—'}
+                              </Typography>
+                            </Box>
+                            <Box>
+                              <Typography sx={{ fontSize: 11, color: 'text.disabled', fontWeight: 700 }}>VALIDÉ PAR</Typography>
+                              <Typography sx={{ fontSize: 13 }}>
+                                {a.validatedByUsername
+                                  ? `${a.validatedByUsername} le ${new Date(a.validatedAt).toLocaleString('fr-FR')}`
+                                  : '—'}
+                              </Typography>
                             </Box>
                           </Box>
                         </Collapse>
