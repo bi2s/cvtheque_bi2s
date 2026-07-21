@@ -179,9 +179,16 @@ function addFooter(slide, leftText, pageNum) {
   });
 }
 
+// Expired certs are excluded here the same way staffing.js's active-cert
+// count already excludes them (WHERE expiry_date IS NULL OR expiry_date >=
+// CURDATE()) - a lapsed certification shouldn't be the one badge featured
+// on a client-facing CV.
 function mostRecentCertification(certificationDetails) {
   if (!certificationDetails || certificationDetails.length === 0) return null;
-  return [...certificationDetails].sort((a, b) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const valid = certificationDetails.filter((c) => !c.expiryDate || c.expiryDate >= today);
+  if (valid.length === 0) return null;
+  return [...valid].sort((a, b) => {
     if (!a.obtainedDate) return 1;
     if (!b.obtainedDate) return -1;
     return b.obtainedDate.localeCompare(a.obtainedDate);

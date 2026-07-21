@@ -1518,6 +1518,30 @@ app.delete('/api/admin/me/consultant/projects/:id', requireAdminOrManager, async
   res.json({ ok: true });
 });
 
+// Admin-side equivalent of the self-service pair above, for an arbitrary
+// consultant (not just the admin's own linked profile) - didn't exist
+// before; project experiences could only be replaced wholesale via an
+// approved change_request, never edited/removed one at a time by an admin.
+app.put('/api/admin/consultants/:consultantId/projects/:id', requireAdmin, async (req, res) => {
+  const periodStart = toValidDateOrNull(req.body.periodStart);
+  const periodEnd = toValidDateOrNull(req.body.periodEnd);
+  const [result] = await pool.query(
+    'UPDATE consultant_projects SET period_start = ?, period_end = ? WHERE id = ? AND consultant_id = ?',
+    [periodStart, periodEnd, req.params.id, req.params.consultantId]
+  );
+  if (result.affectedRows === 0) return res.status(404).json({ detail: 'Projet introuvable' });
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/consultants/:consultantId/projects/:id', requireAdmin, async (req, res) => {
+  const [result] = await pool.query('DELETE FROM consultant_projects WHERE id = ? AND consultant_id = ?', [
+    req.params.id,
+    req.params.consultantId,
+  ]);
+  if (result.affectedRows === 0) return res.status(404).json({ detail: 'Projet introuvable' });
+  res.json({ ok: true });
+});
+
 // Name-only picker for the manager's follow-ups screen (attach a new
 // follow-up to one of their module's consultants) - deliberately not the
 // full scoped-consultant management surface that was removed; admin/rh get

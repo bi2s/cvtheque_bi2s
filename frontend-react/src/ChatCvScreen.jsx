@@ -27,6 +27,7 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import SearchIcon from '@mui/icons-material/Search';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { API_BASE_URL, basicAuthHeader } from './api';
 import AppHeader from './AppHeader';
 import CvPreview from './CvPreview';
@@ -2161,6 +2162,9 @@ export default function ChatCvScreen() {
           credentials={credentials}
           projects={projects}
           projectLookup={projectLookup}
+          selectedSkills={selectedSkills}
+          languages={languages}
+          formations={formations}
           selectedCerts={selectedCerts}
           pendingRequest={pendingRequest}
           lastRejection={lastRejection}
@@ -2180,6 +2184,7 @@ export default function ChatCvScreen() {
           projects={projects}
           languages={languages}
           formations={formations}
+          certifications={serverCertDetails}
           profileUpdatedAt={profileUpdatedAt}
           onBack={() => setStep(STEP.DASHBOARD)}
           onStartUpdate={handleStartUpdate}
@@ -2300,6 +2305,9 @@ function ConsultantDashboard({
   credentials,
   projects,
   projectLookup,
+  selectedSkills,
+  languages,
+  formations,
   selectedCerts,
   pendingRequest,
   lastRejection,
@@ -2311,15 +2319,38 @@ function ConsultantDashboard({
   onShowPreview,
   onShowProfile,
 }) {
+  // Same signals ProfileView's own completeness meter uses - duplicated
+  // rather than lifted into a shared prop, since the two views otherwise
+  // have no state in common (ProfileView is reached separately, only after
+  // a full applyMeData load).
+  const hasSkills = Object.values(selectedSkills).some((s) => s.size > 0);
+  const signals = [!!title, hasSkills, projects.length > 0, languages.length > 0, formations.length > 0];
+  const completenessPct = Math.round((signals.filter(Boolean).length / signals.length) * 100);
+  const missingCount = signals.filter((s) => !s).length;
+
   return (
     <Box sx={{ flex: 1, overflowY: 'auto', p: 3 }}>
       <Box sx={{ maxWidth: 720, mx: 'auto' }}>
-        <Box>
-          <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em', mb: 0.5 }}>
-            Bonjour {name}
-          </Typography>
-          <Typography sx={{ color: 'text.secondary', fontSize: 14.5, mb: 3 }}>{title}</Typography>
-        </Box>
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
+          <Box>
+            <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em', mb: 0.5 }}>
+              Bonjour {name}
+            </Typography>
+            <Typography sx={{ color: 'text.secondary', fontSize: 14.5 }}>{title}</Typography>
+          </Box>
+          {missingCount > 0 ? (
+            <Box onClick={onShowProfile} sx={{ textAlign: 'right', cursor: 'pointer' }}>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'warning.dark' }}>
+                Profil complet à {completenessPct} %
+              </Typography>
+              <Typography sx={{ fontSize: 12, color: 'secondary.dark' }}>
+                {missingCount} élément{missingCount > 1 ? 's' : ''} manquant{missingCount > 1 ? 's' : ''} →
+              </Typography>
+            </Box>
+          ) : (
+            <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'success.main' }}>Profil complet</Typography>
+          )}
+        </Stack>
 
         {pendingRequest && (
           <Paper
@@ -2658,6 +2689,28 @@ function EditableSection({ title, editing, onEdit, onCancel, onSave, saving, chi
   );
 }
 
+// mm/aaaa if that's all validityYears + obtainedDate can produce, matching
+// the mockup's own display - not a real Date object, this app has never
+// stored more than year-month precision for a certification's dates.
+function certExpiryStatus(cert) {
+  if (!cert.expiryDate) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const in60Days = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
+  if (cert.expiryDate < today) {
+    return { label: `Expirée depuis ${formatMonthYear(cert.expiryDate)}`, color: '#791F1F', bg: '#FCEBEB' };
+  }
+  if (cert.expiryDate < in60Days) {
+    return { label: `Expire le ${formatMonthYear(cert.expiryDate)}`, color: '#854F0B', bg: '#FCF3E3' };
+  }
+  return null;
+}
+
+function formatMonthYear(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+}
+
 function ProfileView({
   title,
   selectedSkills,
@@ -2665,6 +2718,7 @@ function ProfileView({
   projects,
   languages,
   formations,
+  certifications,
   profileUpdatedAt,
   onBack,
   onStartUpdate,
@@ -2864,6 +2918,86 @@ function ProfileView({
           )}
         </EditableSection>
 
+        <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, mb: 2 }}>
+          <Stack direction="row" sx={{ alignItems: 'center', mb: 1.25 }}>
+            <Typography variant="overline" sx={{ color: 'text.disabled', fontWeight: 700 }}>
+              Certifications SAP ({certifications.length})
+            </Typography>
+            {certifications.some((c) => certExpiryStatus(c)?.color === '#791F1F') && (
+              <Chip
+                size="small"
+                label={`${certifications.filter((c) => certExpiryStatus(c)?.color === '#791F1F').length} expirée(s)`}
+                sx={{ bgcolor: '#FCEBEB', color: '#791F1F', ml: 1, fontWeight: 600 }}
+              />
+            )}
+            <Button size="small" onClick={onStartUpdate} sx={{ ml: 'auto', minWidth: 0 }}>
+              + Ajouter
+            </Button>
+          </Stack>
+          {certifications.length === 0 ? (
+            <Typography sx={{ fontSize: 13.5, color: 'text.disabled' }}>Aucune certification renseignée</Typography>
+          ) : (
+            <Stack spacing={1.25}>
+              {certifications.map((cert) => {
+                const expiry = certExpiryStatus(cert);
+                const expired = expiry?.color === '#791F1F';
+                return (
+                  <Box
+                    key={cert.id}
+                    sx={{
+                      border: '1px solid',
+                      borderColor: expired ? '#F7C1C1' : 'divider',
+                      bgcolor: expired ? '#FCEBEB22' : 'transparent',
+                      borderRadius: 2,
+                      p: 1.5,
+                    }}
+                  >
+                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{cert.name}</Typography>
+                    <Typography sx={{ fontSize: 12, color: 'text.secondary', my: 0.25 }}>
+                      {[
+                        cert.issuingBody,
+                        cert.obtainedDate && `obtenue en ${formatMonthYear(cert.obtainedDate)}`,
+                        cert.validityYears ? `validité ${cert.validityYears} an${cert.validityYears > 1 ? 's' : ''}` : 'sans expiration',
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </Typography>
+                    <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mt: 0.5, flexWrap: 'wrap' }}>
+                      {expiry && (
+                        <Chip size="small" label={expiry.label} sx={{ bgcolor: expiry.bg, color: expiry.color, fontWeight: 600 }} />
+                      )}
+                      {cert.credlyUrl && (
+                        <Typography
+                          component="a"
+                          href={cert.credlyUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          sx={{ fontSize: 12, color: 'secondary.dark', textDecoration: 'none' }}
+                        >
+                          Vérifier le badge Credly ↗
+                        </Typography>
+                      )}
+                      {expired && (
+                        <Typography
+                          component="span"
+                          onClick={onStartUpdate}
+                          sx={{ fontSize: 12, color: 'secondary.dark', cursor: 'pointer' }}
+                        >
+                          J'ai renouvelé →
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Box>
+                );
+              })}
+            </Stack>
+          )}
+          <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mt: 1.5 }}>
+            Les certifications expirées n'apparaissent plus sur le certificat mis en avant de votre CV ni dans les
+            recherches de staffing.
+          </Typography>
+        </Paper>
+
         <EditableSection
           title="Formations"
           editing={editing === 'formations'}
@@ -2912,11 +3046,17 @@ function ProfileView({
           }
         >
           {formations.length > 0 ? (
-            <Stack spacing={0.5}>
+            <Stack spacing={1.5}>
               {formations.map((f, i) => (
-                <Typography key={i} sx={{ fontSize: 13.5 }}>
-                  {f.year} — {f.degree}, {f.school}
-                </Typography>
+                <Stack key={i} direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
+                  <Box sx={{ flexShrink: 0, textAlign: 'center', bgcolor: 'action.hover', borderRadius: 2, px: 1.5, py: 0.5 }}>
+                    <Typography sx={{ fontSize: 15, fontWeight: 600, color: 'text.secondary' }}>{f.year}</Typography>
+                  </Box>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{f.degree}</Typography>
+                    <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.25 }}>{f.school}</Typography>
+                  </Box>
+                </Stack>
               ))}
             </Stack>
           ) : (
