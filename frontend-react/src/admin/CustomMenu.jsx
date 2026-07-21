@@ -38,6 +38,12 @@ import { getAuthHeader } from './authHeader';
 // `secondary: true` (on an item, or `secondaryGroup: true` on a group header)
 // marks a less-used destination (archive, config, own profile) for the
 // dimmer of the sidebar's two non-active text tiers - see SidebarShell.
+// Same flag as AdminApp.jsx/backend/server.js - kept in sync manually
+// (small duplication over a shared module, same convention used elsewhere
+// in this app) rather than deleting the entries outright, so re-enabling
+// later is a one-line flip in each of the three files.
+const RFP_MODULE_ENABLED = false;
+
 const GROUPS = [
   {
     key: 'consultants',
@@ -58,8 +64,12 @@ const GROUPS = [
     items: [
       { to: '/admin/catalogProjects', label: 'Catalogue', icon: WorkOutlineIcon },
       { to: '/admin/staffingPlanning', label: 'Planning', icon: EventNoteOutlinedIcon },
-      { to: '/admin/rfp', label: "Appels d'offres", icon: DescriptionOutlinedIcon },
-      { to: '/admin/rfpBoilerplate', label: 'Sections types (RFP)', icon: ArticleOutlinedIcon },
+      ...(RFP_MODULE_ENABLED
+        ? [
+            { to: '/admin/rfp', label: "Appels d'offres", icon: DescriptionOutlinedIcon },
+            { to: '/admin/rfpBoilerplate', label: 'Sections types (RFP)', icon: ArticleOutlinedIcon },
+          ]
+        : []),
     ],
   },
   {

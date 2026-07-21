@@ -55,6 +55,12 @@ import AdministrativeTracking from './resources/administrativeTracking/Administr
 import MyAccount from './resources/account/MyAccount';
 import theme from '../theme';
 
+// Temporarily disabled per user request - flip back to true (and the
+// matching flag in backend/server.js) to re-enable. Data/routes/tables are
+// untouched, this only hides the nav entries and skips the resource/route
+// registration below.
+const RFP_MODULE_ENABLED = false;
+
 // 'manager'-role admins only ever see their own scoped surface - their own
 // linked consultant profile and a staffing-planning view, scoped to their
 // module's consultants; 'admin'/'rh' see every resource exactly as before
@@ -176,17 +182,21 @@ function pmoResources() {
       icon={WorkOutlineIcon}
       options={{ label: 'Catalogue Projets' }}
     />,
-    <Resource key="rfp" name="rfp" list={RfpProposalList} icon={DescriptionOutlinedIcon} options={{ label: 'Appels d\'offres' }} />,
-    <CustomRoutes key="rfpWizardRoute">
-      <Route path="/rfp/:id" element={<RfpWizard />} />
-    </CustomRoutes>,
-    <Resource
-      key="rfpBoilerplate"
-      name="rfpBoilerplate"
-      list={RfpBoilerplateAdmin}
-      icon={ArticleOutlinedIcon}
-      options={{ label: 'Sections types (RFP)' }}
-    />,
+    ...(RFP_MODULE_ENABLED
+      ? [
+          <Resource key="rfp" name="rfp" list={RfpProposalList} icon={DescriptionOutlinedIcon} options={{ label: 'Appels d\'offres' }} />,
+          <CustomRoutes key="rfpWizardRoute">
+            <Route path="/rfp/:id" element={<RfpWizard />} />
+          </CustomRoutes>,
+          <Resource
+            key="rfpBoilerplate"
+            name="rfpBoilerplate"
+            list={RfpBoilerplateAdmin}
+            icon={ArticleOutlinedIcon}
+            options={{ label: 'Sections types (RFP)' }}
+          />,
+        ]
+      : []),
   ];
 }
 
@@ -280,17 +290,21 @@ function fullResources(role) {
       icon={EventNoteOutlinedIcon}
       options={{ label: 'Planning' }}
     />,
-    <Resource key="rfp" name="rfp" list={RfpProposalList} icon={DescriptionOutlinedIcon} options={{ label: 'Appels d\'offres' }} />,
-    <CustomRoutes key="rfpWizardRoute">
-      <Route path="/rfp/:id" element={<RfpWizard />} />
-    </CustomRoutes>,
-    <Resource
-      key="rfpBoilerplate"
-      name="rfpBoilerplate"
-      list={RfpBoilerplateAdmin}
-      icon={ArticleOutlinedIcon}
-      options={{ label: 'Sections types (RFP)' }}
-    />,
+    ...(RFP_MODULE_ENABLED
+      ? [
+          <Resource key="rfp" name="rfp" list={RfpProposalList} icon={DescriptionOutlinedIcon} options={{ label: 'Appels d\'offres' }} />,
+          <CustomRoutes key="rfpWizardRoute">
+            <Route path="/rfp/:id" element={<RfpWizard />} />
+          </CustomRoutes>,
+          <Resource
+            key="rfpBoilerplate"
+            name="rfpBoilerplate"
+            list={RfpBoilerplateAdmin}
+            icon={ArticleOutlinedIcon}
+            options={{ label: 'Sections types (RFP)' }}
+          />,
+        ]
+      : []),
     role === 'admin' && (
       <Resource
         key="employees"

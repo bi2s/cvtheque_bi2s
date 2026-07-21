@@ -90,6 +90,11 @@ const uploadPhoto = multer({
   fileFilter: (req, file, cb) => cb(null, Object.prototype.hasOwnProperty.call(PHOTO_MIME_EXT, file.mimetype)),
 });
 
+// Temporarily disabled per user request - flip back to true (and the
+// matching flag in frontend-react/src/admin/AdminApp.jsx) to re-enable.
+// Data/routes/tables are untouched, this only gates access.
+const RFP_MODULE_ENABLED = false;
+
 const app = express();
 
 app.use(
@@ -2652,7 +2657,13 @@ app.use(
     getAlertSettings,
   })
 );
-app.use('/api/admin', buildRfpRouter({ pool, requireAdmin: requireAdminOrPmo }));
+if (RFP_MODULE_ENABLED) {
+  app.use('/api/admin', buildRfpRouter({ pool, requireAdmin: requireAdminOrPmo }));
+} else {
+  app.all(/^\/api\/admin\/(rfp-proposals|rfp-boilerplate-sections)/, (req, res) => {
+    res.status(404).json({ detail: 'Module désactivé.' });
+  });
+}
 app.use('/api/admin', buildAdministrativeTrackingRouter({ pool, requireAdmin }));
 app.use('/api/push', buildPushRouter({ pool, requireAdminOrRh, requireConsultant }));
 
