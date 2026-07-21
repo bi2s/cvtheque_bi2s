@@ -125,6 +125,13 @@ export default function AlertsCenter() {
 
   useEffect(load, [status, severity, type]);
 
+  // Resets the header bell's badge - fired once on mount (opening this page
+  // counts as "having looked", independent of which filters get poked
+  // afterward, so this doesn't belong in the load()/filter effect above).
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/admin/alerts/viewed`, { method: 'PUT', headers: { Authorization: getAuthHeader() } });
+  }, []);
+
   async function archive(id) {
     await fetch(`${API_BASE_URL}/api/admin/alerts/${id}/archive`, {
       method: 'PUT',

@@ -275,6 +275,30 @@ module.exports = function buildAlertsRouter({ pool, requireAdmin, requireAdminSt
     res.json(rows.map(mapAlertRow));
   });
 
+  // Header bell badge count - open alerts the admin hasn't "seen" yet
+  // (created after their last visit to the alerts center), not the raw
+  // open-alert total, so resolving nothing but simply looking at the list
+  // still clears the badge.
+  router.get('/alerts/unread-count', requireAdmin, async (req, res) => {
+    const [viewRows] = await pool.query(
+      'SELECT last_viewed_at AS lastViewedAt FROM admin_alert_views WHERE admin_id = ?',
+      [req.admin.id]
+    );
+    const [[{ count }]] = await pool.query(
+      "SELECT COUNT(*) AS count FROM alerts WHERE status = 'open' AND created_at > ?",
+      [viewRows[0]?.lastViewedAt || '1970-01-01']
+    );
+    res.json({ count });
+  });
+
+  router.put('/alerts/viewed', requireAdmin, async (req, res) => {
+    await pool.query(
+      'INSERT INTO admin_alert_views (admin_id, last_viewed_at) VALUES (?, NOW()) ON DUPLICATE KEY UPDATE last_viewed_at = NOW()',
+      [req.admin.id]
+    );
+    res.json({ ok: true });
+  });
+
   router.put('/alerts/:id/archive', requireAdmin, async (req, res) => {
     const [result] = await pool.query(
       "UPDATE alerts SET status = 'archived', archived_at = NOW() WHERE id = ?",

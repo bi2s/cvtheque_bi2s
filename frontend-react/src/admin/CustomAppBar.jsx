@@ -66,21 +66,21 @@ function Breadcrumb() {
 function NotificationBell() {
   const { permissions } = usePermissions();
   const navigate = useNavigate();
-  const [openAlerts, setOpenAlerts] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     if (!['admin', 'rh'].includes(permissions?.role)) return;
-    fetch(`${API_BASE_URL}/api/admin/alerts`, { headers: { Authorization: getAuthHeader() } })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((rows) => setOpenAlerts(rows.filter((a) => a.status === 'open').length))
-      .catch(() => setOpenAlerts(0));
+    fetch(`${API_BASE_URL}/api/admin/alerts/unread-count`, { headers: { Authorization: getAuthHeader() } })
+      .then((r) => (r.ok ? r.json() : { count: 0 }))
+      .then((body) => setUnreadCount(body.count || 0))
+      .catch(() => setUnreadCount(0));
   }, [permissions?.role]);
 
   if (!['admin', 'rh'].includes(permissions?.role)) return null;
 
   return (
     <IconButton size="small" onClick={() => navigate('/admin/alerts')} aria-label="Alertes">
-      <Badge badgeContent={openAlerts} color="error" max={99}>
+      <Badge badgeContent={unreadCount} color="error" max={99}>
         <NotificationsOutlinedIcon fontSize="small" />
       </Badge>
     </IconButton>

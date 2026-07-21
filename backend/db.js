@@ -857,6 +857,19 @@ async function initSchema() {
       )
     `);
 
+    // One row per admin, bumped to NOW() whenever they open the alerts
+    // center - the header bell's badge only counts open alerts newer than
+    // this, so it resets to 0 on view instead of staying pinned at however
+    // many alerts happen to still be open (unresolved alerts stay "seen"
+    // rather than nagging again every time the badge is checked).
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS admin_alert_views (
+        admin_id INT NOT NULL PRIMARY KEY,
+        last_viewed_at DATETIME NOT NULL,
+        FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
+      )
+    `);
+
     // --- Practice manager governance ---
     // admins.role's accepted set grows to ('admin' | 'rh' | 'manager') at the
     // application layer - no schema change needed, the column already exists.
