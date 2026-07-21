@@ -110,14 +110,14 @@ export default function DeliverablesTab({ projectId }) {
 
   function load() {
     fetch(`${API_BASE_URL}/api/admin/projects/${projectId}/deliverables`, { headers: { Authorization: getAuthHeader() } })
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : []))
       .then(setDeliverables);
   }
 
   useEffect(load, [projectId]);
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/admin/projects/${projectId}/wbs-items`, { headers: { Authorization: getAuthHeader() } })
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : []))
       .then((rows) => setPhases(rows.filter((r) => r.itemType === 'phase')))
       .catch(() => setPhases([]));
   }, [projectId]);

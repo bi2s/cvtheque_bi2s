@@ -18,6 +18,28 @@ function countBusinessDays(start, end) {
   return count;
 }
 
+// ISO-8601 week number (Monday-start, week 1 = the week containing the
+// year's first Thursday) - no date library exists in this codebase, hand
+// rolled same as countBusinessDays above.
+function isoWeekLabel(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+  return `S${weekNo}`;
+}
+function mondayOf(date) {
+  const d = new Date(date);
+  const day = d.getDay() || 7;
+  d.setDate(d.getDate() - day + 1);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function toIsoDate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
 // A consultant legitimately runs an ongoing Support mission in parallel with
 // other work (a few tickets a week alongside a delivery project) - Support
 // is a project like any other (catalog_projects.mission_type), but it
@@ -162,6 +184,8 @@ function mapStaffingAssignmentRow(r) {
     comment: r.comment,
     createdByUsername: r.created_by_username,
     createdAt: r.created_at,
+    status: r.status,
+    allocationPct: r.allocation_pct,
   };
 }
 
@@ -189,6 +213,7 @@ module.exports = function buildPracticeManagersRouter({
   pool,
   requireAdmin,
   requireAdminOrManager,
+  requireAdminOrManagerOrPmoRead,
   assertConsultantInScope,
   consultantModuleIds,
   notifyModuleManagers,
@@ -751,6 +776,8 @@ module.exports = function buildPracticeManagersRouter({
       missionResponsibleAdminId,
       projectManagerAdminId,
       comment,
+      status,
+      allocationPct,
     } = req.body;
     if (!consultantId || !projectId || !startDate || !endDate) {
       return res.status(400).json({ detail: 'consultantId, projectId, startDate et endDate requis.' });
@@ -782,8 +809,9 @@ module.exports = function buildPracticeManagersRouter({
     const [result] = await pool.query(
       `INSERT INTO staffing_assignments
          (consultant_id, project_id, start_date, end_date, days_count, location, region, travel_mode,
-          mileage, mission_responsible_admin_id, project_manager_admin_id, comment, created_by_admin_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          mileage, mission_responsible_admin_id, project_manager_admin_id, comment, created_by_admin_id,
+          status, allocation_pct)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         consultantId,
         projectId,
@@ -798,6 +826,8 @@ module.exports = function buildPracticeManagersRouter({
         projectManagerAdminId || null,
         comment || null,
         req.admin.id,
+        status === 'previsionnel' ? 'previsionnel' : 'confirme',
+        allocationPct || 100,
       ]
     );
     res.json({
@@ -828,6 +858,8 @@ module.exports = function buildPracticeManagersRouter({
       missionResponsibleAdminId,
       projectManagerAdminId,
       comment,
+      status,
+      allocationPct,
     } = req.body;
     if (!consultantId || !projectId || !startDate || !endDate) {
       return res.status(400).json({ detail: 'consultantId, projectId, startDate et endDate requis.' });
@@ -863,7 +895,7 @@ module.exports = function buildPracticeManagersRouter({
       `UPDATE staffing_assignments SET
          consultant_id = ?, project_id = ?, start_date = ?, end_date = ?, days_count = ?, location = ?,
          region = ?, travel_mode = ?, mileage = ?, mission_responsible_admin_id = ?,
-         project_manager_admin_id = ?, comment = ?
+         project_manager_admin_id = ?, comment = ?, status = ?, allocation_pct = ?
        WHERE id = ?`,
       [
         consultantId,
@@ -878,6 +910,8 @@ module.exports = function buildPracticeManagersRouter({
         missionResponsibleAdminId || null,
         projectManagerAdminId || null,
         comment || null,
+        status === 'previsionnel' ? 'previsionnel' : 'confirme',
+        allocationPct || 100,
         req.params.id,
       ]
     );
@@ -956,6 +990,186 @@ module.exports = function buildPracticeManagersRouter({
       entries = entries.filter((e) => (moduleMap.get(e.consultantId) || []).some((id) => req.admin.moduleIds.includes(id)));
     }
     res.json(entries);
+  });
+
+  // Plan de charge - weekly allocation grid, global across all projects (a
+  // consultant overloaded by summing two DIFFERENT projects is exactly the
+  // scenario this needs to catch, which a per-project view alone couldn't).
+  // mode='confirme' only counts sa.status='confirme' rows; mode='previsionnel'
+  // counts both 'previsionnel' and 'confirme' (the broader forecast view).
+  // Read-only - reachable by PMO too (requireAdminOrManagerOrPmoRead), unlike
+  // every other route in this file.
+  router.get('/staffing-capacity', requireAdminOrManagerOrPmoRead, async (req, res) => {
+    const mode = req.query.mode === 'previsionnel' ? 'previsionnel' : 'confirme';
+    const weekCount = Math.min(Math.max(Number(req.query.weeks) || 6, 1), 12);
+    const projectId = req.query.projectId ? Number(req.query.projectId) : null;
+
+    const weeks = [];
+    const firstMonday = mondayOf(new Date());
+    for (let i = 0; i < weekCount; i++) {
+      const start = new Date(firstMonday);
+      start.setDate(start.getDate() + i * 7);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 4);
+      weeks.push({ label: isoWeekLabel(start), start: toIsoDate(start), end: toIsoDate(end) });
+    }
+
+    const statuses = mode === 'confirme' ? ['confirme'] : ['previsionnel', 'confirme'];
+    const params = [weeks[weeks.length - 1].end, weeks[0].start, statuses];
+    let projectClause = '';
+    if (projectId) {
+      projectClause = 'AND sa.project_id = ?';
+      params.push(projectId);
+    }
+    const [rows] = await pool.query(
+      `SELECT sa.consultant_id, sa.start_date, sa.end_date, sa.allocation_pct, c.name AS consultant_name, c.title
+       FROM staffing_assignments sa JOIN consultants c ON c.id = sa.consultant_id
+       WHERE sa.start_date <= ? AND sa.end_date >= ? AND sa.status IN (?) ${projectClause}`,
+      params
+    );
+
+    let filteredRows = rows;
+    if (req.admin.role === 'manager') {
+      const moduleMap = await buildConsultantModuleMap(pool);
+      filteredRows = rows.filter((r) => (moduleMap.get(r.consultant_id) || []).some((id) => req.admin.moduleIds.includes(id)));
+    }
+
+    const byConsultant = new Map();
+    for (const r of filteredRows) {
+      if (!byConsultant.has(r.consultant_id)) {
+        byConsultant.set(r.consultant_id, {
+          consultantId: r.consultant_id,
+          name: r.consultant_name,
+          title: r.title,
+          weeks: weeks.map((w) => ({ weekLabel: w.label, allocationPct: 0 })),
+        });
+      }
+      const entry = byConsultant.get(r.consultant_id);
+      weeks.forEach((w, i) => {
+        if (r.start_date <= w.end && r.end_date >= w.start) {
+          entry.weeks[i].allocationPct += r.allocation_pct;
+        }
+      });
+    }
+
+    res.json({ weeks, consultants: [...byConsultant.values()] });
+  });
+
+  function mapStaffingNeedRow(r) {
+    return {
+      id: r.id,
+      projectId: r.project_id,
+      projectClient: r.project_client,
+      roleLabel: r.role_label,
+      sapModuleId: r.sap_module_id,
+      seniority: r.seniority,
+      plannedStartDate: r.planned_start_date,
+      plannedEndDate: r.planned_end_date,
+      allocationPct: r.allocation_pct,
+      status: r.status,
+      sortOrder: r.sort_order,
+    };
+  }
+
+  // Unstaffed-role placeholders (dashed "?" rows on the capacity grid).
+  // List is read-only-broadened (PMO too); create/edit/delete/assign stay
+  // requireAdminOrManager, same write/read split as the rest of this file.
+  router.get('/staffing-needs', requireAdminOrManagerOrPmoRead, async (req, res) => {
+    const conditions = ["sn.status = 'open'"];
+    const params = [];
+    if (req.query.projectId) {
+      conditions.push('sn.project_id = ?');
+      params.push(req.query.projectId);
+    }
+    const [rows] = await pool.query(
+      `SELECT sn.*, p.client AS project_client FROM catalog_project_staffing_needs sn
+       JOIN catalog_projects p ON p.id = sn.project_id
+       WHERE ${conditions.join(' AND ')} ORDER BY sn.sort_order, sn.id`,
+      params
+    );
+    res.json(rows.map(mapStaffingNeedRow));
+  });
+
+  router.post('/projects/:projectId/staffing-needs', requireAdminOrManager, async (req, res) => {
+    const roleLabel = (req.body.roleLabel || '').trim();
+    if (!roleLabel) return res.status(400).json({ detail: 'Rôle requis.' });
+    const [[{ nextOrder }]] = await pool.query(
+      'SELECT COALESCE(MAX(sort_order), -1) + 1 AS nextOrder FROM catalog_project_staffing_needs WHERE project_id = ?',
+      [req.params.projectId]
+    );
+    const [result] = await pool.query(
+      `INSERT INTO catalog_project_staffing_needs
+         (project_id, role_label, sap_module_id, seniority, planned_start_date, planned_end_date, allocation_pct, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        req.params.projectId,
+        roleLabel,
+        req.body.sapModuleId || null,
+        req.body.seniority || null,
+        req.body.plannedStartDate || null,
+        req.body.plannedEndDate || null,
+        req.body.allocationPct || 100,
+        nextOrder,
+      ]
+    );
+    res.json({ id: result.insertId });
+  });
+
+  router.put('/staffing-needs/:id', requireAdminOrManager, async (req, res) => {
+    const roleLabel = (req.body.roleLabel || '').trim();
+    if (!roleLabel) return res.status(400).json({ detail: 'Rôle requis.' });
+    const [result] = await pool.query(
+      `UPDATE catalog_project_staffing_needs SET
+         role_label = ?, sap_module_id = ?, seniority = ?, planned_start_date = ?, planned_end_date = ?, allocation_pct = ?
+       WHERE id = ?`,
+      [
+        roleLabel,
+        req.body.sapModuleId || null,
+        req.body.seniority || null,
+        req.body.plannedStartDate || null,
+        req.body.plannedEndDate || null,
+        req.body.allocationPct || 100,
+        req.params.id,
+      ]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ detail: 'Besoin introuvable' });
+    res.json({ ok: true });
+  });
+
+  router.delete('/staffing-needs/:id', requireAdminOrManager, async (req, res) => {
+    const [result] = await pool.query('DELETE FROM catalog_project_staffing_needs WHERE id = ?', [req.params.id]);
+    if (result.affectedRows === 0) return res.status(404).json({ detail: 'Besoin introuvable' });
+    res.json({ ok: true });
+  });
+
+  // Converts a need into a real assignment (same active-window rule as
+  // POST /staffing-assignments would apply if entered by hand - reused here
+  // via projectActiveWindow rather than skipped, since a need's own dates
+  // aren't independently validated against the project until this point).
+  router.post('/staffing-needs/:id/assign', requireAdminOrManager, async (req, res) => {
+    const { consultantId, startDate, endDate } = req.body;
+    if (!consultantId || !startDate || !endDate) {
+      return res.status(400).json({ detail: 'consultantId, startDate et endDate requis.' });
+    }
+    const [[need]] = await pool.query('SELECT * FROM catalog_project_staffing_needs WHERE id = ?', [req.params.id]);
+    if (!need) return res.status(404).json({ detail: 'Besoin introuvable' });
+    if (!(await assertConsultantInScope(req, consultantId))) {
+      return res.status(403).json({ detail: 'Ce consultant est hors de votre périmètre.' });
+    }
+    const activeWindow = await projectActiveWindow(pool, need.project_id);
+    if (assignmentOutsideProjectWindow(activeWindow, startDate, endDate)) {
+      return res.status(400).json({
+        detail: `Le projet n'était actif que du ${activeWindow.startDate || '…'} au ${activeWindow.endDate || '…'} - l'affectation doit rester dans cette période.`,
+      });
+    }
+    const [result] = await pool.query(
+      `INSERT INTO staffing_assignments
+         (consultant_id, project_id, start_date, end_date, allocation_pct, status, created_by_admin_id)
+       VALUES (?, ?, ?, ?, ?, 'confirme', ?)`,
+      [consultantId, need.project_id, startDate, endDate, need.allocation_pct, req.admin.id]
+    );
+    await pool.query("UPDATE catalog_project_staffing_needs SET status = 'staffed' WHERE id = ?", [req.params.id]);
+    res.json({ id: result.insertId });
   });
 
   router.delete('/staffing-assignments/:id', requireAdminOrManager, async (req, res) => {

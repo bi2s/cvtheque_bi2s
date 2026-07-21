@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
+const { parseJsonColumn } = require('../utils');
 
 const DELIVERABLES_DIR = path.join(__dirname, '..', 'uploads', 'project-deliverables');
 fs.mkdirSync(DELIVERABLES_DIR, { recursive: true });
@@ -196,6 +197,59 @@ module.exports = function buildProjectPlanningRouter({ pool, requireAdmin }) {
     await pool.query('DELETE FROM catalog_project_wbs_items WHERE id = ?', [req.params.id]);
     await renumberWbsCodes(pool, item.project_id);
     res.json({ ok: true });
+  });
+
+  // --- Baselines ("Figer une nouvelle référence") ---
+  // Append-only - never updated/replaced, only ever added to. The Gantt
+  // always diffs live planned_* data against the latest row for a project.
+  router.get('/projects/:projectId/wbs-baselines', requireAdmin, async (req, res) => {
+    const [rows] = await pool.query(
+      'SELECT id, comment, actor_label, created_at FROM catalog_project_wbs_baselines WHERE project_id = ? ORDER BY created_at DESC',
+      [req.params.projectId]
+    );
+    res.json(rows.map((r) => ({ id: r.id, comment: r.comment, actorLabel: r.actor_label, createdAt: r.created_at })));
+  });
+
+  router.get('/projects/:projectId/wbs-baselines/latest', requireAdmin, async (req, res) => {
+    const [[row]] = await pool.query(
+      'SELECT id, snapshot, comment, actor_label, created_at FROM catalog_project_wbs_baselines WHERE project_id = ? ORDER BY created_at DESC LIMIT 1',
+      [req.params.projectId]
+    );
+    if (!row) return res.json(null);
+    res.json({
+      id: row.id,
+      snapshot: parseJsonColumn(row.snapshot),
+      comment: row.comment,
+      actorLabel: row.actor_label,
+      createdAt: row.created_at,
+    });
+  });
+
+  router.post('/projects/:projectId/wbs-baselines', requireAdmin, async (req, res) => {
+    const [wbsItems] = await pool.query(
+      'SELECT id, wbs_code, label, planned_start_date, planned_end_date, planned_effort_days FROM catalog_project_wbs_items WHERE project_id = ?',
+      [req.params.projectId]
+    );
+    const [milestones] = await pool.query(
+      'SELECT id, label, planned_date FROM catalog_project_milestones WHERE project_id = ?',
+      [req.params.projectId]
+    );
+    const snapshot = {
+      wbsItems: wbsItems.map((w) => ({
+        wbsItemId: w.id,
+        wbsCode: w.wbs_code,
+        label: w.label,
+        plannedStartDate: w.planned_start_date,
+        plannedEndDate: w.planned_end_date,
+        plannedEffortDays: w.planned_effort_days,
+      })),
+      milestones: milestones.map((m) => ({ milestoneId: m.id, label: m.label, plannedDate: m.planned_date })),
+    };
+    const [result] = await pool.query(
+      'INSERT INTO catalog_project_wbs_baselines (project_id, snapshot, comment, actor_admin_id, actor_label) VALUES (?, ?, ?, ?, ?)',
+      [req.params.projectId, JSON.stringify(snapshot), req.body.comment || null, req.admin.id, req.admin.username]
+    );
+    res.json({ id: result.insertId });
   });
 
   // --- Milestones (jalons) ---

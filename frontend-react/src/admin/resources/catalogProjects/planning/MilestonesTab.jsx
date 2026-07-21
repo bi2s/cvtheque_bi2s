@@ -135,7 +135,7 @@ export default function MilestonesTab({ projectId }) {
 
   function load() {
     fetch(`${API_BASE_URL}/api/admin/projects/${projectId}/milestones`, { headers: { Authorization: getAuthHeader() } })
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : []))
       .then(setMilestones);
   }
 

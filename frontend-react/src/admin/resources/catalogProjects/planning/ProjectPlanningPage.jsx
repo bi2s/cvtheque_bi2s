@@ -4,6 +4,7 @@ import { Box, Typography, Tabs, Tab, Button, CircularProgress } from '@mui/mater
 import { API_BASE_URL } from '../../../../api';
 import { getAuthHeader } from '../../../authHeader';
 import WbsTab from './WbsTab';
+import GanttTab from './GanttTab';
 import MilestonesTab from './MilestonesTab';
 import DeliverablesTab from './DeliverablesTab';
 
@@ -18,7 +19,7 @@ export default function ProjectPlanningPage() {
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/projects/catalog`, { headers: { Authorization: getAuthHeader() } })
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : []))
       .then((all) => setProject(all.find((p) => String(p.id) === String(id)) || null));
   }, [id]);
 
@@ -43,13 +44,15 @@ export default function ProjectPlanningPage() {
 
       <Tabs value={tab} onChange={(e, v) => setTab(v)} sx={{ mb: 3 }}>
         <Tab label="WBS" />
+        <Tab label="Gantt" />
         <Tab label="Jalons" />
         <Tab label="Livrables" />
       </Tabs>
 
       {tab === 0 && <WbsTab projectId={project.id} />}
-      {tab === 1 && <MilestonesTab projectId={project.id} />}
-      {tab === 2 && <DeliverablesTab projectId={project.id} />}
+      {tab === 1 && <GanttTab projectId={project.id} />}
+      {tab === 2 && <MilestonesTab projectId={project.id} />}
+      {tab === 3 && <DeliverablesTab projectId={project.id} />}
     </Box>
   );
 }

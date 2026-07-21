@@ -49,6 +49,7 @@ import EmployeesList from './resources/practiceManagers/EmployeesList';
 import StaffWelcome from './resources/practiceManagers/StaffWelcome';
 import MyConsultantProfile from './resources/practiceManagers/MyConsultantProfile';
 import StaffingPlanning from './resources/practiceManagers/StaffingPlanning';
+import CapacityPlanning from './resources/practiceManagers/CapacityPlanning';
 import RfpProposalList from './resources/rfp/RfpProposalList';
 import RfpWizard from './resources/rfp/RfpWizard';
 import RfpBoilerplateAdmin from './resources/rfp/RfpBoilerplateAdmin';
@@ -92,6 +93,13 @@ function managerResources() {
       icon={EventNoteOutlinedIcon}
       options={{ label: 'Planning' }}
     />,
+    <Resource
+      key="capacityPlanning"
+      name="capacityPlanning"
+      list={CapacityPlanning}
+      icon={EventNoteOutlinedIcon}
+      options={{ label: 'Plan de charge' }}
+    />,
   ];
 }
 
@@ -125,6 +133,13 @@ function missionRoleResources() {
       list={StaffingPlanning}
       icon={EventNoteOutlinedIcon}
       options={{ label: 'Planning' }}
+    />,
+    <Resource
+      key="capacityPlanning"
+      name="capacityPlanning"
+      list={CapacityPlanning}
+      icon={EventNoteOutlinedIcon}
+      options={{ label: 'Plan de charge' }}
     />,
   ];
 }
@@ -164,6 +179,13 @@ function rhResources() {
       icon={EventNoteOutlinedIcon}
       options={{ label: 'Planning' }}
     />,
+    <Resource
+      key="capacityPlanning"
+      name="capacityPlanning"
+      list={CapacityPlanning}
+      icon={EventNoteOutlinedIcon}
+      options={{ label: 'Plan de charge' }}
+    />,
   ];
 }
 
@@ -171,7 +193,11 @@ function rhResources() {
 // appels d'offres ("Appels d'offres rentre dans le volet de projet, un
 // chef de projet/PMO assistant doit avoir l'accès à ces détails"). Same
 // backend-enforced pattern as rhResources() above (auth.js's
-// requireAdminOrPmo), not just a hidden sidebar.
+// requireAdminOrPmo), not just a hidden sidebar. capacityPlanning is a
+// deliberate addition beyond that original project-surface scope - PMOs
+// now get read-only access to consultant load (backend:
+// requireAdminOrManagerOrPmoRead on the GET routes only; the page itself
+// hides the "Affecter" write action for this role, see CapacityPlanning.jsx).
 function pmoResources() {
   return [
     <Resource
@@ -186,6 +212,13 @@ function pmoResources() {
     <CustomRoutes key="projectPlanningRoute">
       <Route path="/catalogProjects/:id/planning" element={<ProjectPlanningPage />} />
     </CustomRoutes>,
+    <Resource
+      key="capacityPlanning"
+      name="capacityPlanning"
+      list={CapacityPlanning}
+      icon={EventNoteOutlinedIcon}
+      options={{ label: 'Plan de charge' }}
+    />,
     ...(RFP_MODULE_ENABLED
       ? [
           <Resource key="rfp" name="rfp" list={RfpProposalList} icon={DescriptionOutlinedIcon} options={{ label: 'Appels d\'offres' }} />,
@@ -296,6 +329,13 @@ function fullResources(role) {
       list={StaffingPlanning}
       icon={EventNoteOutlinedIcon}
       options={{ label: 'Planning' }}
+    />,
+    <Resource
+      key="capacityPlanning"
+      name="capacityPlanning"
+      list={CapacityPlanning}
+      icon={EventNoteOutlinedIcon}
+      options={{ label: 'Plan de charge' }}
     />,
     ...(RFP_MODULE_ENABLED
       ? [

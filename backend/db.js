@@ -1082,6 +1082,61 @@ async function initSchema() {
       'fk_staffing_project_manager',
       'FOREIGN KEY (project_manager_admin_id) REFERENCES admins(id) ON DELETE SET NULL'
     );
+    // Plan de charge (weekly capacity view, deferred second phase of the
+    // project-planning work): every assignment made before this shipped was,
+    // in effect, a firm commitment - defaulting existing rows to 'confirme'
+    // is the backward-compatible reading, not 'previsionnel'. allocation_pct
+    // is a single figure for the whole assignment span (not per-week) - a
+    // consultant tapering off mid-mission gets a second, lower-%, assignment
+    // row for the new period, same as adjusting dates already works today.
+    await ensureColumn(conn, 'staffing_assignments', 'status', "VARCHAR(20) NOT NULL DEFAULT 'confirme'");
+    // Plain (signed) TINYINT tops out at 127 - silently clamped a genuine
+    // 130% overload down to 127 the first time this was tested. UNSIGNED
+    // (0-255) comfortably covers any realistic stacked-mission percentage.
+    await ensureColumn(conn, 'staffing_assignments', 'allocation_pct', 'TINYINT UNSIGNED NOT NULL DEFAULT 100');
+    await conn.query('ALTER TABLE staffing_assignments MODIFY COLUMN allocation_pct TINYINT UNSIGNED NOT NULL DEFAULT 100');
+
+    // The dashed "?" unstaffed-role placeholder row on the capacity grid -
+    // deliberately not assignment_requests (which always names a specific
+    // consultant already and is an approve/reject workflow); this is the
+    // opposite: no consultant yet, just a role/period placeholder a PMO can
+    // flag and a manager can later fill via /assign.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS catalog_project_staffing_needs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        project_id INT NOT NULL,
+        role_label VARCHAR(255) NOT NULL,
+        sap_module_id INT NULL,
+        seniority VARCHAR(50) NULL,
+        planned_start_date DATE NULL,
+        planned_end_date DATE NULL,
+        allocation_pct TINYINT UNSIGNED NOT NULL DEFAULT 100,
+        status VARCHAR(20) NOT NULL DEFAULT 'open',
+        sort_order INT NOT NULL DEFAULT 0,
+        FOREIGN KEY (project_id) REFERENCES catalog_projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (sap_module_id) REFERENCES sap_modules(id) ON DELETE SET NULL
+      )
+    `);
+    await conn.query('ALTER TABLE catalog_project_staffing_needs MODIFY COLUMN allocation_pct TINYINT UNSIGNED NOT NULL DEFAULT 100');
+
+    // "Figer une nouvelle référence" - an append-only baseline snapshot for
+    // the Gantt's dashed "Référence" bars/milestone diamonds, same
+    // JSON-snapshot-per-version pattern as rfp_proposal_versions. Never
+    // updated once written; the Gantt always diffs live data against the
+    // latest row for a project (ORDER BY created_at DESC LIMIT 1).
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS catalog_project_wbs_baselines (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        project_id INT NOT NULL,
+        snapshot JSON NOT NULL,
+        comment TEXT NULL,
+        actor_admin_id INT NULL,
+        actor_label VARCHAR(255) NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES catalog_projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (actor_admin_id) REFERENCES admins(id) ON DELETE SET NULL
+      )
+    `);
 
     // "Prolonger une mission" needs a target end date to extend - the only
     // existing lifecycle column on this table (ended_at, from the Departure

@@ -263,7 +263,7 @@ export default function WbsTab({ projectId }) {
 
   function load() {
     fetch(`${API_BASE_URL}/api/admin/projects/${projectId}/wbs-items`, { headers: { Authorization: getAuthHeader() } })
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : []))
       .then(setItems);
   }
 

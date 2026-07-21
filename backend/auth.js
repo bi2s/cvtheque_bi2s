@@ -153,6 +153,39 @@ async function requireAdminOrManager(req, res, next) {
   next();
 }
 
+// Same as requireAdminOrManager, plus 'pmo' - a deliberately separate
+// function rather than adding 'pmo' to requireAdminOrManager's own
+// allowlist, so 'pmo' only ever reaches the READ routes this is used on
+// (weekly capacity view, staffing-needs list) and never the write routes
+// (creating/editing staffing_assignments, staffing-needs) that stay gated
+// by requireAdminOrManager itself - a PMO can see staffing load without
+// becoming able to change it.
+async function requireAdminOrManagerOrPmoRead(req, res, next) {
+  const creds = parseBasicAuth(req);
+  if (!creds) {
+    return res.status(401).json({ detail: 'Identifiants admin invalides' });
+  }
+
+  const [[admin]] = await pool.query('SELECT id, password_hash, role, consultant_id FROM admins WHERE username = ?', [
+    creds.username,
+  ]);
+  const valid = await bcrypt.compare(creds.password, admin ? admin.password_hash : DUMMY_HASH);
+  if (!admin || !valid || !['admin', 'rh', 'manager', 'responsable_mission', 'chef_projet', 'pmo'].includes(admin.role)) {
+    return res.status(401).json({ detail: 'Identifiants admin invalides' });
+  }
+
+  let moduleIds = [];
+  if (admin.role === 'manager') {
+    const [rows] = await pool.query('SELECT sap_module_id FROM practice_manager_modules WHERE admin_id = ?', [
+      admin.id,
+    ]);
+    moduleIds = rows.map((r) => r.sap_module_id);
+  }
+
+  req.admin = { id: admin.id, username: creds.username, role: admin.role, moduleIds, consultantId: admin.consultant_id };
+  next();
+}
+
 // Authenticate-only, no role allowlist - any row in `admins` is a valid
 // admin account by definition. Used solely by GET /api/admin/me, the
 // login-probe endpoint every role (including ones with no other route
@@ -294,6 +327,7 @@ module.exports = {
   requireAdminOrRh,
   requireAdminOrPmo,
   requireAdminOrManager,
+  requireAdminOrManagerOrPmoRead,
   requireAnyAdmin,
   requireConsultantOrOwnAdmin,
   requireConsultant,

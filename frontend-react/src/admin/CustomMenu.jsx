@@ -64,6 +64,7 @@ const GROUPS = [
     items: [
       { to: '/admin/catalogProjects', label: 'Catalogue', icon: WorkOutlineIcon },
       { to: '/admin/staffingPlanning', label: 'Planning', icon: EventNoteOutlinedIcon },
+      { to: '/admin/capacityPlanning', label: 'Plan de charge', icon: EventNoteOutlinedIcon },
       ...(RFP_MODULE_ENABLED
         ? [
             { to: '/admin/rfp', label: "Appels d'offres", icon: DescriptionOutlinedIcon },
@@ -340,6 +341,11 @@ export default function CustomMenu() {
             primaryText="Planning"
             leftIcon={<EventNoteOutlinedIcon fontSize="small" />}
           />
+          <Menu.Item
+            to="/admin/capacityPlanning"
+            primaryText="Plan de charge"
+            leftIcon={<EventNoteOutlinedIcon fontSize="small" />}
+          />
         </Menu>
       </SidebarShell>
     );
@@ -354,6 +360,11 @@ export default function CustomMenu() {
           <Menu.Item
             to="/admin/staffingPlanning"
             primaryText="Planning"
+            leftIcon={<EventNoteOutlinedIcon fontSize="small" />}
+          />
+          <Menu.Item
+            to="/admin/capacityPlanning"
+            primaryText="Plan de charge"
             leftIcon={<EventNoteOutlinedIcon fontSize="small" />}
           />
         </Menu>

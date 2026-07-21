@@ -134,6 +134,8 @@ const EMPTY_FORM = {
   missionResponsibleAdminId: '',
   projectManagerAdminId: '',
   comment: '',
+  status: 'confirme',
+  allocationPct: 100,
 };
 
 const ROWS_PER_PAGE = 25;
@@ -459,6 +461,8 @@ export default function StaffingPlanning() {
       missionResponsibleAdminId: a.missionResponsibleAdminId || '',
       projectManagerAdminId: a.projectManagerAdminId || '',
       comment: a.comment || '',
+      status: a.status || 'confirme',
+      allocationPct: a.allocationPct ?? 100,
     });
     setFormOpen(true);
   }
@@ -642,6 +646,27 @@ export default function StaffingPlanning() {
                 disabled
                 fullWidth
               />
+              <Stack direction="row" spacing={1.5}>
+                <TextField
+                  type="number"
+                  label="Allocation (%)"
+                  value={form.allocationPct}
+                  onChange={(e) => setForm({ ...form, allocationPct: e.target.value })}
+                  size="small"
+                  fullWidth
+                />
+                <TextField
+                  select
+                  label="Statut"
+                  value={form.status}
+                  onChange={(e) => setForm({ ...form, status: e.target.value })}
+                  size="small"
+                  fullWidth
+                >
+                  <MenuItem value="confirme">Confirmé</MenuItem>
+                  <MenuItem value="previsionnel">Prévisionnel</MenuItem>
+                </TextField>
+              </Stack>
             </FormSection>
 
             <FormSection title="③ Où">
